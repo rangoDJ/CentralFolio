@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node server.js)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:3001/api/dividends)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":3001\")",
+      "Bash(taskkill /PID 99436 /F)",
+      "PowerShell(Stop-Process -Id 99436 -Force -ErrorAction SilentlyContinue)",
+      "Bash(xargs grep *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"require\\('./backend/server.js'\\)\" --input-type=commonjs)",
+      "Bash(taskkill /F /IM node.exe)"
+    ]
+  }
+}

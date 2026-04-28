@@ -1,0 +1,57 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: centralfolio_backend
+    restart: unless-stopped
+    # No ports: block — backend is NOT exposed to the internet.
+    # It is only reachable by the frontend container over the internal Docker network.
+    environment:
+      - DATA_DIR=/user_data
+      - NODE_ENV=production
+      # Required: generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - MASTER_KEY=${MASTER_KEY}
+      # Set to your public domain so CORS allows it. Comma-separate multiple origins.
+      - ALLOWED_ORIGINS=https://${PUBLIC_DOMAIN}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Optional: inject SnapTrade credentials here instead of (or in addition to) the UI
+      # - SNAPTRADE_CLIENT_ID=${SNAPTRADE_CLIENT_ID}
+      # - SNAPTRADE_CONSUMER_KEY=${SNAPTRADE_CONSUMER_KEY}
+    volumes:
+      - centralfolio_data:/user_data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: centralfolio_frontend
+    restart: unless-stopped
+    # Also not exposed directly — Caddy is the only public-facing container.
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: centralfolio_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      - PUBLIC_DOMAIN=${PUBLIC_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # persists TLS certificates across restarts
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  centralfolio_data:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

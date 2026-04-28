@@ -1,0 +1,23 @@
+# Ignore node_modules and build artifacts to save tokens
+node_modules/
+dist/
+build/
+coverage/
+
+# Ignore log and lock files
+*.log
+*.lock
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore user data since it contains potentially large mock files or DBs not relevant for LLM context
+user_data/
+
+# Ignore git and environments
+.git/
+.env*

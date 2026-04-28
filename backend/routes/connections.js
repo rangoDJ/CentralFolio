@@ -11,14 +11,18 @@ const snapLog = log.make('snaptrade');
 
 // GET /api/connections
 router.get('/', async (_req, res) => {
-  const { userId, userSecret } = getCredentials();
-  if (userId && userSecret) {
+  const { userId, userSecret, isPersonal } = getCredentials();
+  if (userId && (isPersonal || userSecret)) {
     try {
-      const authorizationsResponse = await getSnaptrade().connections.listBrokerageAuthorizations({ userId, userSecret });
-      const authorizations = authorizationsResponse.data;
-      if (Array.isArray(authorizations)) {
-        for (const auth of authorizations) {
-          db.upsertConnection(auth.id, auth.brokerage?.name || 'Unknown', 'CONNECTED');
+      if (isPersonal) {
+        db.upsertConnection(userId, 'Personal Integration', 'CONNECTED');
+      } else {
+        const authorizationsResponse = await getSnaptrade().connections.listBrokerageAuthorizations({ userId, userSecret });
+        const authorizations = authorizationsResponse.data;
+        if (Array.isArray(authorizations)) {
+          for (const auth of authorizations) {
+            db.upsertConnection(auth.id, auth.brokerage?.name || 'Unknown', 'CONNECTED');
+          }
         }
       }
     } catch (e) {

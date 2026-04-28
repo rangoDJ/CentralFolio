@@ -17,8 +17,13 @@ async function performSync() {
   syncLog.info('Starting brokerage & account sync', { isPersonal });
   let authorizations = [];
 
+  // If we have real keys, ensure we don't have the old mock connection sitting around
+  db.db.prepare("DELETE FROM connections WHERE id = 'mock_ws_1'").run();
+
   if (isPersonal) {
-    syncLog.debug('Personal flow detected, skipping connection list');
+    syncLog.debug('Personal flow detected, synthesizing connection entry');
+    db.upsertConnection(userId, 'Personal Integration', 'CONNECTED');
+    authorizations = [{ id: userId, brokerage: { name: 'Personal Integration' } }];
   } else {
     syncLog.debug('Fetching brokerage authorizations');
     const authorizationsResponse = await getSnaptrade().connections.listBrokerageAuthorizations({ userId, userSecret });
@@ -30,6 +35,10 @@ async function performSync() {
     for (const auth of authorizations) {
       db.upsertConnection(auth.id, auth.brokerage?.name || 'Unknown', 'CONNECTED');
       syncLog.debug('Refreshing brokerage authorization', { authId: auth.id, brokerage: auth.brokerage?.name });
+      
+      // Personal tokens don't need/support refresh via this endpoint
+      if (isPersonal) continue;
+
       try {
         await getSnaptrade().connections.refreshBrokerageAuthorization({
           authorizationId: auth.id, userId, userSecret

@@ -118,6 +118,12 @@ const initDb = () => {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_automations_status ON pending_automations(status, process_after)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_automation_logs_tx ON automation_logs(transaction_id)`);
 
+  // Purge legacy mock data if it exists
+  try {
+    db.exec("DELETE FROM connections WHERE id = 'mock_ws_1'");
+    db.exec("DELETE FROM brokerage_accounts WHERE connection_id = 'mock_ws_1'");
+  } catch (e) {}
+
   dbLog.info('Database initialized', { dataDir: DATA_DIR, dbPath });
 };
 

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 const Settings = () => {
   const queryClient = useQueryClient();
-  const [envVars, setEnvVars] = useState({ SNAPTRADE_CLIENT_ID: '', SNAPTRADE_CONSUMER_KEY: '', MOCK_MODE: false });
+  const [envVars, setEnvVars] = useState({ MOCK_MODE: false });
   
   const { data: connections = [], isLoading: isLoadingConnections } = useQuery({
     queryKey: ['connections'],
@@ -26,8 +26,6 @@ const Settings = () => {
     if (config) {
       const syncTimeSetting = settings.find(s => s.key === 'TRANSACTION_SYNC_TIME');
       setEnvVars({
-        SNAPTRADE_CLIENT_ID: config.SNAPTRADE_CLIENT_ID || '',
-        SNAPTRADE_CONSUMER_KEY: config.SNAPTRADE_CONSUMER_KEY || '',
         MOCK_MODE: config.MOCK_MODE || false,
         TRANSACTION_SYNC_TIME: syncTimeSetting?.value || '02:00'
       });
@@ -49,7 +47,6 @@ const Settings = () => {
   };
 
   const [syncing, setSyncing] = useState(false);
-  const [savingKeys, setSavingKeys] = useState(false);
   const [portfolioEdits, setPortfolioEdits] = useState({});
   const [savedRows, setSavedRows] = useState({});
 
@@ -121,23 +118,6 @@ const Settings = () => {
     } catch (err) {
       console.error('Connection generation failed', err);
       toast.error('Error connecting to SnapTrade Gateway.');
-    }
-  };
-
-  const handleSaveKeys = async () => {
-    setSavingKeys(true);
-    try {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(envVars)
-      });
-      toast.success('Configuration saved successfully globally!');
-    } catch (err) {
-      console.error('Failed to save keys', err);
-      toast.error('Local error executing configuration dispatch.');
-    } finally {
-      setSavingKeys(false);
     }
   };
 
@@ -213,24 +193,38 @@ const Settings = () => {
       <div className="card" style={{ marginBottom: '2rem' }}>
         <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>API Configuration</h2>
         <div style={{ display: 'grid', gap: '1rem', marginBottom: '1.5rem' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Client ID</label>
-            <input 
-              type="text" 
-              value={envVars.SNAPTRADE_CLIENT_ID}
-              onChange={e => setEnvVars({...envVars, SNAPTRADE_CLIENT_ID: e.target.value})}
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '4px', backgroundColor: 'var(--bg-main)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-            />
+          <div style={{ 
+            padding: '1rem', 
+            backgroundColor: config?.HAS_ENV_VARS ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+            borderRadius: '8px',
+            border: `1px solid ${config?.HAS_ENV_VARS ? 'var(--up)' : 'var(--down)'}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem'
+          }}>
+            {config?.HAS_ENV_VARS ? (
+              <>
+                <CheckCircle2 size={20} style={{ color: 'var(--up)' }} />
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--up)' }}>Credentials Detected</div>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    SnapTrade Client ID and Consumer Key are being loaded from system environment variables.
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <AlertTriangle size={20} style={{ color: 'var(--down)' }} />
+                <div>
+                  <div style={{ fontWeight: 600, color: 'var(--down)' }}>Missing Credentials</div>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    SnapTrade credentials not found in environment. Please set SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY in your .env or docker-compose.yml.
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Consumer Key</label>
-            <input 
-              type="password" 
-              value={envVars.SNAPTRADE_CONSUMER_KEY}
-              onChange={e => setEnvVars({...envVars, SNAPTRADE_CONSUMER_KEY: e.target.value})}
-              style={{ width: '100%', padding: '0.75rem', borderRadius: '4px', backgroundColor: 'var(--bg-main)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-            />
-          </div>
+
           <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-card)', borderRadius: '4px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Code size={18} color="var(--accent)" />
@@ -240,20 +234,13 @@ const Settings = () => {
               <input 
                 type="checkbox" 
                 checked={envVars.MOCK_MODE} 
-                onChange={e => setEnvVars({...envVars, MOCK_MODE: e.target.checked})}
+                onChange={e => handleSettingChange('MOCK_MODE', e.target.checked)}
                 style={{ width: '18px', height: '18px', cursor: 'pointer' }}
               />
               <span style={{ marginLeft: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Bypass SnapTrade logic and serve static isolated data.</span>
             </label>
           </div>
         </div>
-        <button 
-          className="btn btn-primary"
-          onClick={handleSaveKeys}
-          disabled={savingKeys}
-        >
-          {savingKeys ? 'Saving...' : 'Save Configuration'}
-        </button>
       </div>
 
       <div 

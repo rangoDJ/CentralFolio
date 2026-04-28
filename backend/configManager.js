@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const readline = require('readline');
 require('dotenv').config(); // Load existing .env once to fetch defaults
 const log = require('./logger');
 const cfgLog = log.make('config');
@@ -22,10 +21,8 @@ const configManager = {
 
   load() {
     if (!fs.existsSync(CONFIG_PATH)) {
-      cfgLog.info('First-time launch: initializing config from environment/defaults');
+      cfgLog.info('First-time launch: initializing config defaults');
       this.settings = {
-        SNAPTRADE_CLIENT_ID: process.env.SNAPTRADE_CLIENT_ID || '',
-        SNAPTRADE_CONSUMER_KEY: process.env.SNAPTRADE_CONSUMER_KEY || '',
         MOCK_MODE: false
       };
       this.save();
@@ -33,46 +30,46 @@ const configManager = {
       try {
         const fileData = fs.readFileSync(CONFIG_PATH, 'utf-8');
         this.settings = JSON.parse(fileData);
-        const presentKeys = Object.keys(this.settings || {}).filter(k => !!this.settings[k]);
-        cfgLog.info('Config loaded', { path: CONFIG_PATH, presentKeys });
+        
+        // Remove legacy keys from file if they exist
+        if (this.settings.SNAPTRADE_CLIENT_ID || this.settings.SNAPTRADE_CONSUMER_KEY) {
+          delete this.settings.SNAPTRADE_CLIENT_ID;
+          delete this.settings.SNAPTRADE_CONSUMER_KEY;
+          this.save();
+        }
+
+        cfgLog.info('Config loaded', { path: CONFIG_PATH });
         if (this.settings.MOCK_MODE === undefined) {
           this.settings.MOCK_MODE = false;
           this.save();
         }
       } catch (err) {
         cfgLog.error('Failed to parse config, resetting to defaults', { error: err.message });
-        this.settings = {};
+        this.settings = { MOCK_MODE: false };
       }
     }
   },
 
   save() {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(this.settings, null, 2), 'utf-8');
-    this.injectIntoEnv();
   },
 
   injectIntoEnv() {
-    if (this.settings.SNAPTRADE_CLIENT_ID) {
-      process.env.SNAPTRADE_CLIENT_ID = this.settings.SNAPTRADE_CLIENT_ID.trim();
-      cfgLog.debug('Injected SNAPTRADE_CLIENT_ID into process env');
-    }
-    if (this.settings.SNAPTRADE_CONSUMER_KEY) {
-      process.env.SNAPTRADE_CONSUMER_KEY = this.settings.SNAPTRADE_CONSUMER_KEY.trim();
-      cfgLog.debug('Injected SNAPTRADE_CONSUMER_KEY into process env');
-    }
+    // No-op: we now assume they are already in the environment
   },
 
   async validateOrPrompt() {
-    const missingKeys = ['SNAPTRADE_CLIENT_ID', 'SNAPTRADE_CONSUMER_KEY'].filter(
-      key => !this.settings[key] || this.settings[key].trim() === ''
-    );
-    if (missingKeys.length > 0) {
-      cfgLog.warn('SnapTrade credentials not set — live brokerage sync disabled', { missingKeys });
+    const hasKeys = !!(process.env.SNAPTRADE_CLIENT_ID && process.env.SNAPTRADE_CONSUMER_KEY);
+    if (!hasKeys) {
+      cfgLog.warn('SnapTrade credentials not found in environment variables — live brokerage sync disabled');
     }
   },
   
   getSettings() {
-    return this.settings;
+    return {
+      ...this.settings,
+      HAS_ENV_VARS: !!(process.env.SNAPTRADE_CLIENT_ID && process.env.SNAPTRADE_CONSUMER_KEY)
+    };
   },
 
   updateSettings(newSettings) {

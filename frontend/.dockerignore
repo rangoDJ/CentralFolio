@@ -3,4 +3,4 @@ dist
 .git
 .env
 Dockerfile
-nginx.conf
+# nginx.conf (needed for build)

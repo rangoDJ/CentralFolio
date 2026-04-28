@@ -22,9 +22,7 @@ const configManager = {
   load() {
     if (!fs.existsSync(CONFIG_PATH)) {
       cfgLog.info('First-time launch: initializing config defaults');
-      this.settings = {
-        MOCK_MODE: false
-      };
+      this.settings = {};
       this.save();
     } else {
       try {
@@ -32,20 +30,17 @@ const configManager = {
         this.settings = JSON.parse(fileData);
         
         // Remove legacy keys from file if they exist
-        if (this.settings.SNAPTRADE_CLIENT_ID || this.settings.SNAPTRADE_CONSUMER_KEY) {
+        if (this.settings.SNAPTRADE_CLIENT_ID || this.settings.SNAPTRADE_CONSUMER_KEY || this.settings.MOCK_MODE !== undefined) {
           delete this.settings.SNAPTRADE_CLIENT_ID;
           delete this.settings.SNAPTRADE_CONSUMER_KEY;
+          delete this.settings.MOCK_MODE;
           this.save();
         }
 
         cfgLog.info('Config loaded', { path: CONFIG_PATH });
-        if (this.settings.MOCK_MODE === undefined) {
-          this.settings.MOCK_MODE = false;
-          this.save();
-        }
       } catch (err) {
         cfgLog.error('Failed to parse config, resetting to defaults', { error: err.message });
-        this.settings = { MOCK_MODE: false };
+        this.settings = {};
       }
     }
   },

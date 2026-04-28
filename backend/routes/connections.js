@@ -59,8 +59,7 @@ router.delete('/:id', async (req, res) => {
 router.post('/sync', async (_req, res) => {
   try {
     if (!process.env.SNAPTRADE_CLIENT_ID || !process.env.SNAPTRADE_CONSUMER_KEY) {
-      db.upsertConnection('mock_ws_1', 'Wealthsimple (Mock)', 'CONNECTED');
-      return res.json({ success: true, message: 'Mock sync completed due to missing credentials.', authorizations: [] });
+      return res.status(400).json({ error: 'SnapTrade credentials not configured. Please set SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY.' });
     }
     const result = await performSync();
     if (!result.success) return res.status(500).json(result);
@@ -78,7 +77,7 @@ router.post('/snaptrade/link', async (req, res) => {
     const consumerKey = process.env.SNAPTRADE_CONSUMER_KEY || '';
 
     if (!clientId || !consumerKey) {
-      return res.json({ redirectURI: '#mock-redirect-no-credentials' });
+      return res.status(400).json({ error: 'SnapTrade credentials not configured.' });
     }
 
     let userId = db.getSetting('SNAPTRADE_USER_ID');

@@ -7,7 +7,6 @@ const { getSnaptrade, getCredentials } = require('../services/snaptradeClient');
 const { queryCache } = require('../services/cache');
 const { performSync } = require('../services/syncService');
 const configManager = require('../configManager');
-const loadMockData = require('../mockDataLoader');
 
 const router = Router();
 const acctLog = log.make('accounts');
@@ -25,10 +24,6 @@ router.get('/fx-rate', async (_req, res) => {
 
 // GET /api/accounts
 router.get('/accounts', async (req, res) => {
-  if (configManager.getSettings().MOCK_MODE) {
-    return res.json(loadMockData().accounts);
-  }
-
   if (queryCache.accounts) {
     acctLog.verbose('Accounts served from cache');
     return res.json(queryCache.accounts);
@@ -69,10 +64,6 @@ router.get('/accounts', async (req, res) => {
 
 // GET /api/positions
 router.get('/positions', async (_req, res) => {
-  if (configManager.getSettings().MOCK_MODE) {
-    return res.json(loadMockData().positions);
-  }
-
   if (queryCache.positions) {
     acctLog.verbose('Positions served from cache');
     return res.json(queryCache.positions);

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 
 const Settings = () => {
   const queryClient = useQueryClient();
-  const [envVars, setEnvVars] = useState({ MOCK_MODE: false });
+  const [envVars, setEnvVars] = useState({});
   
   const { data: connections = [], isLoading: isLoadingConnections } = useQuery({
     queryKey: ['connections'],
@@ -26,7 +26,6 @@ const Settings = () => {
     if (config) {
       const syncTimeSetting = settings.find(s => s.key === 'TRANSACTION_SYNC_TIME');
       setEnvVars({
-        MOCK_MODE: config.MOCK_MODE || false,
         TRANSACTION_SYNC_TIME: syncTimeSetting?.value || '02:00'
       });
     }
@@ -52,8 +51,7 @@ const Settings = () => {
 
   const { data: brokerageAccounts = [] } = useQuery({
     queryKey: ['brokerage-accounts'],
-    queryFn: () => fetch('/api/brokerage-accounts').then(r => r.json()),
-    enabled: !envVars.MOCK_MODE
+    queryFn: () => fetch('/api/brokerage-accounts').then(r => r.json())
   });
 
   const loading = isLoadingConnections || isLoadingSettings || isLoadingConfig;
@@ -107,10 +105,7 @@ const Settings = () => {
     try {
       const res = await fetch('/api/snaptrade/link', { method: 'POST' });
       const data = await res.json();
-      if (data.redirectURI === '#mock-redirect-no-credentials') {
-        toast.error('Mock: SnapTrade API keys not detected in backend/.env.');
-        handleSync(); // Just simulate the completion
-      } else if (data.redirectURI) {
+      if (data.redirectURI) {
         window.location.href = data.redirectURI;
       } else {
         toast.error('Failed to obtain redirect URI');
@@ -224,40 +219,12 @@ const Settings = () => {
               </>
             )}
           </div>
-
-          <div style={{ padding: '0.75rem', backgroundColor: 'var(--bg-card)', borderRadius: '4px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Code size={18} color="var(--accent)" />
-              <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>Developer Mock Mode</span>
-            </div>
-            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-              <input 
-                type="checkbox" 
-                checked={envVars.MOCK_MODE} 
-                onChange={e => handleSettingChange('MOCK_MODE', e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-              />
-              <span style={{ marginLeft: '0.5rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Bypass SnapTrade logic and serve static isolated data.</span>
-            </label>
-          </div>
         </div>
       </div>
 
-      <div 
-        className="card" 
-        style={{ 
-          opacity: envVars.MOCK_MODE ? 0.35 : 1, 
-          pointerEvents: envVars.MOCK_MODE ? 'none' : 'auto',
-          transition: 'all 0.3s ease'
-        }}
-      >
+      <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', position: 'relative' }}>
           <h2 style={{ fontSize: '1.25rem' }}>Brokerage Connections</h2>
-          {envVars.MOCK_MODE && (
-            <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-              <span style={{ backgroundColor: 'var(--bg-main)', padding: '0.5rem 1rem', borderRadius: '20px', fontWeight: 600, color: 'var(--accent)', fontSize: '0.875rem', border: '1px solid var(--border)' }}>Disabled in Mock Mode</span>
-            </div>
-          )}
           <button 
             onClick={handleSync} 
             disabled={syncing}
@@ -337,8 +304,7 @@ const Settings = () => {
       </div>
 
       {/* Account → Portfolio Mapping */}
-      {!envVars.MOCK_MODE && (
-        <div className="card" style={{ marginTop: '2rem' }}>
+      <div className="card" style={{ marginTop: '2rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
             <Link2 size={20} color="var(--accent)" />
             <div>
@@ -446,7 +412,6 @@ const Settings = () => {
             );
           })()}
         </div>
-      )}
 
       <div className="card" style={{ marginTop: '2rem' }}>
         <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>System Environment</h2>

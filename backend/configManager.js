@@ -61,25 +61,10 @@ const configManager = {
   },
 
   parseMultiKeyEnv() {
-    const keys = [];
-    
-    // 1. Check for indexed keys (SNAPTRADE_CLIENT_ID_1, etc.)
-    for (let i = 1; i <= 10; i++) {
-      const clientId = process.env[`SNAPTRADE_CLIENT_ID_${i}`];
-      const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${i}`];
-      if (clientId && consumerKey) {
-        keys.push({ index: i, clientId, hasConsumerKey: true });
-      }
-    }
-
-    // 2. Check for legacy key (SNAPTRADE_CLIENT_ID) if index 1 was not already found
-    if (!keys.find(k => k.index === 1)) {
-      const legacyClientId = process.env.SNAPTRADE_CLIENT_ID;
-      const legacyConsumerKey = process.env.SNAPTRADE_CONSUMER_KEY;
-      if (legacyClientId && legacyConsumerKey) {
-        keys.push({ index: 1, clientId: legacyClientId, hasConsumerKey: true });
-      }
-    }
+    // Keys are now only loaded from database via Settings page
+    // Environment variables are no longer used
+    return [];
+  }
     
     return keys;
   },

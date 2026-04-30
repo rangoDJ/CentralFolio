@@ -88,11 +88,17 @@ const httpLog = log.make('http');
     schedulerWorker.start();
 
     // Initial sync
-    if (process.env.SNAPTRADE_CLIENT_ID && process.env.SNAPTRADE_CONSUMER_KEY) {
+    const hasAnyKeys = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].some(i => {
+      const clientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null);
+      const consumerKey = db.getSetting(`SNAPTRADE_CONSUMER_KEY_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : null);
+      return clientId && (clientId.startsWith('PERS-') || consumerKey);
+    });
+
+    if (hasAnyKeys) {
       cfLog.info('SnapTrade keys detected, starting background auto-sync');
       performSync().catch(err => cfLog.error('Background startup sync failed', { error: err.message }));
     } else {
-      cfLog.warn('Auto-sync skipped: SnapTrade keys not found in config');
+      cfLog.warn('Auto-sync skipped: No SnapTrade keys found in config or database');
     }
   });
 

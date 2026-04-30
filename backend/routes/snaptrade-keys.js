@@ -13,8 +13,8 @@ router.get('/', (req, res) => {
   const keys = [];
 
   for (let i = 1; i <= MAX_KEY_INDEX; i++) {
-    const clientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null) || process.env[`SNAPTRADE_CLIENT_ID_${i}`] || (i === 1 ? process.env.SNAPTRADE_CLIENT_ID : null);
-    const consumerKey = db.getSetting(`SNAPTRADE_CONSUMER_KEY_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : null) || process.env[`SNAPTRADE_CONSUMER_KEY_${i}`] || (i === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : null);
+    const clientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null);
+    const consumerKey = db.getSetting(`SNAPTRADE_CONSUMER_KEY_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : null);
 
     const userId = db.getSetting(`SNAPTRADE_USER_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_ID') : null);
     const userSecret = db.getSetting(`SNAPTRADE_USER_SECRET_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_SECRET') : null);

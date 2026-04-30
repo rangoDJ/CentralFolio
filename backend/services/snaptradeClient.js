@@ -9,10 +9,8 @@ function getCredentials(keyIndex = 1) {
   let userId = db.getSetting(`SNAPTRADE_USER_ID_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_USER_ID') : null);
   let userSecret = db.getSetting(`SNAPTRADE_USER_SECRET_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_USER_SECRET') : null);
 
-  // Prioritize DB settings over ENV to resolve credential shadowing
-  const dbClientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : '');
-  const envClientId = process.env[`SNAPTRADE_CLIENT_ID_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CLIENT_ID : '');
-  const clientId = dbClientId || envClientId;
+  // Keys are now only loaded from database
+  const clientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : '');
   
   // Detection logic:
   // 1. If clientId starts with PERS-, it's a personal integration
@@ -31,9 +29,8 @@ function getCredentials(keyIndex = 1) {
 function getSnaptrade(keyIndex = 1) {
   const { clientId, isPersonal, userId } = getCredentials(keyIndex);
   
-  const dbConsumerKey = db.getSetting(`SNAPTRADE_CONSUMER_KEY_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : '');
-  const envConsumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : '');
-  const consumerKey = dbConsumerKey || envConsumerKey;
+  // Keys are now only loaded from database
+  const consumerKey = db.getSetting(`SNAPTRADE_CONSUMER_KEY_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : '');
   
   // For personal integrations, we use the PERS key as BOTH clientId and consumerKey.
   const finalConsumerKey = isPersonal ? clientId : consumerKey;

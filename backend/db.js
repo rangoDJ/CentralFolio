@@ -178,6 +178,10 @@ const getAllConnections = () => {
   return stmt.all();
 };
 
+const updateConnectionDisplayName = (id, displayName) => {
+  db.prepare('UPDATE connections SET display_name = ? WHERE id = ?').run(displayName, id);
+};
+
 // Upserts a brokerage account but preserves an existing portfolio assignment
 const upsertBrokerageAccount = (id, connectionId, brokerage, accountName, accountNumber, currency) => {
   const stmt = db.prepare(`

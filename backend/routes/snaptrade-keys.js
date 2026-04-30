@@ -97,33 +97,120 @@ router.patch('/:keyIndex', (req, res) => {
   }
 });
 
-// POST /api/snaptrade-keys/:keyIndex - Save key credentials
-router.post('/:keyIndex', (req, res) => {
+// POST /api/snaptrade-keys/:keyIndex
+// Saves credentials, probes SnapTrade for an existing registered user,
+// reuses local creds if valid, registers fresh otherwise, then syncs.
+router.post('/:keyIndex', async (req, res) => {
   const keyIndex = parseInt(req.params.keyIndex);
   const { clientId, consumerKey, name } = req.body;
 
   if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > MAX_KEY_INDEX) {
     return res.status(400).json({ error: 'Invalid key index' });
   }
-
   if (!clientId) {
     return res.status(400).json({ error: 'Client ID is required' });
   }
+  const isPersonal = clientId.startsWith('PERS-');
+  if (!isPersonal && !consumerKey) {
+    return res.status(400).json({ error: 'Consumer Key is required for non-personal keys' });
+  }
+
+  const keySuffix    = keyIndex === 1 ? '' : `_${keyIndex}`;
+  const userIdKey    = `SNAPTRADE_USER_ID${keySuffix}`;
+  const userSecretKey = `SNAPTRADE_USER_SECRET${keySuffix}`;
+
+  keyLog.info('Saving SnapTrade key', { keyIndex, isPersonal, hasConsumerKey: !!consumerKey });
 
   try {
-    const keySuffix = keyIndex === 1 ? '' : `_${keyIndex}`;
+    // 1. Persist credentials so getSnaptrade(keyIndex) can build the client
     db.setSetting(`SNAPTRADE_CLIENT_ID${keySuffix}`, clientId);
-    if (consumerKey) {
-      db.setSetting(`SNAPTRADE_CONSUMER_KEY${keySuffix}`, consumerKey);
+    if (consumerKey) db.setSetting(`SNAPTRADE_CONSUMER_KEY${keySuffix}`, consumerKey);
+    if (name)        db.setSetting(`SNAPTRADE_KEY_NAME${keySuffix}`, name);
+    keyLog.info('Credentials written to DB', { keyIndex });
+
+    const snapClient = getSnaptrade(keyIndex);
+
+    // 2. Load any userId/userSecret we already have locally
+    let userId     = db.getSetting(userIdKey);
+    let userSecret = db.getSetting(userSecretKey);
+    let userSource = 'existing_local';
+
+    // 3. Probe SnapTrade for users registered under this clientId
+    let snapUsers = [];
+    try {
+      const listRes = await snapClient.authentication.listSnapTradeUsers();
+      snapUsers = listRes.data || [];
+      keyLog.info('SnapTrade user list fetched', { keyIndex, count: snapUsers.length, users: snapUsers });
+    } catch (listErr) {
+      keyLog.warn('Could not list SnapTrade users (will register new)', { keyIndex, error: listErr.message });
     }
-    if (name) {
-      db.setSetting(`SNAPTRADE_KEY_NAME${keySuffix}`, name);
+
+    // 4. Decide whether to reuse local credentials or register fresh
+    if (userId && userSecret) {
+      if (snapUsers.includes(userId)) {
+        // Local creds confirmed valid on SnapTrade — nothing to do
+        keyLog.info('Local userId confirmed in SnapTrade — reusing', { keyIndex, userId });
+      } else {
+        // Our stored userId no longer exists on SnapTrade (deleted externally, wrong key, etc.)
+        keyLog.warn('Local userId not found in SnapTrade user list — credentials stale, will register new', { keyIndex, storedUserId: userId });
+        userId = null;
+        userSecret = null;
+      }
     }
-    keyLog.info('SnapTrade key saved', { keyIndex, hasConsumerKey: !!consumerKey });
-    res.json({ success: true, keyIndex, clientId: clientId.substring(0, 8) + '...' });
+
+    if (!userId || !userSecret) {
+      if (snapUsers.length > 0) {
+        keyLog.warn(
+          `SnapTrade has ${snapUsers.length} existing user(s) but no matching local credentials. ` +
+          'Cannot recover secrets for those users — registering a fresh user. ' +
+          'Existing brokerage connections under old users will need to be relinked.',
+          { keyIndex, existingUsers: snapUsers }
+        );
+      }
+
+      // Register a brand-new user
+      userId = `centralfolio-k${keyIndex}-${crypto.randomUUID().split('-')[0]}`;
+      keyLog.info('Registering new SnapTrade user', { keyIndex, userId });
+
+      const regRes = await snapClient.authentication.registerSnapTradeUser({ userId });
+      userSecret = regRes.data?.userSecret;
+
+      if (!userSecret) {
+        keyLog.error('registerSnapTradeUser response missing userSecret', { keyIndex, data: regRes.data });
+        return res.status(500).json({ error: 'SnapTrade registration did not return a userSecret', detail: regRes.data });
+      }
+
+      db.setSetting(userIdKey, userId);
+      db.setSetting(userSecretKey, userSecret);
+      userSource = snapUsers.length > 0 ? 'new_after_existing' : 'new_registration';
+      keyLog.info('User registered and credentials stored', { keyIndex, userId, source: userSource });
+    }
+
+    // 5. Fire background sync so brokerage connections appear immediately
+    keyLog.info('Kicking off background sync', { keyIndex });
+    performSync().catch(err =>
+      keyLog.error('Background sync after key save failed', { keyIndex, error: err.message })
+    );
+
+    const messages = {
+      existing_local:       'Key saved. Existing local credentials reconfirmed. Background sync started.',
+      new_registration:     'Key saved and new user registered. Background sync started.',
+      new_after_existing:   'Key saved. SnapTrade had existing users but no matching local credentials — registered a new user. Background sync started. You may need to reconnect brokerages.'
+    };
+
+    res.json({
+      success: true,
+      keyIndex,
+      userId,
+      registered: true,
+      userSource,
+      existingUsersFound: snapUsers.length,
+      message: messages[userSource] || 'Key saved.'
+    });
   } catch (err) {
-    keyLog.error('Failed to save SnapTrade key', { keyIndex, error: err.message });
-    res.status(500).json({ error: 'Internal server error' });
+    const detail = err.response?.data || err.message;
+    keyLog.error('Failed to save/register SnapTrade key', { keyIndex, error: err.message, detail });
+    res.status(500).json({ error: 'Failed to save key', detail });
   }
 });
 

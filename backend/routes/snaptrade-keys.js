@@ -134,10 +134,17 @@ router.post('/:keyIndex', async (req, res) => {
     registeredUsers = listRes.data || [];
     keyLog.info('[key-save] Step 2: SnapTrade user list', { keyIndex, count: registeredUsers.length, users: registeredUsers });
   } catch (listErr) {
-    keyLog.warn('[key-save] Step 2: could not list SnapTrade users (will register fresh)', {
-      keyIndex, error: listErr.message, status: listErr.response?.status,
-      detail: listErr.response?.data
-    });
+    const status = listErr.response?.status;
+    const detail = listErr.response?.data || listErr.message;
+    keyLog.warn('[key-save] Step 2: could not list SnapTrade users', { keyIndex, status, detail });
+
+    if (status === 401 || status === 403) {
+      return res.status(401).json({
+        error: 'SnapTrade authentication failed — verify your Client ID and Consumer Key',
+        detail
+      });
+    }
+    // Non-auth failure (network, etc.) — continue and attempt registration anyway
   }
 
   // Step 3: determine userId / userSecret to use

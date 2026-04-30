@@ -150,8 +150,11 @@ const Settings = () => {
         body: JSON.stringify({ clientId, consumerKey, name })
       });
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to save key');
+        const body = await res.json();
+        const detailStr = body.detail
+          ? ' — ' + (typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail))
+          : '';
+        throw new Error((body.error || 'Failed to save key') + detailStr);
       }
       return res.json();
     },

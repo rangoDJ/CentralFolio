@@ -28,11 +28,14 @@ const initDb = () => {
     CREATE TABLE IF NOT EXISTS connections (
       id TEXT PRIMARY KEY,
       brokerage_name TEXT,
+      display_name TEXT,
       connection_status TEXT,
       last_synced DATETIME,
       key_index INTEGER DEFAULT 1
     )
   `);
+  // Migrate: add display_name if it doesn't exist yet
+  try { db.exec('ALTER TABLE connections ADD COLUMN display_name TEXT'); } catch (_) {}
 
   // Individual brokerage accounts (populated after sync; user assigns portfolio names)
   db.exec(`
@@ -327,6 +330,7 @@ module.exports = {
   upsertConnection,
   getConnectionById,
   getAllConnections,
+  updateConnectionDisplayName,
   upsertBrokerageAccount,
   getAllBrokerageAccounts,
   setAccountPortfolio,

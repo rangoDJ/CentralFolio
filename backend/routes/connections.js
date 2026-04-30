@@ -9,25 +9,48 @@ const router = Router();
 const connLog = log.make('connections');
 const snapLog = log.make('snaptrade');
 
-// GET /api/connections
+// GET /api/connections — grouped by key, empty groups omitted
 router.get('/', async (_req, res) => {
   try {
     const allConnections = db.getAllConnections();
-    const grouped = [];
-    
-    // Support up to 3 SnapTrade keys, grouping connections for the frontend
-    for (let i = 1; i <= 10; i++) {
-      const keyConns = allConnections.filter(c => c.key_index === i);
-      grouped.push({
-        keyIndex: i,
-        connections: keyConns
-      });
+    const byKey = {};
+    for (const c of allConnections) {
+      const k = c.key_index || 1;
+      if (!byKey[k]) byKey[k] = [];
+      byKey[k].push(c);
     }
-    
+    const grouped = Object.entries(byKey).map(([k, conns]) => ({
+      keyIndex: Number(k),
+      connections: conns
+    }));
     res.json(grouped);
   } catch (error) {
     connLog.error('Failed to get connections', { error: error.message });
     res.status(500).json({ error: 'Failed to retrieve connections' });
+  }
+});
+
+// PATCH /api/connections/:id — rename a connection
+router.patch('/:id', (req, res) => {
+  const { id } = req.params;
+  const { displayName } = req.body;
+
+  if (displayName === undefined) {
+    return res.status(400).json({ error: 'displayName is required' });
+  }
+
+  const connection = db.getConnectionById(id);
+  if (!connection) {
+    return res.status(404).json({ error: 'Connection not found' });
+  }
+
+  try {
+    db.updateConnectionDisplayName(id, displayName);
+    connLog.info('Connection renamed', { id, displayName });
+    res.json({ success: true, id, displayName });
+  } catch (err) {
+    connLog.error('Failed to rename connection', { id, error: err.message });
+    res.status(500).json({ error: 'Failed to rename connection' });
   }
 });
 

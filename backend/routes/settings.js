@@ -12,6 +12,13 @@ const ALLOWED_SETTING_KEYS = new Set([
   'SNAPTRADE_CLIENT_ID_1', 'SNAPTRADE_CONSUMER_KEY_1',
   'SNAPTRADE_CLIENT_ID_2', 'SNAPTRADE_CONSUMER_KEY_2',
   'SNAPTRADE_CLIENT_ID_3', 'SNAPTRADE_CONSUMER_KEY_3',
+  'SNAPTRADE_CLIENT_ID_4', 'SNAPTRADE_CONSUMER_KEY_4',
+  'SNAPTRADE_CLIENT_ID_5', 'SNAPTRADE_CONSUMER_KEY_5',
+  'SNAPTRADE_CLIENT_ID_6', 'SNAPTRADE_CONSUMER_KEY_6',
+  'SNAPTRADE_CLIENT_ID_7', 'SNAPTRADE_CONSUMER_KEY_7',
+  'SNAPTRADE_CLIENT_ID_8', 'SNAPTRADE_CONSUMER_KEY_8',
+  'SNAPTRADE_CLIENT_ID_9', 'SNAPTRADE_CONSUMER_KEY_9',
+  'SNAPTRADE_CLIENT_ID_10', 'SNAPTRADE_CONSUMER_KEY_10',
   'TRANSACTION_SYNC_TIME', 'AUTOMATION_WAIT_TIME'
 ]);
 
@@ -37,7 +44,7 @@ router.get('/config', (_req, res) => {
   
   // Also check database for keys
   const dbKeys = [];
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= 10; i++) {
     const clientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null);
     if (clientId) {
       dbKeys.push({ index: i, clientId, source: 'database' });

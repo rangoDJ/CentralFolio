@@ -9,7 +9,10 @@ function getCredentials(keyIndex = 1) {
   let userId = db.getSetting(`SNAPTRADE_USER_ID_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_USER_ID') : null);
   let userSecret = db.getSetting(`SNAPTRADE_USER_SECRET_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_USER_SECRET') : null);
 
-  const clientId = process.env[`SNAPTRADE_CLIENT_ID_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CLIENT_ID : '') || db.getSetting(`SNAPTRADE_CLIENT_ID_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : '');
+  // Prioritize DB settings over ENV to resolve credential shadowing
+  const dbClientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : '');
+  const envClientId = process.env[`SNAPTRADE_CLIENT_ID_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CLIENT_ID : '');
+  const clientId = dbClientId || envClientId;
   
   // Detection logic:
   // 1. If clientId starts with PERS-, it's a personal integration
@@ -19,7 +22,6 @@ function getCredentials(keyIndex = 1) {
   if (isPersonal) {
     const personalKey = (userId && userId.startsWith('PERS-')) ? userId : clientId;
     // For personal integrations, SnapTrade often expects the PERS key as BOTH the Client ID and the Consumer Key
-    // if the SDK requires both, but the consumer key is actually unused by the server.
     return { userId: personalKey, userSecret: userSecret || '', isPersonal: true, clientId: personalKey };
   }
 
@@ -27,15 +29,22 @@ function getCredentials(keyIndex = 1) {
 }
 
 function getSnaptrade(keyIndex = 1) {
-  const { clientId, isPersonal } = getCredentials(keyIndex);
-  const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : '') || db.getSetting(`SNAPTRADE_CONSUMER_KEY_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : '');
+  const { clientId, isPersonal, userId } = getCredentials(keyIndex);
+  
+  const dbConsumerKey = db.getSetting(`SNAPTRADE_CONSUMER_KEY_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : '');
+  const envConsumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : '');
+  const consumerKey = dbConsumerKey || envConsumerKey;
   
   // For personal integrations, we use the PERS key as BOTH clientId and consumerKey.
-  // This is a known configuration that works with SnapTrade SDKs for personal keys.
   const finalConsumerKey = isPersonal ? clientId : consumerKey;
 
   if (!clientId || (!isPersonal && !finalConsumerKey)) {
     snapLog.warn('SnapTrade client requested for unconfigured key index', { keyIndex });
+  } else {
+    // Masked logging for diagnostics
+    const maskedClient = clientId.substring(0, 4) + '...' + clientId.substring(clientId.length - 4);
+    const maskedUser = userId ? (userId.substring(0, 4) + '...' + userId.substring(userId.length - 4)) : 'NONE';
+    snapLog.debug('Initializing SnapTrade client', { keyIndex, clientId: maskedClient, userId: maskedUser, isPersonal });
   }
   
   return new Snaptrade({ clientId, consumerKey: finalConsumerKey });

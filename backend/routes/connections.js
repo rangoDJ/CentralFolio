@@ -16,7 +16,7 @@ router.get('/', async (_req, res) => {
     const grouped = [];
     
     // Support up to 3 SnapTrade keys, grouping connections for the frontend
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 10; i++) {
       const keyConns = allConnections.filter(c => c.key_index === i);
       grouped.push({
         keyIndex: i,

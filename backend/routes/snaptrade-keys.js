@@ -6,38 +6,38 @@ const configManager = require('../configManager');
 const router = Router();
 const keyLog = log.make('snaptrade-keys');
 
+const MAX_KEY_INDEX = 10;
+
 // GET /api/snaptrade-keys
 router.get('/', (req, res) => {
-  const settings = configManager.getSettings();
   const keys = [];
 
-  // SnapTrade supports up to 3 keys in this app's logic
-  for (let i = 1; i <= 3; i++) {
-    const clientId = process.env[`SNAPTRADE_CLIENT_ID_${i}`] || (i === 1 ? process.env.SNAPTRADE_CLIENT_ID : null) || db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null);
-    const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${i}`] || (i === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : null) || db.getSetting(`SNAPTRADE_CONSUMER_KEY_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : null);
+  for (let i = 1; i <= MAX_KEY_INDEX; i++) {
+    const clientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null) || process.env[`SNAPTRADE_CLIENT_ID_${i}`] || (i === 1 ? process.env.SNAPTRADE_CLIENT_ID : null);
+    const consumerKey = db.getSetting(`SNAPTRADE_CONSUMER_KEY_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : null) || process.env[`SNAPTRADE_CONSUMER_KEY_${i}`] || (i === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : null);
 
     const userId = db.getSetting(`SNAPTRADE_USER_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_ID') : null);
     const userSecret = db.getSetting(`SNAPTRADE_USER_SECRET_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_SECRET') : null);
 
     const isPersonal = (clientId && clientId.startsWith('PERS-')) || (userId && userId.startsWith('PERS-'));
+    const isConfigured = !!(clientId && (isPersonal || consumerKey));
 
-    if (clientId || (userId && userId.startsWith('PERS-'))) {
-      // Count connections for this key
-      const connectionCountStmt = db.db.prepare('SELECT COUNT(*) as count FROM connections WHERE key_index = ?');
-      const connectionCount = connectionCountStmt.get(i).count;
+    // Count connections for this key
+    const connectionCountStmt = db.db.prepare('SELECT COUNT(*) as count FROM connections WHERE key_index = ?');
+    const connectionCount = connectionCountStmt.get(i).count;
 
-      // Get custom name for this key
-      const keyName = db.getSetting(`SNAPTRADE_KEY_NAME_${i}`) || `Key ${i}`;
+    // Get custom name for this key
+    const keyName = db.getSetting(`SNAPTRADE_KEY_NAME_${i}`) || `Key ${i}`;
 
-      keys.push({
-        keyIndex: i,
-        clientId: isPersonal ? (userId && userId.startsWith('PERS-') ? userId : clientId) : clientId,
-        name: keyName,
-        registered: isPersonal ? true : !!(userId && userSecret),
-        isPersonal: isPersonal,
-        connectionCount: connectionCount
-      });
-    }
+    keys.push({
+      keyIndex: i,
+      clientId: isPersonal ? (userId && userId.startsWith('PERS-') ? userId : clientId) : clientId,
+      name: keyName,
+      registered: isPersonal ? true : !!(userId && userSecret),
+      isPersonal: isPersonal,
+      isConfigured: isConfigured,
+      connectionCount: connectionCount
+    });
   }
 
   res.json(keys);
@@ -46,7 +46,7 @@ router.get('/', (req, res) => {
 // DELETE /api/snaptrade-keys/:keyIndex
 router.delete('/:keyIndex', (req, res) => {
   const keyIndex = parseInt(req.params.keyIndex);
-  if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > 3) {
+  if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > MAX_KEY_INDEX) {
     return res.status(400).json({ error: 'Invalid key index' });
   }
 
@@ -83,7 +83,7 @@ router.patch('/:keyIndex', (req, res) => {
   const keyIndex = parseInt(req.params.keyIndex);
   const { name } = req.body;
 
-  if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > 3) {
+  if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > MAX_KEY_INDEX) {
     return res.status(400).json({ error: 'Invalid key index' });
   }
 
@@ -97,6 +97,36 @@ router.patch('/:keyIndex', (req, res) => {
     res.json({ success: true, name });
   } catch (err) {
     keyLog.error('Failed to update SnapTrade key name', { keyIndex, error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/snaptrade-keys/:keyIndex - Save key credentials
+router.post('/:keyIndex', (req, res) => {
+  const keyIndex = parseInt(req.params.keyIndex);
+  const { clientId, consumerKey, name } = req.body;
+
+  if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > MAX_KEY_INDEX) {
+    return res.status(400).json({ error: 'Invalid key index' });
+  }
+
+  if (!clientId) {
+    return res.status(400).json({ error: 'Client ID is required' });
+  }
+
+  try {
+    const keySuffix = keyIndex === 1 ? '' : `_${keyIndex}`;
+    db.setSetting(`SNAPTRADE_CLIENT_ID${keySuffix}`, clientId);
+    if (consumerKey) {
+      db.setSetting(`SNAPTRADE_CONSUMER_KEY${keySuffix}`, consumerKey);
+    }
+    if (name) {
+      db.setSetting(`SNAPTRADE_KEY_NAME${keySuffix}`, name);
+    }
+    keyLog.info('SnapTrade key saved', { keyIndex, hasConsumerKey: !!consumerKey });
+    res.json({ success: true, keyIndex, clientId: clientId.substring(0, 8) + '...' });
+  } catch (err) {
+    keyLog.error('Failed to save SnapTrade key', { keyIndex, error: err.message });
     res.status(500).json({ error: 'Internal server error' });
   }
 });

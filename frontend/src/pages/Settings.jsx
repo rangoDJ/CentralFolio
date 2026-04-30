@@ -11,6 +11,9 @@ const Settings = () => {
   const [editingKeyIndex, setEditingKeyIndex] = useState(null);
   const [editingKeyName, setEditingKeyName] = useState('');
   const [expandedKey, setExpandedKey] = useState(null);
+  const [newKeyIndex, setNewKeyIndex] = useState(1);
+  const [newClientId, setNewClientId] = useState('');
+  const [newConsumerKey, setNewConsumerKey] = useState('');
 
   const { data: snapTradeKeys = [], isLoading: isLoadingKeys } = useQuery({
     queryKey: ['snaptrade-keys'],
@@ -129,6 +132,32 @@ const Settings = () => {
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to delete key');
+    }
+  });
+
+  // Mutation for saving a new SnapTrade key manually
+  const saveKeyMutation = useMutation({
+    mutationFn: async ({ keyIndex, clientId, consumerKey, name }) => {
+      const res = await fetch(`/api/snaptrade-keys/${keyIndex}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId, consumerKey, name })
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to save key');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success('SnapTrade key saved successfully');
+      queryClient.invalidateQueries({ queryKey: ['snaptrade-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['config'] });
+      setNewClientId('');
+      setNewConsumerKey('');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save key');
     }
   });
 
@@ -324,6 +353,81 @@ const Settings = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
           <Key size={20} style={{ color: 'var(--accent)' }} />
           <h2 style={{ fontSize: '1.25rem', margin: 0 }}>SnapTrade Keys Management</h2>
+        </div>
+
+        <div style={{ padding: '1rem', backgroundColor: 'var(--bg-main)', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '1.5rem' }}>
+          <div style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '1rem' }}>Add New Key</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr auto', gap: '0.75rem', alignItems: 'end' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Key Index</label>
+              <select
+                value={newKeyIndex}
+                onChange={(e) => setNewKeyIndex(Number(e.target.value))}
+                style={{
+                  padding: '0.5rem',
+                  backgroundColor: 'var(--bg-card)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  fontSize: '0.875rem',
+                  width: '80px'
+                }}
+              >
+                {Array.from({ length: 10 }, (_, i) => i + 1).map(idx => (
+                  <option key={idx} value={idx} disabled={snapTradeKeys.some(k => k.keyIndex === idx)}>
+                    {idx}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Client ID</label>
+              <input
+                type="text"
+                value={newClientId}
+                onChange={(e) => setNewClientId(e.target.value)}
+                placeholder="Enter Client ID"
+                style={{
+                  padding: '0.5rem',
+                  backgroundColor: 'var(--bg-card)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  fontSize: '0.875rem',
+                  width: '100%'
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Consumer Key (HMAC)</label>
+              <input
+                type="password"
+                value={newConsumerKey}
+                onChange={(e) => setNewConsumerKey(e.target.value)}
+                placeholder="Enter Consumer Key"
+                style={{
+                  padding: '0.5rem',
+                  backgroundColor: 'var(--bg-card)',
+                  color: 'var(--text-primary)',
+                  border: '1px solid var(--border)',
+                  borderRadius: '4px',
+                  fontSize: '0.875rem',
+                  width: '200px'
+                }}
+              />
+            </div>
+            <button
+              onClick={() => saveKeyMutation.mutate({ keyIndex: newKeyIndex, clientId: newClientId, consumerKey: newConsumerKey })}
+              disabled={saveKeyMutation.isPending || !newClientId}
+              className="btn btn-primary"
+              style={{ padding: '0.5rem 1rem' }}
+            >
+              {saveKeyMutation.isPending ? 'Saving...' : 'Save Key'}
+            </button>
+          </div>
+          <div style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Tip: Get your credentials from the SnapTrade Developer Portal. Disabled indices indicate keys already configured.
+          </div>
         </div>
 
         {snapTradeKeys.length === 0 ? (

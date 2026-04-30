@@ -56,28 +56,31 @@ const configManager = {
   async validateOrPrompt() {
     const keys = this.parseMultiKeyEnv();
     if (keys.length === 0) {
-      cfgLog.warn('SnapTrade credentials not found in environment variables — live brokerage sync disabled');
+      // We don't warn here anymore as keys might be in the database which is initialized later
     }
   },
 
   parseMultiKeyEnv() {
     const keys = [];
-    // Try numbered format first
-    for (let i = 1; i <= 3; i++) {
+    
+    // 1. Check for indexed keys (SNAPTRADE_CLIENT_ID_1, etc.)
+    for (let i = 1; i <= 10; i++) {
       const clientId = process.env[`SNAPTRADE_CLIENT_ID_${i}`];
       const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${i}`];
       if (clientId && consumerKey) {
         keys.push({ index: i, clientId, hasConsumerKey: true });
       }
     }
-    // Fall back to legacy format
-    if (keys.length === 0) {
+
+    // 2. Check for legacy key (SNAPTRADE_CLIENT_ID) if index 1 was not already found
+    if (!keys.find(k => k.index === 1)) {
       const legacyClientId = process.env.SNAPTRADE_CLIENT_ID;
       const legacyConsumerKey = process.env.SNAPTRADE_CONSUMER_KEY;
       if (legacyClientId && legacyConsumerKey) {
         keys.push({ index: 1, clientId: legacyClientId, hasConsumerKey: true });
       }
     }
+    
     return keys;
   },
 

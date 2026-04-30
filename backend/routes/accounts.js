@@ -33,8 +33,8 @@ router.get('/accounts', async (req, res) => {
     acctLog.debug('Fetching accounts from all configured SnapTrade keys');
     let allFetchedAccounts = [];
     
-    // Support up to 3 keys
-    for (let i = 1; i <= 3; i++) {
+    // Support up to 10 keys
+    for (let i = 1; i <= 10; i++) {
       const { userId, userSecret, isPersonal, clientId } = getCredentials(i);
       if (!isPersonal && (!userId || !userSecret)) {
         continue;

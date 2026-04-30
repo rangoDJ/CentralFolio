@@ -1,5 +1,4 @@
 const { Router } = require('express');
-const crypto = require('crypto');
 const log = require('../logger');
 const db = require('../db');
 const { getSnaptrade } = require('../services/snaptradeClient');
@@ -167,7 +166,7 @@ router.post('/:keyIndex', async (req, res) => {
         { keyIndex, existingUsers: registeredUsers });
     }
 
-    userId = `cf-k${keyIndex}-${crypto.randomUUID().split('-')[0]}`;
+    userId = clientId;
     keyLog.info('[key-save] Step 4: registering new SnapTrade user', { keyIndex, userId });
 
     try {

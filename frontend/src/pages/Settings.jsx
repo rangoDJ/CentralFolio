@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Shield, Database, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Code, Link2, Tag } from 'lucide-react';
+import { Settings as SettingsIcon, Shield, Database, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Code, Link2, Tag, Key, Plus, Trash2, Edit2, Save } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 const Settings = () => {
   const queryClient = useQueryClient();
   const [envVars, setEnvVars] = useState({});
-  
+  const [editingConnectionId, setEditingConnectionId] = useState(null);
+  const [editingDisplayName, setEditingDisplayName] = useState('');
+  const [expandedKey, setExpandedKey] = useState(null);
+
+  const { data: snapTradeKeys = [], isLoading: isLoadingKeys } = useQuery({
+    queryKey: ['snaptrade-keys'],
+    queryFn: () => fetch('/api/snaptrade-keys').then(res => res.json())
+  });
+
   const { data: connections = [], isLoading: isLoadingConnections } = useQuery({
     queryKey: ['connections'],
     queryFn: () => fetch('/api/connections').then(res => res.json())
@@ -54,7 +62,74 @@ const Settings = () => {
     queryFn: () => fetch('/api/brokerage-accounts').then(r => r.json())
   });
 
-  const loading = isLoadingConnections || isLoadingSettings || isLoadingConfig;
+  const loading = isLoadingConnections || isLoadingSettings || isLoadingConfig || isLoadingKeys;
+
+  // Mutation for renaming connection
+  const renameConnectionMutation = useMutation({
+    mutationFn: async ({ connectionId, displayName }) => {
+      const res = await fetch(`/api/connections/${connectionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName })
+      });
+      if (!res.ok) throw new Error('Failed to rename connection');
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success('Connection renamed successfully');
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+      setEditingConnectionId(null);
+    },
+    onError: () => {
+      toast.error('Failed to rename connection');
+    }
+  });
+
+  // Mutation for deleting a key
+  const deleteKeyMutation = useMutation({
+    mutationFn: async (keyIndex) => {
+      const res = await fetch(`/api/snaptrade-keys/${keyIndex}`, {
+        method: 'DELETE',
+        headers: { 'X-Confirm-Delete': 'true' }
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to delete key');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success('SnapTrade key deleted successfully');
+      queryClient.invalidateQueries({ queryKey: ['snaptrade-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+      queryClient.invalidateQueries({ queryKey: ['brokerage-accounts'] });
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to delete key');
+    }
+  });
+
+  // Mutation for initiating OAuth per key
+  const oauthMutation = useMutation({
+    mutationFn: async (keyIndex) => {
+      const res = await fetch(`/api/connections/${keyIndex}/oauth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!res.ok) throw new Error('Failed to generate OAuth link');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.redirectURI) {
+        window.location.href = data.redirectURI;
+      } else {
+        toast.error('No redirect URI provided');
+      }
+    },
+    onError: () => {
+      toast.error('Failed to generate OAuth link');
+    }
+  });
 
   const handleSync = async () => {
     setSyncing(true);
@@ -188,9 +263,9 @@ const Settings = () => {
       <div className="card" style={{ marginBottom: '2rem' }}>
         <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>API Configuration</h2>
         <div style={{ display: 'grid', gap: '1rem', marginBottom: '1.5rem' }}>
-          <div style={{ 
-            padding: '1rem', 
-            backgroundColor: config?.HAS_ENV_VARS ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+          <div style={{
+            padding: '1rem',
+            backgroundColor: config?.HAS_ENV_VARS ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
             borderRadius: '8px',
             border: `1px solid ${config?.HAS_ENV_VARS ? 'var(--up)' : 'var(--down)'}`,
             display: 'flex',
@@ -203,7 +278,7 @@ const Settings = () => {
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--up)' }}>Credentials Detected</div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    SnapTrade Client ID and Consumer Key are being loaded from system environment variables.
+                    {config?.ENV_KEYS?.length} SnapTrade key pair(s) loaded from environment variables.
                   </div>
                 </div>
               </>
@@ -213,7 +288,7 @@ const Settings = () => {
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--down)' }}>Missing Credentials</div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    SnapTrade credentials not found in environment. Please set SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY in your .env or docker-compose.yml.
+                    SnapTrade credentials not found in environment. Set SNAPTRADE_CLIENT_ID_1 and SNAPTRADE_CONSUMER_KEY_1 (or legacy SNAPTRADE_CLIENT_ID/SNAPTRADE_CONSUMER_KEY) in .env or docker-compose.yml.
                   </div>
                 </div>
               </>
@@ -222,11 +297,182 @@ const Settings = () => {
         </div>
       </div>
 
+      <div className="card" style={{ marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+          <Key size={20} style={{ color: 'var(--accent)' }} />
+          <h2 style={{ fontSize: '1.25rem', margin: 0 }}>SnapTrade Keys Management</h2>
+        </div>
+
+        {snapTradeKeys.length === 0 ? (
+          <div style={{ padding: '2rem', textAlign: 'center', backgroundColor: 'var(--bg-main)', borderRadius: '8px' }}>
+            <AlertTriangle size={32} style={{ color: 'var(--down)', marginBottom: '1rem' }} />
+            <p style={{ marginBottom: '1rem' }}>No SnapTrade keys configured yet.</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              Configure SNAPTRADE_CLIENT_ID_1 and SNAPTRADE_CONSUMER_KEY_1 in your environment to get started.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {snapTradeKeys.map(key => (
+              <div key={key.keyIndex} style={{
+                padding: '1rem',
+                backgroundColor: 'var(--bg-main)',
+                borderRadius: '8px',
+                border: '1px solid var(--border)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Key {key.keyIndex}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{key.clientId}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <span style={{
+                      padding: '0.25rem 0.75rem',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      backgroundColor: key.registered ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                      color: key.registered ? 'var(--up)' : 'var(--down)'
+                    }}>
+                      {key.registered ? 'Registered' : 'Not Registered'}
+                    </span>
+                    <span style={{
+                      padding: '0.25rem 0.75rem',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      backgroundColor: 'rgba(107, 114, 128, 0.2)',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      {key.connectionCount} connection{key.connectionCount !== 1 ? 's' : ''}
+                    </span>
+                    <button
+                      onClick={() => deleteKeyMutation.mutate(key.keyIndex)}
+                      disabled={deleteKeyMutation.isPending}
+                      style={{
+                        padding: '0.5rem',
+                        border: 'none',
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        color: 'var(--down)',
+                        borderRadius: '6px',
+                        cursor: deleteKeyMutation.isPending ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Connections for this key */}
+                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                    Brokerage Connections ({key.connectionCount})
+                  </div>
+                  {key.connectionCount === 0 ? (
+                    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '0.75rem' }}>
+                      No connections yet.
+                      <button
+                        onClick={() => oauthMutation.mutate(key.keyIndex)}
+                        disabled={oauthMutation.isPending}
+                        style={{
+                          marginLeft: '0.5rem',
+                          color: 'var(--accent)',
+                          background: 'none',
+                          border: 'none',
+                          cursor: oauthMutation.isPending ? 'not-allowed' : 'pointer',
+                          textDecoration: 'underline'
+                        }}
+                      >
+                        Add one
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {connections
+                        .filter(keyGroup => keyGroup.keyIndex === key.keyIndex)
+                        .flatMap(keyGroup => keyGroup.connections || [])
+                        .map(conn => (
+                          <div key={conn.id} style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '0.5rem',
+                            backgroundColor: 'rgba(107, 114, 128, 0.1)',
+                            borderRadius: '6px',
+                            fontSize: '0.875rem'
+                          }}>
+                            <div style={{ flex: 1 }}>
+                              {editingConnectionId === conn.id ? (
+                                <input
+                                  type="text"
+                                  value={editingDisplayName}
+                                  onChange={(e) => setEditingDisplayName(e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '0.5rem',
+                                    backgroundColor: 'var(--bg-card)',
+                                    color: 'var(--text-primary)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: '4px'
+                                  }}
+                                />
+                              ) : (
+                                <div>
+                                  <div style={{ fontWeight: 600 }}>{conn.display_name}</div>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{conn.brokerage_name}</div>
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                              {editingConnectionId === conn.id ? (
+                                <button
+                                  onClick={() => renameConnectionMutation.mutate({ connectionId: conn.id, displayName: editingDisplayName })}
+                                  disabled={renameConnectionMutation.isPending}
+                                  style={{
+                                    padding: '0.5rem 0.75rem',
+                                    backgroundColor: 'var(--up)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: renameConnectionMutation.isPending ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.75rem'
+                                  }}
+                                >
+                                  <Save size={14} />
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setEditingConnectionId(conn.id);
+                                    setEditingDisplayName(conn.display_name || conn.brokerage_name);
+                                  }}
+                                  style={{
+                                    padding: '0.5rem 0.75rem',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--accent)',
+                                    border: '1px solid var(--accent)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', position: 'relative' }}>
-          <h2 style={{ fontSize: '1.25rem' }}>Brokerage Connections</h2>
-          <button 
-            onClick={handleSync} 
+          <h2 style={{ fontSize: '1.25rem' }}>Brokerage Connection Summary</h2>
+          <button
+            onClick={handleSync}
             disabled={syncing}
             className="btn btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
@@ -236,70 +482,84 @@ const Settings = () => {
           </button>
         </div>
 
-        {connections.length === 0 && !config?.isPersonal ? (
+        {snapTradeKeys.length === 0 ? (
           <div style={{ padding: '2rem', textAlign: 'center', backgroundColor: 'var(--bg-main)', borderRadius: '8px' }}>
             <AlertTriangle size={32} style={{ color: 'var(--down)', marginBottom: '1rem' }} />
-            <p style={{ marginBottom: '1rem' }}>No brokerage accounts connected yet.</p>
-            <button 
-              className="btn btn-primary"
-              onClick={handleConnect}
-              disabled={syncing}
-            >
-              Add Connection via SnapTrade
-            </button>
+            <p style={{ marginBottom: '0.5rem' }}>No SnapTrade keys configured.</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Configure keys in the SnapTrade Keys Management section above.</p>
           </div>
-        ) : connections.length === 0 && config?.isPersonal ? (
-           <div style={{ padding: '2rem', textAlign: 'center', backgroundColor: 'rgba(168, 85, 247, 0.1)', borderRadius: '8px', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
-              <Shield size={32} style={{ color: '#a855f7', marginBottom: '1rem' }} />
-              <p style={{ marginBottom: '0.5rem', fontWeight: 600 }}>Personal Integration Active</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Your accounts will appear automatically. Note: connections list might be empty in this mode.</p>
-           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
-                <th style={{ padding: '1rem' }}>Brokerage</th>
-                <th style={{ padding: '1rem' }}>Status</th>
-                <th style={{ padding: '1rem' }}>Last Synced</th>
-                <th style={{ padding: '1rem' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {connections.map(conn => (
-                <tr key={conn.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '1rem', fontWeight: 600 }}>{conn.brokerage_name}</td>
-                  <td style={{ padding: '1rem' }}>
-                    <span style={{ 
-                      backgroundColor: 'rgba(34, 197, 94, 0.1)', 
-                      color: 'var(--up)', 
-                      padding: '2px 8px', 
-                      borderRadius: '4px', 
-                      fontSize: '0.75rem' 
-                    }}>
-                      {conn.connection_status}
-                    </span>
-                  </td>
-                  <td style={{ padding: '1rem', color: 'var(--text-muted)' }}>{new Date(conn.last_synced).toLocaleString()}</td>
-                  <td style={{ padding: '1rem' }}>
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                      <button 
-                        onClick={handleConnect}
-                        style={{ color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
-                      >
-                        Reconnect
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteConnection(conn.id)}
-                        style={{ color: 'var(--down)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.875rem' }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {Array.isArray(connections) && connections.map(keyGroup => (
+              <div key={`key-${keyGroup.keyIndex}`} style={{
+                padding: '1rem',
+                backgroundColor: 'var(--bg-main)',
+                borderRadius: '8px',
+                border: '1px solid var(--border)'
+              }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                  Key {keyGroup.keyIndex} - {keyGroup.connections?.length || 0} connection{keyGroup.connections?.length !== 1 ? 's' : ''}
+                </div>
+
+                {!keyGroup.connections || keyGroup.connections.length === 0 ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.875rem' }}>No connections for this key</p>
+                    <button
+                      onClick={() => oauthMutation.mutate(keyGroup.keyIndex)}
+                      disabled={oauthMutation.isPending}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: 'var(--accent)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: oauthMutation.isPending ? 'not-allowed' : 'pointer',
+                        fontSize: '0.875rem'
+                      }}
+                    >
+                      Add Connection
+                    </button>
+                  </div>
+                ) : (
+                  <table style={{ width: '100%', fontSize: '0.875rem' }}>
+                    <tbody>
+                      {keyGroup.connections.map(conn => (
+                        <tr key={conn.id} style={{ borderBottom: '1px solid rgba(107, 114, 128, 0.2)' }}>
+                          <td style={{ padding: '0.5rem 0', fontWeight: 600 }}>{conn.display_name}</td>
+                          <td style={{ padding: '0.5rem 1rem', color: 'var(--text-muted)' }}>{conn.brokerage_name}</td>
+                          <td style={{ padding: '0.5rem 1rem' }}>
+                            <span style={{
+                              backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                              color: 'var(--up)',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem'
+                            }}>
+                              {conn.connection_status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.5rem 1rem', textAlign: 'right' }}>
+                            <button
+                              onClick={() => handleDeleteConnection(conn.id)}
+                              style={{
+                                color: 'var(--down)',
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '0.875rem'
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

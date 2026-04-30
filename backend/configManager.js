@@ -54,16 +54,39 @@ const configManager = {
   },
 
   async validateOrPrompt() {
-    const hasKeys = !!(process.env.SNAPTRADE_CLIENT_ID && process.env.SNAPTRADE_CONSUMER_KEY);
-    if (!hasKeys) {
+    const keys = this.parseMultiKeyEnv();
+    if (keys.length === 0) {
       cfgLog.warn('SnapTrade credentials not found in environment variables — live brokerage sync disabled');
     }
   },
-  
+
+  parseMultiKeyEnv() {
+    const keys = [];
+    // Try numbered format first
+    for (let i = 1; i <= 3; i++) {
+      const clientId = process.env[`SNAPTRADE_CLIENT_ID_${i}`];
+      const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${i}`];
+      if (clientId && consumerKey) {
+        keys.push({ index: i, clientId, hasConsumerKey: true });
+      }
+    }
+    // Fall back to legacy format
+    if (keys.length === 0) {
+      const legacyClientId = process.env.SNAPTRADE_CLIENT_ID;
+      const legacyConsumerKey = process.env.SNAPTRADE_CONSUMER_KEY;
+      if (legacyClientId && legacyConsumerKey) {
+        keys.push({ index: 1, clientId: legacyClientId, hasConsumerKey: true });
+      }
+    }
+    return keys;
+  },
+
   getSettings() {
+    const envKeys = this.parseMultiKeyEnv();
     return {
       ...this.settings,
-      HAS_ENV_VARS: !!(process.env.SNAPTRADE_CLIENT_ID && process.env.SNAPTRADE_CONSUMER_KEY)
+      HAS_ENV_VARS: envKeys.length > 0,
+      ENV_KEYS: envKeys
     };
   },
 

@@ -13,8 +13,8 @@ router.get('/', (req, res) => {
 
   // SnapTrade supports up to 3 keys in this app's logic
   for (let i = 1; i <= 3; i++) {
-    const clientId = settings[`SNAPTRADE_CLIENT_ID_${i}`] || (i === 1 ? settings.SNAPTRADE_CLIENT_ID : null);
-    const consumerKey = settings[`SNAPTRADE_CONSUMER_KEY_${i}`] || (i === 1 ? settings.SNAPTRADE_CONSUMER_KEY : null);
+    const clientId = process.env[`SNAPTRADE_CLIENT_ID_${i}`] || (i === 1 ? process.env.SNAPTRADE_CLIENT_ID : null);
+    const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${i}`] || (i === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : null);
 
     if (clientId && consumerKey) {
       // Check if user is registered for this key
@@ -26,9 +26,13 @@ router.get('/', (req, res) => {
       const connectionCountStmt = db.db.prepare('SELECT COUNT(*) as count FROM connections WHERE key_index = ?');
       const connectionCount = connectionCountStmt.get(i).count;
 
+      // Get custom name for this key
+      const keyName = db.getSetting(`SNAPTRADE_KEY_NAME_${i}`) || `Key ${i}`;
+
       keys.push({
         keyIndex: i,
         clientId: clientId,
+        name: keyName,
         registered: !!(userId && userSecret),
         connectionCount: connectionCount
       });
@@ -69,6 +73,29 @@ router.delete('/:keyIndex', (req, res) => {
     res.json({ success: true, connectionsDeleted: connections.length });
   } catch (err) {
     keyLog.error('Failed to delete SnapTrade key', { keyIndex, error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /api/snaptrade-keys/:keyIndex
+router.patch('/:keyIndex', (req, res) => {
+  const keyIndex = parseInt(req.params.keyIndex);
+  const { name } = req.body;
+
+  if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > 3) {
+    return res.status(400).json({ error: 'Invalid key index' });
+  }
+
+  if (name === undefined) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+
+  try {
+    db.setSetting(`SNAPTRADE_KEY_NAME_${keyIndex}`, name);
+    keyLog.info('SnapTrade key name updated', { keyIndex, name });
+    res.json({ success: true, name });
+  } catch (err) {
+    keyLog.error('Failed to update SnapTrade key name', { keyIndex, error: err.message });
     res.status(500).json({ error: 'Internal server error' });
   }
 });

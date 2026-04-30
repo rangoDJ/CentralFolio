@@ -8,6 +8,8 @@ const Settings = () => {
   const [envVars, setEnvVars] = useState({});
   const [editingConnectionId, setEditingConnectionId] = useState(null);
   const [editingDisplayName, setEditingDisplayName] = useState('');
+  const [editingKeyIndex, setEditingKeyIndex] = useState(null);
+  const [editingKeyName, setEditingKeyName] = useState('');
   const [expandedKey, setExpandedKey] = useState(null);
 
   const { data: snapTradeKeys = [], isLoading: isLoadingKeys } = useQuery({
@@ -82,6 +84,27 @@ const Settings = () => {
     },
     onError: () => {
       toast.error('Failed to rename connection');
+    }
+  });
+
+  // Mutation for renaming SnapTrade key
+  const updateKeyNameMutation = useMutation({
+    mutationFn: async ({ keyIndex, name }) => {
+      const res = await fetch(`/api/snaptrade-keys/${keyIndex}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) throw new Error('Failed to update key name');
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success('Key name updated successfully');
+      queryClient.invalidateQueries({ queryKey: ['snaptrade-keys'] });
+      setEditingKeyIndex(null);
+    },
+    onError: () => {
+      toast.error('Failed to update key name');
     }
   });
 
@@ -321,9 +344,73 @@ const Settings = () => {
                 border: '1px solid var(--border)'
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>Key {key.keyIndex}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{key.clientId}</div>
+                  <div style={{ flex: 1 }}>
+                    {editingKeyIndex === key.keyIndex ? (
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={editingKeyName}
+                          onChange={(e) => setEditingKeyName(e.target.value)}
+                          placeholder="Tag this key (e.g. Personal, Work)"
+                          style={{
+                            padding: '0.5rem',
+                            backgroundColor: 'var(--bg-card)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '4px',
+                            fontSize: '0.875rem',
+                            width: '200px'
+                          }}
+                        />
+                        <button
+                          onClick={() => updateKeyNameMutation.mutate({ keyIndex: key.keyIndex, name: editingKeyName })}
+                          disabled={updateKeyNameMutation.isPending}
+                          style={{
+                            padding: '0.5rem',
+                            backgroundColor: 'var(--up)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Save size={16} />
+                        </button>
+                        <button
+                          onClick={() => setEditingKeyIndex(null)}
+                          style={{
+                            padding: '0.5rem',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            color: 'var(--down)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <XCircle size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ fontWeight: 600 }}>{key.name || `Key ${key.keyIndex}`}</div>
+                        <button
+                          onClick={() => {
+                            setEditingKeyIndex(key.keyIndex);
+                            setEditingKeyName(key.name || `Key ${key.keyIndex}`);
+                          }}
+                          style={{
+                            padding: '0.25rem',
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--text-muted)',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{key.clientId}</div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <span style={{
@@ -498,7 +585,7 @@ const Settings = () => {
                 border: '1px solid var(--border)'
               }}>
                 <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                  Key {keyGroup.keyIndex} - {keyGroup.connections?.length || 0} connection{keyGroup.connections?.length !== 1 ? 's' : ''}
+                  {(snapTradeKeys.find(k => k.keyIndex === keyGroup.keyIndex)?.name) || `Key ${keyGroup.keyIndex}`} - {keyGroup.connections?.length || 0} connection{keyGroup.connections?.length !== 1 ? 's' : ''}
                 </div>
 
                 {!keyGroup.connections || keyGroup.connections.length === 0 ? (

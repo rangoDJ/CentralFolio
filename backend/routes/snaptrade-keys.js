@@ -1,7 +1,10 @@
 const { Router } = require('express');
+const crypto = require('crypto');
 const log = require('../logger');
 const db = require('../db');
 const configManager = require('../configManager');
+const { getSnaptrade } = require('../services/snaptradeClient');
+const { performSync } = require('../services/syncService');
 
 const router = Router();
 const keyLog = log.make('snaptrade-keys');

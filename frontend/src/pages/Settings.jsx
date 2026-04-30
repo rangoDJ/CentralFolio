@@ -155,9 +155,11 @@ const Settings = () => {
       }
       return res.json();
     },
-    onSuccess: () => {
-      toast.success('SnapTrade key saved successfully');
+    onSuccess: (data) => {
+      toast.success(data.message || 'Key saved and user registered');
       queryClient.invalidateQueries({ queryKey: ['snaptrade-keys'] });
+      queryClient.invalidateQueries({ queryKey: ['connections'] });
+      queryClient.invalidateQueries({ queryKey: ['brokerage-accounts'] });
       queryClient.invalidateQueries({ queryKey: ['config'] });
       setNewClientId('');
       setNewConsumerKey('');

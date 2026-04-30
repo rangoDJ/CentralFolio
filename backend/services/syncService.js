@@ -22,65 +22,70 @@ async function performSync() {
     const { userId, userSecret, isPersonal, clientId } = getCredentials(i);
 
     if (!clientId) {
-      if (i === 1) syncLog.warn('Auto-sync skipped: no SnapTrade credentials configured for key 1');
+      syncLog.debug(`Key ${i}: no clientId configured, skipping`);
       continue;
     }
 
     if (!userId || !userSecret) {
-      syncLog.warn(`Key ${i}: credentials not yet registered — skipping sync. Use Settings → Connect Brokerage to register.`, { isPersonal });
+      syncLog.warn(`Key ${i}: registered=false — skipping sync (no userId/userSecret). Save a key via Settings to register.`, { isPersonal, clientId: clientId.slice(0, 8) + '...' });
       continue;
     }
 
-    syncLog.info(`Syncing key index ${i}`, { isPersonal });
+    syncLog.info(`Key ${i}: starting sync`, { isPersonal, userId: userId.slice(0, 12) + '...' });
     let authorizations = [];
 
     try {
-      syncLog.debug(`Key ${i}: Fetching brokerage authorizations`);
+      syncLog.info(`Key ${i}: fetching brokerage authorizations from SnapTrade`);
       const authorizationsResponse = await getSnaptrade(i).connections.listBrokerageAuthorizations({ userId, userSecret });
-      authorizations = authorizationsResponse.data;
-      syncLog.info(`Key ${i}: Authorizations fetched`, { count: authorizations.length });
-
-      if (Array.isArray(authorizations)) {
-        for (const auth of authorizations) {
-          db.upsertConnection(auth.id, auth.brokerage?.name || 'Unknown', 'CONNECTED', i);
-
-          try {
-            await getSnaptrade(i).connections.refreshBrokerageAuthorization({
-              authorizationId: auth.id, userId, userSecret
-            });
-          } catch (err) {
-            // Ignore refresh errors — often due to plan limitations
-          }
-        }
-        allAuthorizations.push(...authorizations);
-      }
-
-      syncLog.debug(`Key ${i}: Fetching user accounts list`);
-      const accountsRes = await getSnaptrade(i).accountInformation.listUserAccounts({ userId, userSecret });
-      if (Array.isArray(accountsRes.data)) {
-        syncLog.info(`Key ${i}: Accounts list fetched`, { count: accountsRes.data.length });
-        for (const acc of accountsRes.data) {
-          const matchedAuth = Array.isArray(authorizations)
-            ? authorizations.find(a => a.brokerage?.name === acc.institution_name)
-            : null;
-          db.upsertBrokerageAccount(
-            acc.id,
-            matchedAuth?.id || null,
-            acc.institution_name || 'Unknown',
-            acc.name || 'Account',
-            acc.number || '',
-            acc.currency || 'CAD'
-          );
-          allAccounts.push(acc);
-        }
-      }
-    } catch (err) {
-      const errorDetail = err.response?.data?.message || err.response?.data || err.message;
-      syncLog.error(`Failed to sync key index ${i}`, { 
-        error: err.message, 
-        detail: errorDetail,
-        status: err.response?.status
+      authorizations = authorizationsResponse.data || [];
+      syncLog.info(`Key ${i}: authorizations fetched`, {
+        count: authorizations.length,
+        brokerages: authorizations.map(a => a.brokerage?.name || 'Unknown')
       });
+
+      if (authorizations.length === 0) {
+        syncLog.warn(`Key ${i}: no brokerage connections found — user must complete OAuth via Settings → Connect Brokerage`);
+      }
+
+      for (const auth of authorizations) {
+        syncLog.debug(`Key ${i}: upserting connection`, { id: auth.id, brokerage: auth.brokerage?.name });
+        db.upsertConnection(auth.id, auth.brokerage?.name || 'Unknown', 'CONNECTED', i);
+        try {
+          await getSnaptrade(i).connections.refreshBrokerageAuthorization({ authorizationId: auth.id, userId, userSecret });
+          syncLog.debug(`Key ${i}: refreshed authorization`, { id: auth.id });
+        } catch (err) {
+          syncLog.warn(`Key ${i}: could not refresh authorization (non-fatal)`, { id: auth.id, error: err.message });
+        }
+      }
+      allAuthorizations.push(...authorizations);
+
+      syncLog.info(`Key ${i}: fetching user accounts list`);
+      const accountsRes = await getSnaptrade(i).accountInformation.listUserAccounts({ userId, userSecret });
+      const accounts = accountsRes.data || [];
+      syncLog.info(`Key ${i}: accounts fetched`, {
+        count: accounts.length,
+        accounts: accounts.map(a => `${a.name} (${a.institution_name})`)
+      });
+
+      for (const acc of accounts) {
+        const matchedAuth = authorizations.find(a => a.brokerage?.name === acc.institution_name) || null;
+        syncLog.debug(`Key ${i}: upserting account`, { id: acc.id, name: acc.name, brokerage: acc.institution_name, connectionId: matchedAuth?.id });
+        db.upsertBrokerageAccount(
+          acc.id,
+          matchedAuth?.id || null,
+          acc.institution_name || 'Unknown',
+          acc.name || 'Account',
+          acc.number || '',
+          acc.currency || 'CAD'
+        );
+        allAccounts.push(acc);
+      }
+
+      syncLog.info(`Key ${i}: sync complete`, { authorizations: authorizations.length, accounts: accounts.length });
+    } catch (err) {
+      const status = err.response?.status;
+      const errorDetail = err.response?.data?.detail || err.response?.data?.message || err.response?.data || err.message;
+      syncLog.error(`Key ${i}: sync failed`, { error: err.message, status, detail: errorDetail });
     }
   }
 

@@ -21,10 +21,13 @@ async function performSync() {
   for (let i = 1; i <= 10; i++) {
     const { userId, userSecret, isPersonal, clientId } = getCredentials(i);
 
-    if (!isPersonal && (!userId || !userSecret)) {
-      if (i === 1 && !clientId) {
-        syncLog.warn('Auto-sync skipped: SnapTrade credentials missing for key 1');
-      }
+    if (!clientId) {
+      if (i === 1) syncLog.warn('Auto-sync skipped: no SnapTrade credentials configured for key 1');
+      continue;
+    }
+
+    if (!userId || !userSecret) {
+      syncLog.warn(`Key ${i}: credentials not yet registered — skipping sync. Use Settings → Connect Brokerage to register.`, { isPersonal });
       continue;
     }
 
@@ -32,29 +35,21 @@ async function performSync() {
     let authorizations = [];
 
     try {
-      if (isPersonal) {
-        syncLog.debug(`Key ${i}: Personal flow detected`);
-        db.upsertConnection(userId, 'Personal Integration', 'CONNECTED', i);
-        authorizations = [{ id: userId, brokerage: { name: 'Personal Integration' } }];
-      } else {
-        syncLog.debug(`Key ${i}: Fetching brokerage authorizations`);
-        const authorizationsResponse = await getSnaptrade(i).connections.listBrokerageAuthorizations({ userId, userSecret });
-        authorizations = authorizationsResponse.data;
-        syncLog.info(`Key ${i}: Authorizations fetched`, { count: authorizations.length });
-      }
+      syncLog.debug(`Key ${i}: Fetching brokerage authorizations`);
+      const authorizationsResponse = await getSnaptrade(i).connections.listBrokerageAuthorizations({ userId, userSecret });
+      authorizations = authorizationsResponse.data;
+      syncLog.info(`Key ${i}: Authorizations fetched`, { count: authorizations.length });
 
       if (Array.isArray(authorizations)) {
         for (const auth of authorizations) {
           db.upsertConnection(auth.id, auth.brokerage?.name || 'Unknown', 'CONNECTED', i);
-          
-          if (isPersonal) continue;
 
           try {
             await getSnaptrade(i).connections.refreshBrokerageAuthorization({
               authorizationId: auth.id, userId, userSecret
             });
           } catch (err) {
-            // Ignore refresh errors as they are often due to plan limitations
+            // Ignore refresh errors — often due to plan limitations
           }
         }
         allAuthorizations.push(...authorizations);

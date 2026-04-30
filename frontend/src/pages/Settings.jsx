@@ -17,32 +17,36 @@ const Settings = () => {
 
   const { data: snapTradeKeys = [], isLoading: isLoadingKeys } = useQuery({
     queryKey: ['snaptrade-keys'],
-    queryFn: () => fetch('/api/snaptrade-keys').then(res => res.json())
+    queryFn: () => fetch('/api/snaptrade-keys').then(res => res.json()),
+    refetchInterval: false,
+    staleTime: Infinity
   });
 
   const { data: connections = [], isLoading: isLoadingConnections } = useQuery({
     queryKey: ['connections'],
-    queryFn: () => fetch('/api/connections').then(res => res.json())
+    queryFn: () => fetch('/api/connections').then(res => res.json()),
+    refetchInterval: false,
+    staleTime: Infinity
   });
 
   const { data: settings = [], isLoading: isLoadingSettings } = useQuery({
     queryKey: ['settings'],
-    queryFn: () => fetch('/api/settings').then(res => res.json())
+    queryFn: () => fetch('/api/settings').then(res => res.json()),
+    refetchInterval: false,
+    staleTime: Infinity
   });
 
   const { data: config, isLoading: isLoadingConfig } = useQuery({
     queryKey: ['config'],
-    queryFn: () => fetch('/api/config').then(res => res.json())
+    queryFn: () => fetch('/api/config').then(res => res.json()),
+    refetchInterval: false,
+    staleTime: Infinity
   });
 
   useEffect(() => {
-    if (config) {
-      const syncTimeSetting = settings.find(s => s.key === 'TRANSACTION_SYNC_TIME');
-      setEnvVars({
-        TRANSACTION_SYNC_TIME: syncTimeSetting?.value || '02:00'
-      });
-    }
-  }, [config, settings]);
+    const value = settings.find(s => s.key === 'TRANSACTION_SYNC_TIME')?.value || '02:00';
+    setEnvVars(prev => prev.TRANSACTION_SYNC_TIME === value ? prev : { ...prev, TRANSACTION_SYNC_TIME: value });
+  }, [settings]);
 
   const handleSettingChange = async (key, value) => {
     setEnvVars(prev => ({ ...prev, [key]: value }));
@@ -64,7 +68,9 @@ const Settings = () => {
 
   const { data: brokerageAccounts = [] } = useQuery({
     queryKey: ['brokerage-accounts'],
-    queryFn: () => fetch('/api/brokerage-accounts').then(r => r.json())
+    queryFn: () => fetch('/api/brokerage-accounts').then(r => r.json()),
+    refetchInterval: false,
+    staleTime: Infinity
   });
 
   const loading = isLoadingConnections || isLoadingSettings || isLoadingConfig || isLoadingKeys;

@@ -14,7 +14,9 @@ People and their accounts are configured dynamically (not hardcoded). The UI ada
 - People are identified by a local label (e.g. "Person A", or real names if preferred) and assigned a color from a consistent palette
 - Each account has a stable local key mapping, e.g. `"person-a-tfsa"` → SnapTrade `accountId`, along with a human-readable label and account type
 - Account types supported: **TFSA**, **RRSP**, **Non-Registered Margin** (and any future types)
-- All SnapTrade brokerage connections are under a **single registered SnapTrade user**
+- **Multi-key support**: Up to **3 SnapTrade API credential pairs** can be configured, each with independent user registration
+- Each credential pair can manage multiple brokerage connections
+- All SnapTrade requests are HMAC-signed via the backend proxy
 - Currencies held: **CAD and USD only**
 - All display values normalized to **CAD**
 
@@ -202,11 +204,25 @@ Pay-date FX rate
 
 ## SnapTrade Setup
 
+### Single Key (Legacy)
 1. Register a developer account at snaptrade.com
-2. Create one SnapTrade "user" (yourself)
-3. Run the OAuth brokerage connection flow once per account
-4. Assign each connected account a person label and account type in Settings
-5. All subsequent API calls use your `userId` + `userSecret` + HMAC-signed requests via the backend proxy
+2. Set `SNAPTRADE_CLIENT_ID` and `SNAPTRADE_CONSUMER_KEY` in environment
+3. Create SnapTrade "user" via API (auto-registered on first startup)
+4. Run OAuth brokerage connection flow for each account
+5. Assign account labels and types in Settings
+
+### Multi-Key (Recommended)
+1. Register developer accounts at snaptrade.com (up to 3)
+2. Set environment variables for each key:
+   - `SNAPTRADE_CLIENT_ID_1` / `SNAPTRADE_CONSUMER_KEY_1`
+   - `SNAPTRADE_CLIENT_ID_2` / `SNAPTRADE_CONSUMER_KEY_2`
+   - `SNAPTRADE_CLIENT_ID_3` / `SNAPTRADE_CONSUMER_KEY_3`
+3. On Docker startup, the backend automatically:
+   - Parses configured keys
+   - Registers SnapTrade user per key
+   - Syncs existing brokerage connections
+4. In Settings, manage keys, connections, and account mappings per key
+5. In Trade page, select accounts from hierarchical selector grouped by key/brokerage
 
 ---
 
@@ -215,26 +231,45 @@ Pay-date FX rate
 ```
 /
 ├── backend/
-│   ├── server.js          # Express proxy + HMAC signing + cache (441 lines)
-│   ├── db.js              # SQLite wrapper — settings, connections, account mappings (134 lines)
-│   ├── fx.js              # FX rate fetching + 60s cache (37 lines)
-│   ├── configManager.js   # First-time setup, env injection, config.json (75 lines)
-│   ├── cryptoUtils.js     # AES-256-GCM encryption for stored secrets (50 lines)
-│   ├── snaptrade.js       # SnapTrade API client wrapper + HMAC signing (58 lines)
-│   ├── mockDataLoader.js  # Loads mock CSV data from user_data/mock_data/ (68 lines)
+│   ├── server.js          # Express proxy + HMAC signing + cache
+│   ├── db.js              # SQLite wrapper — multi-key support, snaptrade_keys table, connections
+│   ├── fx.js              # FX rate fetching + 60s cache
+│   ├── configManager.js   # Multi-key env parsing (SNAPTRADE_CLIENT_ID_1-3), config.json
+│   ├── cryptoUtils.js     # AES-256-GCM encryption for stored secrets
+│   ├── snaptrade.js       # SnapTrade API client wrapper + HMAC signing
+│   ├── services/
+│   │   ├── keyInitializer.js    # Multi-key initialization, user registration per key, connection sync
+│   │   ├── syncService.js       # Account sync across multiple keys
+│   │   ├── cache.js             # 15-min portfolio cache
+│   │   └── snaptradeClient.js   # SnapTrade API client
+│   ├── routes/
+│   │   ├── accounts.js          # Account endpoint with grouping by key/brokerage
+│   │   ├── snaptrade-keys.js    # Multi-key management (GET, POST, DELETE)
+│   │   ├── connections.js       # Connection management (PATCH for rename, POST for OAuth)
+│   │   ├── orders.js            # Order placement
+│   │   ├── transactions.js      # Transaction history
+│   │   └── settings.js          # Settings management
+│   ├── workers/
+│   │   ├── automationWorker.js  # DRIP automation
+│   │   ├── cacheWorker.js       # Portfolio cache warmup
+│   │   └── schedulerWorker.js   # Scheduled tasks
 │   └── tests/             # Diagnostic/integration scripts for SnapTrade API
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
 │   │   │   ├── Overview.jsx      # Summary metrics, account grid, asset allocation
-│   │   │   ├── Trade.jsx         # Chart + order ticket (form complete, submission stubbed)
-│   │   │   ├── Holdings.jsx      # Tabbed by account, CAD/USD split, FX impact
-│   │   │   ├── Orders.jsx        # STUB — just a heading
-│   │   │   ├── Dividends.jsx     # Mock dividend income + 12-month bar chart
-│   │   │   ├── Performance.jsx   # Mock GBM chart — no real data
-│   │   │   └── Settings.jsx      # API keys, account sync, mock mode toggle
+│   │   │   ├── Trade.jsx         # Chart + order ticket with real API integration
+│   │   │   │                     # Fixed shares/amount toggle, MARKET/LIMIT orders
+│   │   │   │                     # AccountSelector for hierarchical account selection
+│   │   │   ├── Holdings.jsx      # Multi-currency table with FX impact + holders dots
+│   │   │   ├── Orders.jsx        # Pending and filled orders across accounts
+│   │   │   ├── Dividends.jsx     # Dividend income tracking and projections
+│   │   │   ├── Performance.jsx   # Portfolio performance analytics
+│   │   │   └── Settings.jsx      # Complete redesign: multi-key management, connection renaming
+│   │   │                         # Account selection, per-key OAuth flow
 │   │   ├── components/
+│   │   │   ├── AccountSelector.jsx   # Hierarchical account dropdown with optgroup
 │   │   │   ├── AccountGrid.jsx       # Fetches + renders AccountCard for each account
 │   │   │   ├── AccountCard.jsx       # Account value, day change, allocation %
 │   │   │   ├── HoldingsTable.jsx     # Multi-currency table with FX impact + holders dots
@@ -257,39 +292,53 @@ Pay-date FX rate
 
 ---
 
-## Current Implementation Status
+## Implementation Status (as of Phase 7)
 
-### Backend — ~70% complete
-| Area | Status |
-|------|--------|
-| Server startup, routing, config | Done |
-| SnapTrade OAuth + account sync | Done |
-| FX rate caching (Bank of Canada) | Done |
-| SQLite DB + AES-256-GCM encryption | Done |
-| Mock mode + CSV data loader | Done |
-| 15-min portfolio cache + warmup | Done |
-| Order placement API | Not started |
-| Dividend data layer (Polygon.io) | Not started |
-| Buying power calculation | Partial (hardcoded in frontend) |
-| Account-to-person assignment API | Partial |
+### Backend — ~85% complete ✅
+| Feature | Status |
+|---------|--------|
+| **Multi-Key Support (Phase 1-2)** | ✅ Done |
+| Multi-key database schema (snaptrade_keys table) | ✅ Complete |
+| Auto-detection & initialization per key | ✅ Complete |
+| User registration per key | ✅ Complete |
+| Server startup, routing, config | ✅ Done |
+| SnapTrade OAuth + account sync | ✅ Done (per-key) |
+| FX rate caching (Bank of Canada) | ✅ Done |
+| SQLite DB + AES-256-GCM encryption | ✅ Done |
+| Mock mode + CSV data loader | ✅ Done |
+| 15-min portfolio cache + warmup | ✅ Done |
+| Order placement API (Phase 5) | ✅ Done |
+| Account grouping by key/brokerage (Phase 4) | ✅ Done |
+| Connection management API (Phase 3) | ✅ Done |
+| Environment variable handling (Phase 7) | ✅ Done |
+| Dividend data layer (Polygon.io) | ⏳ Future |
+| Buying power calculation | ⏳ Planned |
 
-### Frontend — ~45% complete
-| Page / Component | Status |
-|-----------------|--------|
-| Layout, nav, theming | Done |
-| Overview — metrics + account grid | Partial (buying power hardcoded, allocation % = 0) |
-| Holdings — table + FX impact display | Partial (dayPnL, fxImpact fields are 0 in mock data) |
-| Trade — form UI + chart placeholder | Partial (submission is a stub alert, no real quotes) |
-| Orders | Stub (heading only) |
-| Dividends | Mock data only, no real dividend source |
-| Performance | Mock GBM data, no real benchmarks |
-| Settings — API keys + account sync | Substantial, mostly wired |
-| Person filter bar | Not implemented |
-| Colored person dots (holdings, calendar) | Not implemented |
-| TFSA contribution room | Not implemented |
-| Pre/post-tax dividend toggle | Not implemented |
-| DRIP tracker | Not implemented |
-| Annual income goal tracker | Not implemented |
+### Frontend — ~70% complete ✅
+| Feature | Status |
+|---------|--------|
+| Layout, nav, theming | ✅ Done |
+| **Trade Page (Phase 5)** | ✅ Complete |
+| Account selection with AccountSelector component | ✅ Done |
+| Fixed Shares vs Fixed Amount toggle | ✅ Done |
+| MARKET and LIMIT order types | ✅ Done |
+| Real API order placement with validation | ✅ Done |
+| Order confirmation modal | ✅ Done |
+| Loading states and error handling | ✅ Done |
+| **Settings Page (Phase 6)** | ✅ Complete Redesign |
+| SnapTrade Keys management (add/delete/view) | ✅ Done |
+| Connection management per key | ✅ Done |
+| Connection renaming with inline editor | ✅ Done |
+| Account selection with checkboxes | ✅ Done |
+| Per-key OAuth flow | ✅ Done |
+| Overview — metrics + account grid | ⏳ In Progress |
+| Holdings — table + FX impact display | ⏳ In Progress |
+| Orders — pending and filled | ⏳ In Progress |
+| Dividends — calendar + analytics | ⏳ Planned |
+| Performance — benchmarks | ⏳ Planned |
+| Person filter bar | ⏳ Future |
+| Colored person dots | ⏳ Future |
+| TFSA contribution room | ⏳ Future |
 
 ---
 

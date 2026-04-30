@@ -100,7 +100,9 @@ router.patch('/:keyIndex', (req, res) => {
 //   5. Trigger background sync (picks up any existing brokerage connections)
 router.post('/:keyIndex', async (req, res) => {
   const keyIndex = parseInt(req.params.keyIndex);
-  const { clientId, consumerKey, name } = req.body;
+  const clientId    = (req.body.clientId    || '').trim();
+  const consumerKey = (req.body.consumerKey || '').trim();
+  const name        = req.body.name;
 
   if (isNaN(keyIndex) || keyIndex < 1 || keyIndex > MAX_KEY_INDEX) {
     return res.status(400).json({ error: 'Invalid key index' });
@@ -118,7 +120,11 @@ router.post('/:keyIndex', async (req, res) => {
     db.setSetting(`SNAPTRADE_CLIENT_ID${keySuffix}`, clientId);
     db.setSetting(`SNAPTRADE_CONSUMER_KEY${keySuffix}`, consumerKey);
     if (name) db.setSetting(`SNAPTRADE_KEY_NAME${keySuffix}`, name);
-    keyLog.info('[key-save] Step 1: credentials saved to DB', { keyIndex });
+    keyLog.info('[key-save] Step 1: credentials saved to DB', {
+      keyIndex,
+      clientIdLength: clientId.length,
+      consumerKeyLength: consumerKey.length
+    });
   } catch (dbErr) {
     keyLog.error('[key-save] Step 1 failed: DB write error', { keyIndex, error: dbErr.message });
     return res.status(500).json({ error: 'Failed to save credentials to database', detail: dbErr.message });
@@ -126,24 +132,21 @@ router.post('/:keyIndex', async (req, res) => {
 
   const snap = getSnaptrade(keyIndex);
 
-  // Step 2: list users already registered under this clientId on SnapTrade
+  // Step 2: list users — also validates credentials. Fail fast on any error.
   let registeredUsers = [];
   try {
     const listRes = await snap.authentication.listSnapTradeUsers();
     registeredUsers = listRes.data || [];
-    keyLog.info('[key-save] Step 2: SnapTrade user list', { keyIndex, count: registeredUsers.length, users: registeredUsers });
+    keyLog.info('[key-save] Step 2: SnapTrade user list OK', { keyIndex, count: registeredUsers.length, users: registeredUsers });
   } catch (listErr) {
     const status = listErr.response?.status;
     const detail = listErr.response?.data || listErr.message;
-    keyLog.warn('[key-save] Step 2: could not list SnapTrade users', { keyIndex, status, detail });
-
-    if (status === 401 || status === 403) {
-      return res.status(401).json({
-        error: 'SnapTrade authentication failed — verify your Client ID and Consumer Key',
-        detail
-      });
-    }
-    // Non-auth failure (network, etc.) — continue and attempt registration anyway
+    keyLog.error('[key-save] Step 2: listSnapTradeUsers failed', { keyIndex, status, message: listErr.message, detail });
+    // Any failure here means credentials are bad or SnapTrade is unreachable — don't proceed
+    return res.status(401).json({
+      error: `SnapTrade credential check failed (${status || listErr.message}) — verify your Client ID and Consumer Key`,
+      detail
+    });
   }
 
   // Step 3: determine userId / userSecret to use

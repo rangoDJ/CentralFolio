@@ -64,9 +64,6 @@ const configManager = {
     // Keys are now only loaded from database via Settings page
     // Environment variables are no longer used
     return [];
-  }
-    
-    return keys;
   },
 
   getSettings() {

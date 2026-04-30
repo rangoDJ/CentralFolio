@@ -30,14 +30,15 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const { userId, userSecret } = getCredentials();
+    const keyIndex = getKeyIndexForAccount(accountId);
+    const { userId, userSecret } = getCredentials(keyIndex);
     if (!userId) {
       return res.status(400).json({ error: 'SnapTrade credentials not configured. Please link an account in Settings.' });
     }
 
     let symId = universalSymbolId;
     if (!symId) {
-      const quotesRes = await safeGetQuotes(userId, userSecret, accountId, symbol);
+      const quotesRes = await safeGetQuotes(userId, userSecret, accountId, symbol, keyIndex);
       symId = quotesRes.data?.[0]?.symbol?.id;
       if (!symId) return res.status(404).json({ error: `Symbol "${symbol}" not found for this account` });
     }
@@ -53,8 +54,8 @@ router.post('/', async (req, res) => {
       ...(orderType === 'LIMIT' && limitPrice ? { price: parseFloat(limitPrice) } : {})
     };
 
-    const orderRes = await getSnaptrade().trading.placeForceOrder(payload);
-    orderLog.info('Order placed', { side, quantity, symbol, accountId, orderType });
+    const orderRes = await getSnaptrade(keyIndex).trading.placeForceOrder(payload);
+    orderLog.info('Order placed', { side, quantity, symbol, accountId, orderType, keyIndex });
 
     queryCache.accounts = null;
     queryCache.positions = null;
@@ -71,15 +72,16 @@ router.post('/', async (req, res) => {
 // GET /api/orders
 router.get('/', async (_req, res) => {
   try {
-    const { userId, userSecret } = getCredentials();
-    if (!userId) return res.json([]);
-
     const accounts = db.getAllBrokerageAccounts();
     const allOrders = [];
 
     for (const account of accounts) {
       try {
-        const ordersRes = await getSnaptrade().accountInformation.getUserAccountOrders({
+        const keyIndex = getKeyIndexForAccount(account.id);
+        const { userId, userSecret } = getCredentials(keyIndex);
+        if (!userId) continue;
+
+        const ordersRes = await getSnaptrade(keyIndex).accountInformation.getUserAccountOrders({
           userId, userSecret, accountId: account.id, days: 30
         });
         if (Array.isArray(ordersRes.data)) {

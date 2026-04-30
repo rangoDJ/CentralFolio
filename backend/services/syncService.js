@@ -80,7 +80,12 @@ async function performSync() {
         }
       }
     } catch (err) {
-      syncLog.error(`Failed to sync key index ${i}`, { error: err.message, detail: err.response?.data });
+      const errorDetail = err.response?.data?.message || err.response?.data || err.message;
+      syncLog.error(`Failed to sync key index ${i}`, { 
+        error: err.message, 
+        detail: errorDetail,
+        status: err.response?.status
+      });
     }
   }
 

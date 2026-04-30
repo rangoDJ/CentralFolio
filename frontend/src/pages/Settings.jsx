@@ -248,8 +248,8 @@ const Settings = () => {
         <StatusCard 
           title="SnapTrade API" 
           icon={Shield} 
-          status={config?.isPersonal ? "OK" : "OK"} 
-          details={config?.isPersonal ? "Personal Integration Active. Syncing via direct token." : "HMAC Signing active. Connection to SnapTrade Gateway is healthy."} 
+          status={config?.HAS_KEYS ? "OK" : "ERROR"} 
+          details={config?.isPersonal ? "Personal Integration Active. Syncing via direct token." : (config?.HAS_KEYS ? "HMAC Signing active. Connection to SnapTrade Gateway is healthy." : "No credentials detected. Please configure SnapTrade keys.")} 
         />
         <StatusCard 
           title="Database" 
@@ -288,20 +288,20 @@ const Settings = () => {
         <div style={{ display: 'grid', gap: '1rem', marginBottom: '1.5rem' }}>
           <div style={{
             padding: '1rem',
-            backgroundColor: config?.HAS_ENV_VARS ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+            backgroundColor: config?.HAS_KEYS ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
             borderRadius: '8px',
-            border: `1px solid ${config?.HAS_ENV_VARS ? 'var(--up)' : 'var(--down)'}`,
+            border: `1px solid ${config?.HAS_KEYS ? 'var(--up)' : 'var(--down)'}`,
             display: 'flex',
             alignItems: 'center',
             gap: '0.75rem'
           }}>
-            {config?.HAS_ENV_VARS ? (
+            {config?.HAS_KEYS ? (
               <>
                 <CheckCircle2 size={20} style={{ color: 'var(--up)' }} />
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--up)' }}>Credentials Detected</div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    {config?.ENV_KEYS?.length} SnapTrade key pair(s) loaded from environment variables.
+                    {config?.COMBINED_KEYS?.length} SnapTrade key pair(s) loaded ({config.COMBINED_KEYS.filter(k => k.source === 'environment').length} environment, {config.COMBINED_KEYS.filter(k => k.source === 'database').length} database).
                   </div>
                 </div>
               </>
@@ -311,7 +311,7 @@ const Settings = () => {
                 <div>
                   <div style={{ fontWeight: 600, color: 'var(--down)' }}>Missing Credentials</div>
                   <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                    SnapTrade credentials not found in environment. Set SNAPTRADE_CLIENT_ID_1 and SNAPTRADE_CONSUMER_KEY_1 (or legacy SNAPTRADE_CLIENT_ID/SNAPTRADE_CONSUMER_KEY) in .env or docker-compose.yml.
+                    SnapTrade credentials not found. Set SNAPTRADE_CLIENT_ID_1 and SNAPTRADE_CONSUMER_KEY_1 in .env or provide them via database settings.
                   </div>
                 </div>
               </>
@@ -413,6 +413,17 @@ const Settings = () => {
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>{key.clientId}</div>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    {key.isPersonal && (
+                      <span style={{
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        color: 'var(--accent)'
+                      }}>
+                        Personal
+                      </span>
+                    )}
                     <span style={{
                       padding: '0.25rem 0.75rem',
                       borderRadius: '4px',

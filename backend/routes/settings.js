@@ -8,6 +8,10 @@ const cfgLog = log.make('settings');
 
 const ALLOWED_SETTING_KEYS = new Set([
   'SNAPTRADE_USER_ID', 'SNAPTRADE_USER_SECRET',
+  'SNAPTRADE_CLIENT_ID', 'SNAPTRADE_CONSUMER_KEY',
+  'SNAPTRADE_CLIENT_ID_1', 'SNAPTRADE_CONSUMER_KEY_1',
+  'SNAPTRADE_CLIENT_ID_2', 'SNAPTRADE_CONSUMER_KEY_2',
+  'SNAPTRADE_CLIENT_ID_3', 'SNAPTRADE_CONSUMER_KEY_3',
   'TRANSACTION_SYNC_TIME', 'AUTOMATION_WAIT_TIME'
 ]);
 
@@ -30,7 +34,38 @@ router.post('/', (req, res) => {
 // GET /api/config
 router.get('/config', (_req, res) => {
   const settings = configManager.getSettings();
-  res.json({ ...settings, isPersonal: (settings.SNAPTRADE_CLIENT_ID || '').startsWith('PERS-') });
+  
+  // Also check database for keys
+  const dbKeys = [];
+  for (let i = 1; i <= 3; i++) {
+    const clientId = db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null);
+    if (clientId) {
+      dbKeys.push({ index: i, clientId, source: 'database' });
+    }
+  }
+
+  // Combine unique indices
+  const allIndices = new Set([
+    ...settings.ENV_KEYS.map(k => k.index),
+    ...dbKeys.map(k => k.index)
+  ]);
+
+  const combinedKeys = Array.from(allIndices).map(idx => {
+    const envKey = settings.ENV_KEYS.find(k => k.index === idx);
+    const dbKey = dbKeys.find(k => k.index === idx);
+    return {
+      index: idx,
+      clientId: envKey?.clientId || dbKey?.clientId,
+      source: envKey ? 'environment' : 'database'
+    };
+  });
+
+  res.json({ 
+    ...settings, 
+    COMBINED_KEYS: combinedKeys,
+    HAS_KEYS: combinedKeys.length > 0,
+    isPersonal: combinedKeys.some(k => k.clientId.startsWith('PERS-'))
+  });
 });
 
 // POST /api/config

@@ -1,21 +1,22 @@
 const log = require('../logger');
 const db = require('../db');
-const { getSnaptrade, getCredentials, safeGetQuotes } = require('./snaptradeClient');
+const { getSnaptrade, getCredentials, safeGetQuotes, getKeyIndexForAccount } = require('./snaptradeClient');
 
 const txLog   = log.make('transactions');
 const autoLog = log.make('automation');
 
 async function executeAutomationOrder(automation, transaction_id, symbol, amount, userId, userSecret) {
-  const quotesRes = await safeGetQuotes(userId, userSecret, automation.account_id, symbol);
+  const keyIndex = getKeyIndexForAccount(automation.account_id);
+  const quotesRes = await safeGetQuotes(userId, userSecret, automation.account_id, symbol, keyIndex);
   const price = quotesRes.data?.[0]?.last_trade_price;
   const symId = quotesRes.data?.[0]?.symbol?.id;
-  autoLog.debug('Executing automation order', { symbol, price, amount, accountId: automation.account_id });
+  autoLog.debug('Executing automation order', { symbol, price, amount, accountId: automation.account_id, keyIndex });
 
   if (amount < 1.00) {
     throw new Error(`Amount ($${amount.toFixed(2)}) is lower than the $1.00 minimum for fractional orders.`);
   }
 
-  const orderRes = await getSnaptrade().trading.placeForceOrder({
+  const orderRes = await getSnaptrade(keyIndex).trading.placeForceOrder({
     userId, userSecret,
     account_id: automation.account_id,
     action: 'BUY',
@@ -61,22 +62,28 @@ async function syncTransactions() {
   const t0 = Date.now();
   try {
     txLog.info('Starting transaction sync');
-    const { userId, userSecret } = getCredentials();
-    if (!userId) return { success: false, message: 'SnapTrade credentials missing.' };
+    
+    const accounts = db.getAllBrokerageAccounts();
+    let imported = 0;
+    let allActivities = [];
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const startDate = thirtyDaysAgo.toISOString().split('T')[0];
 
-    const accounts = db.getAllBrokerageAccounts();
-    let imported = 0;
-    let allActivities = [];
-
     txLog.debug('Syncing transactions', { accounts: accounts.length, startDate });
     for (const account of accounts) {
-      txLog.debug('Fetching account activities', { accountId: account.id });
+      const keyIndex = getKeyIndexForAccount(account.id);
+      const { userId, userSecret } = getCredentials(keyIndex);
+      
+      if (!userId) {
+        txLog.warn('Skipping account sync — credentials missing', { accountId: account.id, keyIndex });
+        continue;
+      }
+
+      txLog.debug('Fetching account activities', { accountId: account.id, keyIndex });
       try {
-        const res = await getSnaptrade().accountInformation.getAccountActivities({
+        const res = await getSnaptrade(keyIndex).accountInformation.getAccountActivities({
           userId, userSecret, accountId: account.id, startDate
         });
 

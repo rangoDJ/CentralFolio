@@ -13,15 +13,15 @@ router.get('/', (req, res) => {
 
   // SnapTrade supports up to 3 keys in this app's logic
   for (let i = 1; i <= 3; i++) {
-    const clientId = process.env[`SNAPTRADE_CLIENT_ID_${i}`] || (i === 1 ? process.env.SNAPTRADE_CLIENT_ID : null);
-    const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${i}`] || (i === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : null);
+    const clientId = process.env[`SNAPTRADE_CLIENT_ID_${i}`] || (i === 1 ? process.env.SNAPTRADE_CLIENT_ID : null) || db.getSetting(`SNAPTRADE_CLIENT_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CLIENT_ID') : null);
+    const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${i}`] || (i === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : null) || db.getSetting(`SNAPTRADE_CONSUMER_KEY_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_CONSUMER_KEY') : null);
 
-    if (clientId && consumerKey) {
-      // Check if user is registered for this key
-      // For now, we assume key 1 uses the global user ID if no specific one exists
-      const userId = db.getSetting(`SNAPTRADE_USER_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_ID') : null);
-      const userSecret = db.getSetting(`SNAPTRADE_USER_SECRET_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_SECRET') : null);
+    const userId = db.getSetting(`SNAPTRADE_USER_ID_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_ID') : null);
+    const userSecret = db.getSetting(`SNAPTRADE_USER_SECRET_${i}`) || (i === 1 ? db.getSetting('SNAPTRADE_USER_SECRET') : null);
 
+    const isPersonal = (clientId && clientId.startsWith('PERS-')) || (userId && userId.startsWith('PERS-'));
+
+    if (clientId || (userId && userId.startsWith('PERS-'))) {
       // Count connections for this key
       const connectionCountStmt = db.db.prepare('SELECT COUNT(*) as count FROM connections WHERE key_index = ?');
       const connectionCount = connectionCountStmt.get(i).count;
@@ -31,9 +31,10 @@ router.get('/', (req, res) => {
 
       keys.push({
         keyIndex: i,
-        clientId: clientId,
+        clientId: isPersonal ? (userId && userId.startsWith('PERS-') ? userId : clientId) : clientId,
         name: keyName,
-        registered: !!(userId && userSecret),
+        registered: isPersonal ? true : !!(userId && userSecret),
+        isPersonal: isPersonal,
         connectionCount: connectionCount
       });
     }

@@ -3,7 +3,7 @@ const log = require('../logger');
 const db = require('../db');
 const { getFxRate } = require('../fx');
 const { getDividendData } = require('../dividends');
-const { getSnaptrade, getCredentials } = require('../services/snaptradeClient');
+const { getSnaptrade, getCredentials, getKeyIndexForAccount } = require('../services/snaptradeClient');
 const { queryCache } = require('../services/cache');
 const { performSync } = require('../services/syncService');
 const configManager = require('../configManager');
@@ -30,16 +30,34 @@ router.get('/accounts', async (req, res) => {
   }
 
   try {
-    const { userId, userSecret, isPersonal } = getCredentials();
-    if (!isPersonal && (!userId || !userSecret)) return res.json([]);
+    acctLog.debug('Fetching accounts from all configured SnapTrade keys');
+    let allFetchedAccounts = [];
+    
+    // Support up to 3 keys
+    for (let i = 1; i <= 3; i++) {
+      const { userId, userSecret, isPersonal, clientId } = getCredentials(i);
+      if (!isPersonal && (!userId || !userSecret)) {
+        continue;
+      }
 
-    acctLog.debug('Fetching accounts from SnapTrade');
-    const accountsRes = await getSnaptrade().accountInformation.listUserAccounts({ userId, userSecret });
+      try {
+        const accountsRes = await getSnaptrade(i).accountInformation.listUserAccounts({ userId, userSecret });
+        if (Array.isArray(accountsRes.data)) {
+          allFetchedAccounts.push(...accountsRes.data);
+          acctLog.debug(`Fetched ${accountsRes.data.length} accounts from key index ${i}`);
+        }
+      } catch (e) {
+        acctLog.error(`Failed to fetch accounts for key index ${i}`, { error: e.message });
+      }
+    }
+
+    if (allFetchedAccounts.length === 0) return res.json([]);
+
     const allAccountsMeta = db.getAllBrokerageAccounts();
     const selectedAccountIds = allAccountsMeta.filter(a => Number(a.is_selected) === 1).map(a => a.id);
     const accountMetaMap = Object.fromEntries(allAccountsMeta.map(a => [a.id, a]));
 
-    const formatted = accountsRes.data
+    const formatted = allFetchedAccounts
       .filter(acc => selectedAccountIds.includes(acc.id))
       .map(acc => ({
         id: acc.id,
@@ -70,22 +88,36 @@ router.get('/positions', async (_req, res) => {
   }
 
   try {
-    const { userId, userSecret, isPersonal } = getCredentials();
-    if (!isPersonal && (!userId || !userSecret)) return res.json([]);
-
-    const accountsRes = await getSnaptrade().accountInformation.listUserAccounts({ userId, userSecret });
     const allAccountsMeta = db.getAllBrokerageAccounts();
     const selectedAccountIds = allAccountsMeta.filter(a => Number(a.is_selected) === 1).map(a => a.id);
     const accountMetaMap = Object.fromEntries(allAccountsMeta.map(a => [a.id, a]));
 
-    const selectedAccounts = accountsRes.data.filter(acc => acc.id && selectedAccountIds.includes(acc.id));
+    if (selectedAccountIds.length === 0) return res.json([]);
+
+    // We need the institution names and account names from SnapTrade to format the response
+    // Fetch accounts from all keys to get the necessary metadata
+    let allSnaptradeAccounts = [];
+    for (let i = 1; i <= 3; i++) {
+      const { userId, userSecret, isPersonal } = getCredentials(i);
+      if (!isPersonal && (!userId || !userSecret)) continue;
+      try {
+        const res = await getSnaptrade(i).accountInformation.listUserAccounts({ userId, userSecret });
+        if (Array.isArray(res.data)) allSnaptradeAccounts.push(...res.data);
+      } catch (e) {
+        acctLog.warn(`Failed to list accounts for key ${i} during positions fetch`, { error: e.message });
+      }
+    }
+
+    const selectedAccounts = allSnaptradeAccounts.filter(acc => acc.id && selectedAccountIds.includes(acc.id));
     acctLog.debug('Fetching holdings in parallel', { accounts: selectedAccounts.length });
 
     const holdingResults = await Promise.allSettled(
-      selectedAccounts.map(acc =>
-        getSnaptrade().accountInformation.getUserHoldings({ userId, userSecret, accountId: acc.id })
-          .then(posRes => ({ acc, posRes }))
-      )
+      selectedAccounts.map(acc => {
+        const keyIndex = getKeyIndexForAccount(acc.id);
+        const { userId, userSecret } = getCredentials(keyIndex);
+        return getSnaptrade(keyIndex).accountInformation.getUserHoldings({ userId, userSecret, accountId: acc.id })
+          .then(posRes => ({ acc, posRes }));
+      })
     );
 
     const groupedPositions = holdingResults

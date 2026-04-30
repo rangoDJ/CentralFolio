@@ -73,35 +73,44 @@ router.post('/sync', async (_req, res) => {
   }
 });
 
-// POST /api/snaptrade/link
-router.post('/snaptrade/link', async (req, res) => {
+// POST /api/connections/:keyIndex/oauth
+router.post('/:keyIndex/oauth', async (req, res) => {
   try {
-    const keyIndex = parseInt(req.body?.keyIndex || '1');
-    const { clientId, consumerKey } = getCredentials(keyIndex);
+    const keyIndex = parseInt(req.params.keyIndex || '1');
+    const { userId, userSecret, isPersonal, clientId } = getCredentials(keyIndex);
 
-    if (!clientId || !consumerKey) {
+    if (!clientId) {
       return res.status(400).json({ error: `SnapTrade credentials not configured for key index ${keyIndex}.` });
+    }
+
+    // For personal integrations, we don't need to register or get a login link
+    // They just use the PERS key directly. However, the SnapTrade SDK might still
+    // be used for non-personal parts of the flow if needed.
+    // But usually personal integrations don't use the "Link" flow.
+    if (isPersonal) {
+      return res.status(400).json({ error: 'Personal integrations do not use the OAuth link flow. Use your PERS key directly.' });
     }
 
     // Settings are stored as SNAPTRADE_USER_ID_1, SNAPTRADE_USER_ID_2, etc.
     const userIdKey = keyIndex === 1 ? 'SNAPTRADE_USER_ID' : `SNAPTRADE_USER_ID_${keyIndex}`;
     const userSecretKey = keyIndex === 1 ? 'SNAPTRADE_USER_SECRET' : `SNAPTRADE_USER_SECRET_${keyIndex}`;
 
-    let userId = db.getSetting(userIdKey);
-    let userSecret = db.getSetting(userSecretKey);
+    let currentUserId = userId;
+    let currentUserSecret = userSecret;
 
-    if (!userId || !userSecret) {
-      if (!userId) userId = 'centralfolio-' + crypto.randomUUID();
+    if (!currentUserId || !currentUserSecret) {
+      if (!currentUserId) currentUserId = 'centralfolio-' + crypto.randomUUID();
       snapLog.info(`Registering new SnapTrade user for key ${keyIndex}`);
-      const regResponse = await getSnaptrade(keyIndex).authentication.registerSnapTradeUser({ userId });
-      userSecret = regResponse.data.userSecret;
-      db.setSetting(userIdKey, userId);
-      db.setSetting(userSecretKey, userSecret);
+      const regResponse = await getSnaptrade(keyIndex).authentication.registerSnapTradeUser({ userId: currentUserId });
+      currentUserSecret = regResponse.data.userSecret;
+      db.setSetting(userIdKey, currentUserId);
+      db.setSetting(userSecretKey, currentUserSecret);
     }
 
     const redirectBase = req.headers.origin || 'http://localhost:5173';
     const loginParams = {
-      userId, userSecret,
+      userId: currentUserId, 
+      userSecret: currentUserSecret,
       customRedirect: `${redirectBase}/settings`,
       connectionType: 'trade'
     };

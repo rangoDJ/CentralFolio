@@ -14,6 +14,8 @@ const ordersRouter       = require('./routes/orders');
 const transactionsRouter = require('./routes/transactions');
 const automationsRouter  = require('./routes/automations');
 const settingsRouter     = require('./routes/settings');
+const snapTradeKeysRouter = require('./routes/snaptrade-keys');
+const brokerageRouter = require('./routes/brokerage-accounts');
 
 const automationWorker  = require('./workers/automationWorker');
 const cacheWorker       = require('./workers/cacheWorker');
@@ -76,6 +78,8 @@ const httpLog = log.make('http');
   app.use('/api/transactions', transactionsRouter);
   app.use('/api/automations', automationsRouter);
   app.use('/api/automation-history', (_req, res) => res.json(db.getAutomationLogs())); // legacy alias
+  app.use('/api/snaptrade-keys', snapTradeKeysRouter);
+  app.use('/api/brokerage-accounts', brokerageRouter);
   app.use('/api', settingsRouter);
 
   const server = app.listen(PORT, () => {

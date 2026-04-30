@@ -386,7 +386,7 @@ const Settings = () => {
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {connections
+                      {Array.isArray(connections) && connections
                         .filter(keyGroup => keyGroup.keyIndex === key.keyIndex)
                         .flatMap(keyGroup => keyGroup.connections || [])
                         .map(conn => (

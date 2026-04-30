@@ -29,7 +29,8 @@ const initDb = () => {
       id TEXT PRIMARY KEY,
       brokerage_name TEXT,
       connection_status TEXT,
-      last_synced DATETIME
+      last_synced DATETIME,
+      key_index INTEGER DEFAULT 1
     )
   `);
 
@@ -77,6 +78,13 @@ const initDb = () => {
   try { db.exec(`ALTER TABLE automations ADD COLUMN is_active BOOLEAN DEFAULT 1`); } catch (e) {}
   try { db.exec(`ALTER TABLE automations ADD COLUMN excluded_symbols TEXT DEFAULT ''`); } catch (e) {}
 
+  // Migration: Add key_index to connections if it doesn't exist
+  try {
+    db.exec(`ALTER TABLE connections ADD COLUMN key_index INTEGER DEFAULT 1`);
+  } catch (e) {
+    // Ignore if column already exists
+  }
+
   // Automation Logs table
   db.exec(`
     CREATE TABLE IF NOT EXISTS automation_logs (
@@ -117,6 +125,7 @@ const initDb = () => {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(trade_date DESC)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_automations_status ON pending_automations(status, process_after)`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_automation_logs_tx ON automation_logs(transaction_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_connections_key ON connections(key_index)`);
 
   // Purge legacy mock data if it exists
   try {
@@ -151,9 +160,14 @@ const getAllSettings = () => {
   return stmt.all();
 };
 
-const upsertConnection = (id, brokerage, status) => {
-  const stmt = db.prepare('INSERT OR REPLACE INTO connections (id, brokerage_name, connection_status, last_synced) VALUES (?, ?, ?, CURRENT_TIMESTAMP)');
-  stmt.run(id, brokerage, status);
+const upsertConnection = (id, brokerage, status, keyIndex = 1) => {
+  const stmt = db.prepare('INSERT OR REPLACE INTO connections (id, brokerage_name, connection_status, last_synced, key_index) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)');
+  stmt.run(id, brokerage, status, keyIndex);
+};
+
+const getConnectionById = (id) => {
+  const stmt = db.prepare('SELECT * FROM connections WHERE id = ?');
+  return stmt.get(id);
 };
 
 const getAllConnections = () => {
@@ -311,6 +325,7 @@ module.exports = {
   setSetting,
   getAllSettings,
   upsertConnection,
+  getConnectionById,
   getAllConnections,
   upsertBrokerageAccount,
   getAllBrokerageAccounts,

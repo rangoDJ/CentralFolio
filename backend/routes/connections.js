@@ -11,38 +11,40 @@ const snapLog = log.make('snaptrade');
 
 // GET /api/connections
 router.get('/', async (_req, res) => {
-  const { userId, userSecret, isPersonal } = getCredentials();
-  if (userId && (isPersonal || userSecret)) {
-    try {
-      if (isPersonal) {
-        db.upsertConnection(userId, 'Personal Integration', 'CONNECTED');
-      } else {
-        const authorizationsResponse = await getSnaptrade().connections.listBrokerageAuthorizations({ userId, userSecret });
-        const authorizations = authorizationsResponse.data;
-        if (Array.isArray(authorizations)) {
-          for (const auth of authorizations) {
-            db.upsertConnection(auth.id, auth.brokerage?.name || 'Unknown', 'CONNECTED');
-          }
-        }
-      }
-    } catch (e) {
-      connLog.warn('Auto-sync failed on GET /api/connections', { error: e.message });
+  try {
+    const allConnections = db.getAllConnections();
+    const grouped = [];
+    
+    // Support up to 3 SnapTrade keys, grouping connections for the frontend
+    for (let i = 1; i <= 3; i++) {
+      const keyConns = allConnections.filter(c => c.key_index === i);
+      grouped.push({
+        keyIndex: i,
+        connections: keyConns
+      });
     }
+    
+    res.json(grouped);
+  } catch (error) {
+    connLog.error('Failed to get connections', { error: error.message });
+    res.status(500).json({ error: 'Failed to retrieve connections' });
   }
-  res.json(db.getAllConnections());
 });
 
 // DELETE /api/connections/:id
 router.delete('/:id', async (req, res) => {
-  const { userId, userSecret } = getCredentials();
+  const authorizationId = req.params.id;
+  const connection = db.getConnectionById(authorizationId);
+  const keyIndex = connection ? connection.key_index : 1;
+
+  const { userId, userSecret } = getCredentials(keyIndex);
   if (!userId || !userSecret) {
-    return res.status(401).json({ error: 'SnapTrade user not authenticated' });
+    return res.status(401).json({ error: 'SnapTrade user not authenticated for this connection' });
   }
 
-  const authorizationId = req.params.id;
   try {
     try {
-      await getSnaptrade().connections.removeBrokerageAuthorization({ authorizationId, userId, userSecret });
+      await getSnaptrade(keyIndex).connections.removeBrokerageAuthorization({ authorizationId, userId, userSecret });
     } catch (apiErr) {
       const is404 = apiErr.response?.status === 404 || apiErr.message?.includes('404');
       if (!is404) throw apiErr;
@@ -51,7 +53,7 @@ router.delete('/:id', async (req, res) => {
 
     db.db.prepare('DELETE FROM connections WHERE id = ?').run(authorizationId);
     db.db.prepare('DELETE FROM brokerage_accounts WHERE connection_id = ?').run(authorizationId);
-    connLog.info('Connection deleted', { authorizationId });
+    connLog.info('Connection deleted', { authorizationId, keyIndex });
     res.json({ success: true });
   } catch (error) {
     connLog.error('Failed to delete connection', { error: error.message, detail: error.response?.data });
@@ -62,9 +64,6 @@ router.delete('/:id', async (req, res) => {
 // POST /api/connections/sync
 router.post('/sync', async (_req, res) => {
   try {
-    if (!process.env.SNAPTRADE_CLIENT_ID || !process.env.SNAPTRADE_CONSUMER_KEY) {
-      return res.status(400).json({ error: 'SnapTrade credentials not configured. Please set SNAPTRADE_CLIENT_ID and SNAPTRADE_CONSUMER_KEY.' });
-    }
     const result = await performSync();
     if (!result.success) return res.status(500).json(result);
     res.json(result);
@@ -77,23 +76,27 @@ router.post('/sync', async (_req, res) => {
 // POST /api/snaptrade/link
 router.post('/snaptrade/link', async (req, res) => {
   try {
-    const clientId = process.env.SNAPTRADE_CLIENT_ID || '';
-    const consumerKey = process.env.SNAPTRADE_CONSUMER_KEY || '';
+    const keyIndex = parseInt(req.body?.keyIndex || '1');
+    const { clientId, consumerKey } = getCredentials(keyIndex);
 
     if (!clientId || !consumerKey) {
-      return res.status(400).json({ error: 'SnapTrade credentials not configured.' });
+      return res.status(400).json({ error: `SnapTrade credentials not configured for key index ${keyIndex}.` });
     }
 
-    let userId = db.getSetting('SNAPTRADE_USER_ID');
-    let userSecret = db.getSetting('SNAPTRADE_USER_SECRET');
+    // Settings are stored as SNAPTRADE_USER_ID_1, SNAPTRADE_USER_ID_2, etc.
+    const userIdKey = keyIndex === 1 ? 'SNAPTRADE_USER_ID' : `SNAPTRADE_USER_ID_${keyIndex}`;
+    const userSecretKey = keyIndex === 1 ? 'SNAPTRADE_USER_SECRET' : `SNAPTRADE_USER_SECRET_${keyIndex}`;
+
+    let userId = db.getSetting(userIdKey);
+    let userSecret = db.getSetting(userSecretKey);
 
     if (!userId || !userSecret) {
       if (!userId) userId = 'centralfolio-' + crypto.randomUUID();
-      snapLog.info('Registering new SnapTrade user');
-      const regResponse = await getSnaptrade().authentication.registerSnapTradeUser({ userId });
+      snapLog.info(`Registering new SnapTrade user for key ${keyIndex}`);
+      const regResponse = await getSnaptrade(keyIndex).authentication.registerSnapTradeUser({ userId });
       userSecret = regResponse.data.userSecret;
-      db.setSetting('SNAPTRADE_USER_ID', userId);
-      db.setSetting('SNAPTRADE_USER_SECRET', userSecret);
+      db.setSetting(userIdKey, userId);
+      db.setSetting(userSecretKey, userSecret);
     }
 
     const redirectBase = req.headers.origin || 'http://localhost:5173';
@@ -104,7 +107,7 @@ router.post('/snaptrade/link', async (req, res) => {
     };
     if (req.body?.broker) loginParams.broker = req.body.broker;
 
-    const loginResponse = await getSnaptrade().authentication.loginSnapTradeUser(loginParams);
+    const loginResponse = await getSnaptrade(keyIndex).authentication.loginSnapTradeUser(loginParams);
     const redirectURI =
       loginResponse.data?.redirectURI?.redirectURI ||
       loginResponse.data?.redirectURI?.href ||
@@ -116,7 +119,7 @@ router.post('/snaptrade/link', async (req, res) => {
       return res.status(500).json({ error: 'No redirectURI found in SnapTrade response', raw: loginResponse.data });
     }
 
-    snapLog.info('SnapTrade link generated');
+    snapLog.info('SnapTrade link generated', { keyIndex });
     res.json({ redirectURI });
   } catch (error) {
     const errorData = error.response?.data || error.message;

@@ -5,18 +5,24 @@ const configManager = require('../configManager');
 
 const snapLog = log.make('snaptrade');
 
-function getSnaptrade() {
-  const clientId = process.env.SNAPTRADE_CLIENT_ID || '';
-  const consumerKey = process.env.SNAPTRADE_CONSUMER_KEY || '';
+function getSnaptrade(keyIndex = 1) {
+  const settings = configManager.getSettings();
+  const clientId = process.env[`SNAPTRADE_CLIENT_ID_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CLIENT_ID : '') || '';
+  const consumerKey = process.env[`SNAPTRADE_CONSUMER_KEY_${keyIndex}`] || (keyIndex === 1 ? process.env.SNAPTRADE_CONSUMER_KEY : '') || '';
+  
+  if (!clientId || !consumerKey) {
+    snapLog.warn('SnapTrade client requested for unconfigured key index', { keyIndex });
+  }
+  
   return new Snaptrade({ clientId, consumerKey });
 }
 
-function getCredentials() {
-  let userId = db.getSetting('SNAPTRADE_USER_ID');
-  let userSecret = db.getSetting('SNAPTRADE_USER_SECRET');
+function getCredentials(keyIndex = 1) {
+  let userId = db.getSetting(`SNAPTRADE_USER_ID_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_USER_ID') : null);
+  let userSecret = db.getSetting(`SNAPTRADE_USER_SECRET_${keyIndex}`) || (keyIndex === 1 ? db.getSetting('SNAPTRADE_USER_SECRET') : null);
 
   const settings = configManager.getSettings();
-  const clientId = process.env.SNAPTRADE_CLIENT_ID || settings.SNAPTRADE_CLIENT_ID || '';
+  const clientId = settings[`SNAPTRADE_CLIENT_ID_${keyIndex}`] || (keyIndex === 1 ? settings.SNAPTRADE_CLIENT_ID : '') || '';
   const isPersonal = clientId.startsWith('PERS-');
 
   return isPersonal

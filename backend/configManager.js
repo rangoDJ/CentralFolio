@@ -83,8 +83,19 @@ const configManager = {
 
   getSettings() {
     const envKeys = this.parseMultiKeyEnv();
+    const envSettings = {};
+    for (const key of envKeys) {
+      envSettings[`SNAPTRADE_CLIENT_ID_${key.index}`] = key.clientId;
+      // We don't expose consumer keys to the frontend, but snaptrade-keys.js is backend-only
+      // However, it's safer to just provide what's needed.
+    }
+    // Also include legacy keys if they exist in env
+    if (process.env.SNAPTRADE_CLIENT_ID) envSettings.SNAPTRADE_CLIENT_ID = process.env.SNAPTRADE_CLIENT_ID;
+    if (process.env.SNAPTRADE_CONSUMER_KEY) envSettings.SNAPTRADE_CONSUMER_KEY = process.env.SNAPTRADE_CONSUMER_KEY;
+
     return {
       ...this.settings,
+      ...envSettings,
       HAS_ENV_VARS: envKeys.length > 0,
       ENV_KEYS: envKeys
     };

@@ -874,23 +874,6 @@ const Settings = () => {
             );
           })()}
         </div>
-
-      <div className="card" style={{ marginTop: '2rem' }}>
-        <h2 style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>System Environment</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', fontSize: '0.875rem' }}>
-          <div>
-            <div style={{ color: 'var(--text-muted)' }}>Node Version</div>
-            <div style={{ fontWeight: 600 }}>v25.9.0</div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--text-muted)' }}>Storage Engine</div>
-            <div style={{ fontWeight: 600 }}>node:sqlite</div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--text-muted)' }}>Dashboard Version</div>
-            <div style={{ fontWeight: 600 }}>1.0.0-beta</div>
-          </div>
-        </div>
       </div>
     </div>
   );

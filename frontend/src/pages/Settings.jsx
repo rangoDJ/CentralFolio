@@ -194,11 +194,19 @@ const Settings = () => {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      await fetch('/api/connections/sync', { method: 'POST' });
+      const res = await fetch('/api/connections/sync', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || 'Sync failed');
+      } else {
+        toast.success('Sync complete');
+      }
+      await queryClient.invalidateQueries({ queryKey: ['snaptrade-keys'] });
       await queryClient.invalidateQueries({ queryKey: ['connections'] });
       await queryClient.invalidateQueries({ queryKey: ['brokerage-accounts'] });
     } catch (err) {
       console.error('Sync failed', err);
+      toast.error('Sync request failed');
     } finally {
       setSyncing(false);
     }

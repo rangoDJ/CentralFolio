@@ -179,7 +179,8 @@ const getAllConnections = () => {
 };
 
 const updateConnectionDisplayName = (id, displayName) => {
-  db.prepare('UPDATE connections SET display_name = ? WHERE id = ?').run(displayName, id);
+  const stmt = db.prepare('UPDATE connections SET display_name = ? WHERE id = ?');
+  stmt.run(displayName, id);
 };
 
 // Upserts a brokerage account but preserves an existing portfolio assignment
@@ -334,7 +335,6 @@ module.exports = {
   upsertConnection,
   getConnectionById,
   getAllConnections,
-  updateConnectionDisplayName,
   upsertBrokerageAccount,
   getAllBrokerageAccounts,
   setAccountPortfolio,

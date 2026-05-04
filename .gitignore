@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+user-credentials.json
+*.log
+.DS_Store
+snaptrade.db

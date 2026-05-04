@@ -1,0 +1,11 @@
+node_modules
+npm-debug.log
+.env
+*.db
+*.db-journal
+scratch
+.git
+.github
+Dockerfile
+docker-compose.yml
+.dockerignore

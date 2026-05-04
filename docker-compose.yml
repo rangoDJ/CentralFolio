@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    container_name: centralfolio-app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./snaptrade.db:/app/snaptrade.db
+    env_file:
+      - .env
+    restart: unless-stopped

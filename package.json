@@ -1,0 +1,26 @@
+{
+  "name": "snaptrade-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SnapTrade integration scratchpad — start with user registration + auth, eventually connect a Wealthsimple account.",
+  "type": "module",
+  "scripts": {
+    "register": "tsx src/register.ts",
+    "login": "tsx src/login.ts",
+    "list-users": "tsx src/list-users.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.9.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "snaptrade-typescript-sdk": "^9.0.94"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.12.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.5.4"
+  }
+}

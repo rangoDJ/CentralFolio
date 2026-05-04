@@ -1,5 +1,6 @@
 services:
   app:
+    image: ghcr.io/rangodj/centralfolio:latest
     build: .
     container_name: centralfolio-app
     ports:

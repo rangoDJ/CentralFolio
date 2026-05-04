@@ -5,7 +5,7 @@
  *
  * Run: npm run list-users
  */
-import { listAllUsersAcrossPortfolios } from "./client.js";
+import { listAllUsersAcrossPortfolios } from "../services/snaptrade.js";
 
 async function main() {
   console.log("Listing unique users across all configured portfolios...");

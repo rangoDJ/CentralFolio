@@ -4,521 +4,230 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CentralFolio | Multi-Portfolio Dashboard</title>
+    
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --primary: #6366f1;
-            --primary-light: #818cf8;
-            --primary-dark: #4f46e5;
-            --bg: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.4);
-            --border: rgba(255, 255, 255, 0.08);
-            --text: #f8fafc;
-            --text-muted: #94a3b8;
-            --error: #ef4444;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --glass: rgba(15, 23, 42, 0.8);
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Outfit', sans-serif;
-            background-color: var(--bg);
-            background-image: 
-                radial-gradient(circle at 10% 10%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
-                radial-gradient(circle at 90% 90%, rgba(168, 85, 247, 0.1) 0%, transparent 40%);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow-x: hidden;
-        }
-
-        nav {
-            padding: 1.5rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid var(--border);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            background: rgba(15, 23, 42, 0.6);
-        }
-
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 700;
-            background: linear-gradient(to right, #818cf8, #c084fc);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -0.5px;
-        }
-
-        .container {
-            max-width: 1200px;
-            width: 100%;
-            margin: 0 auto;
-            padding: 2rem;
-            flex: 1;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 400px;
-            gap: 2rem;
-        }
-
-        @media (max-width: 1024px) {
-            .grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            border-radius: 24px;
-            padding: 2rem;
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-            animation: slideUp 0.6s ease-out;
-        }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        h2 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .form-group {
-            margin-bottom: 1.25rem;
-        }
-
-        label {
-            display: block;
-            font-size: 0.8125rem;
-            font-weight: 500;
-            color: var(--text-muted);
-            margin-bottom: 0.5rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        input {
-            width: 100%;
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 0.875rem 1.125rem;
-            color: var(--text);
-            font-family: inherit;
-            font-size: 0.9375rem;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        input:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
-            background: rgba(15, 23, 42, 0.8);
-        }
-
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            width: 100%;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 14px;
-            padding: 0.875rem 1rem;
-            font-size: 0.9375rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            text-decoration: none;
-        }
-
-        .btn:hover {
-            background: var(--primary-dark);
-            transform: translateY(-2px);
-            box-shadow: 0 12px 20px -5px rgba(99, 102, 241, 0.4);
-        }
-
-        .btn:active {
-            transform: translateY(0);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-sm {
-            padding: 0.5rem 0.75rem;
-            font-size: 0.8125rem;
-            width: auto;
-        }
-
-        .btn-success {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        }
-
-        .btn-success:hover {
-            box-shadow: 0 12px 20px -5px rgba(16, 185, 129, 0.4);
-        }
-
-        .btn-outline {
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text);
-        }
-
-        .btn-outline:hover {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: var(--text-muted);
-            box-shadow: none;
-        }
-
-        .portfolio-list {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        .portfolio-item {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 1.25rem;
-            transition: all 0.2s;
-        }
-
-        .portfolio-item:hover {
-            background: rgba(255, 255, 255, 0.04);
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .portfolio-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-
-        .portfolio-name {
-            font-weight: 600;
-            font-size: 1rem;
-        }
-
-        .portfolio-meta {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-bottom: 1rem;
-        }
-
-        .portfolio-actions {
-            display: flex;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-        }
-
-        .account-group {
-            margin-bottom: 2.5rem;
-        }
-
-        .group-title {
-            font-size: 0.8125rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 1rem;
-            padding-left: 0.5rem;
-            border-left: 2px solid var(--primary);
-        }
-
-        .account-list {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        .account-item {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 1.25rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: all 0.2s;
-        }
-
-        .account-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(255, 255, 255, 0.15);
-        }
-
-        .account-info h4 {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-        }
-
-        .account-info p {
-            font-size: 0.8125rem;
-            color: var(--text-muted);
-        }
-
-        .account-balance {
-            text-align: right;
-        }
-
-        .balance-amount {
-            font-size: 1.125rem;
-            font-weight: 700;
-            color: var(--success);
-        }
-
-        .balance-label {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.25rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .status-active { background: rgba(16, 185, 129, 0.1); color: #34d399; }
-        .status-error { background: rgba(239, 68, 68, 0.1); color: #f87171; }
-
-        .empty-state {
-            text-align: center;
-            padding: 3rem 0;
-            color: var(--text-muted);
-        }
-
-        .empty-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            opacity: 0.5;
-        }
-
-        .toast {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            padding: 1rem 1.5rem;
-            border-radius: 12px;
-            background: var(--glass);
-            border: 1px solid var(--border);
-            backdrop-filter: blur(20px);
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            transform: translateY(100px);
-            opacity: 0;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            z-index: 1000;
-        }
-
-        .toast.show { transform: translateY(0); opacity: 1; }
-        .toast.error { border-color: rgba(239, 68, 68, 0.3); }
-        .toast.success { border-color: rgba(16, 185, 129, 0.3); }
-        .toast.warning { border-color: rgba(245, 158, 11, 0.3); }
-
-        .loader {
-            width: 16px;
-            height: 16px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.8s linear infinite;
-            display: none;
-        }
-
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loading .loader { display: block; }
-        .loading .btn-text { display: none; }
-
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .summary-card {
-            padding: 1.5rem;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-
-        /* Modal Styles */
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(4px);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-        }
-
-        .modal-overlay.show {
-            display: flex;
-            opacity: 1;
-        }
-
-        .modal-content {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 24px;
-            padding: 2.5rem;
-            width: 100%;
-            max-width: 500px;
-            position: relative;
-            transform: scale(0.9);
-            transition: transform 0.3s ease;
-        }
-
-        .modal-overlay.show .modal-content {
-            transform: scale(1);
-        }
-
-        .modal-close {
-            position: absolute;
-            top: 1.5rem;
-            right: 1.5rem;
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            font-size: 1.5rem;
-            cursor: pointer;
-        }
-
-        .admin-section {
-            margin-top: 2rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border);
-        }
-
-        .btn-danger {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--error);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-            padding: 0.5rem 0.75rem;
-            font-size: 0.8125rem;
-            border-radius: 8px;
-            width: auto;
-        }
-
-        .btn-danger:hover {
-            background: var(--error);
-            color: white;
-        }
-    </style>
+    
+    <!-- Styles -->
+    <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-    <nav>
-        <div class="logo">CentralFolio</div>
-        <div id="connectionStatus" class="status-badge status-active">Connected</div>
-    </nav>
+    <div class="app-wrapper">
+        <aside class="app-sidebar">
+            <div class="logo" style="margin-bottom: 2rem;">CentralFolio</div>
+            <nav class="sidebar-nav">
+                <button class="sidebar-item active" data-tab="dashboard" onclick="App.switchMainTab('dashboard', this)">
+                    <span style="font-size: 1.2rem;">📊</span>
+                    <span>Dashboard</span>
+                </button>
+                <button class="sidebar-item" data-tab="holdings" onclick="App.switchMainTab('holdings', this)">
+                    <span style="font-size: 1.2rem;">💼</span>
+                    <span>Holdings</span>
+                </button>
+                <button class="sidebar-item" data-tab="dividend-tracker" onclick="App.switchMainTab('dividend-tracker', this)">
+                    <span style="font-size: 1.2rem;">📈</span>
+                    <span>Dividend Tracker</span>
+                </button>
+                <button class="sidebar-item" data-tab="settings" onclick="App.switchMainTab('settings', this)">
+                    <span style="font-size: 1.2rem;">⚙️</span>
+                    <span>Settings</span>
+                </button>
+            </nav>
+        </aside>
+        
+        <div class="app-main">
+            <header class="topbar">
+                <div id="connectionStatus" class="status-badge status-active">Connected</div>
+            </header>
 
-    <div class="container">
-        <div id="summaryCards" class="summary-grid">
-            <div class="card summary-card">
-                <div class="balance-label">Total Net Value</div>
-                <div id="totalBalance" class="balance-amount" style="font-size: 2rem;">$0.00</div>
+            <div class="container tab-content active" id="dashboard-tab">
+                <h2 style="margin-bottom: 2rem;">Dashboard</h2>
+                <div id="summaryCards" class="summary-grid">
+                    <div class="card summary-card">
+                        <div class="balance-label">Total Net Value</div>
+                        <div id="totalBalance" class="balance-amount" style="font-size: 2rem;">$0.00</div>
+                    </div>
+                    <div class="card summary-card">
+                        <div class="balance-label">Active Portfolios</div>
+                        <div id="portfolioCount" class="balance-amount" style="font-size: 2rem; color: var(--primary-light);">0</div>
+                    </div>
+                </div>
+                
+                <div class="card" id="dashboardChartContainer" style="margin-top: 2rem; height: 450px; display: flex; align-items: center; justify-content: center; position: relative;">
+                    <div class="empty-state">
+                        <div class="empty-icon">🚀</div>
+                        <p>Welcome to CentralFolio.</p>
+                        <p style="font-size: 0.875rem; margin-top: 0.5rem;">Select an account in Settings or view your holdings.</p>
+                    </div>
+                </div>
             </div>
-            <div class="card summary-card">
-                <div class="balance-label">Active Portfolios</div>
-                <div id="portfolioCount" class="balance-amount" style="font-size: 2rem; color: var(--primary-light);">0</div>
-            </div>
-        </div>
 
-        <div class="grid">
-            <main>
-                <div class="card" style="min-height: 400px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                        <h2>Accounts by Portfolio</h2>
-                        <button id="refreshBtn" class="btn btn-outline" style="width: auto; padding: 0.5rem 1rem;">
-                            Refresh All
+            <div class="container tab-content" id="holdings-tab">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h2 style="margin-bottom: 0;">Holdings</h2>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <span id="holdings-last-updated" style="font-size: 0.875rem; color: var(--text-muted);"></span>
+                        <button id="refreshHoldingsBtn" class="btn btn-outline btn-sm" style="padding: 0.35rem 0.75rem;" onclick="App.loadAllHoldings(true)">
+                            <span class="loader" style="width: 12px; height: 12px; border-width: 2px;"></span>
+                            <span class="btn-text">Refresh</span>
                         </button>
                     </div>
-                    
-                    <div id="accountContainer">
-                        <div class="empty-state">
-                            <div class="empty-icon">📊</div>
-                            <p>No accounts loaded.</p>
+                </div>
+                <div id="holdings-page-content">
+                    <div id="holdings-tabs" class="tabs-container" style="margin-bottom: 2rem;"></div>
+                    <div id="holdings-tables">
+                        <div class="empty-state">Select an account in Settings to view holdings.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="container tab-content" id="dividend-tracker-tab">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h2 style="margin-bottom: 0;">Dividend Tracker</h2>
+                    <div style="display: flex; align-items: center; gap: 1.5rem;">
+                        <div class="sub-tabs">
+                            <button class="sub-tab-btn active" data-subtab="forecast" onclick="App.switchDividendSubTab('forecast', this)">Forecast</button>
+                            <button class="sub-tab-btn" data-subtab="calendar" onclick="App.switchDividendSubTab('calendar', this)">Calendar</button>
+                        </div>
+                        <div id="dividend-tracker-controls" style="display: flex; align-items: center; gap: 1rem;">
+                            <span id="dividends-last-updated" style="font-size: 0.875rem; color: var(--text-muted);"></span>
+                            <button id="refreshDividendsBtn" class="btn btn-outline btn-sm" style="padding: 0.35rem 0.75rem;" onclick="App.loadAllDividends(true)">
+                                <span class="loader" style="width: 12px; height: 12px; border-width: 2px;"></span>
+                                <span class="btn-text">Refresh</span>
+                            </button>
+                        </div>
+                        <div id="calendar-controls" style="display: none; align-items: center; gap: 1rem;">
+                            <button class="btn btn-outline btn-sm" style="padding: 0.35rem 0.75rem;" onclick="App.changeCalendarMonth(-1)">
+                                <span>&larr;</span> Prev
+                            </button>
+                            <h3 id="currentCalendarMonth" style="margin: 0; min-width: 120px; text-align: center; font-weight: 600; font-size: 1rem;">Month Year</h3>
+                            <button class="btn btn-outline btn-sm" style="padding: 0.35rem 0.75rem;" onclick="App.changeCalendarMonth(1)">
+                                Next <span>&rarr;</span>
+                            </button>
                         </div>
                     </div>
                 </div>
-            </main>
 
-            <aside>
-                <div class="card">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h2 style="margin-bottom: 0;">Portfolios</h2>
-                        <button id="addPortfolioBtn" class="btn btn-success btn-sm">Add New</button>
+                <!-- Unified Summary Header -->
+                <div id="dividend-tracker-summary" class="summary-grid" style="margin-bottom: 2rem; display: none;">
+                    <div class="card summary-card">
+                        <div class="balance-label">Annual Projected Income</div>
+                        <div id="unified-annual-income" class="balance-amount" style="font-size: 2rem; color: var(--success);">$0.00</div>
                     </div>
-                    
-                    <div id="portfolioList" class="portfolio-list">
-                        <!-- Portfolios will be rendered here -->
+                    <div class="card summary-card">
+                        <div class="balance-label">Monthly Average</div>
+                        <div id="unified-monthly-average" class="balance-amount" style="font-size: 2rem; color: var(--primary-light);">$0.00</div>
+                    </div>
+                    <div class="card summary-card" id="unified-month-total-card" style="display: none;">
+                        <div class="balance-label" id="unified-month-label">Month Total</div>
+                        <div id="unified-month-total" class="balance-amount" style="font-size: 2rem; color: var(--primary);">$0.00</div>
+                    </div>
+                </div>
+
+                <!-- Forecast Pane -->
+                <div id="dividend-forecast-pane" class="dividend-pane active" style="display: block;">
+
+
+                    <div class="card" id="dividendChartContainer" style="margin-bottom: 2rem; height: 300px; display: none;">
+                        <canvas id="dividendChart"></canvas>
                     </div>
 
-                    <div class="admin-section">
-                        <details>
-                            <summary style="font-size: 0.8125rem; color: var(--text-muted); cursor: pointer; user-select: none;">Advanced Management</summary>
-                            <div style="margin-top: 1rem;">
-                                <button id="listUsersBtn" class="btn btn-outline btn-sm" style="width: 100%;">List All SnapTrade Users</button>
-                                <div id="adminUserList" style="margin-top: 1rem; max-height: 200px; overflow-y: auto;"></div>
-                                <button id="wipeBtn" class="btn btn-danger" style="margin-top: 1rem; width: 100%;">Wipe All Users (Recovery)</button>
+                    <div id="dividends-page-content">
+                        <div class="empty-state">Select an account in Settings to view dividend forecast.</div>
+                    </div>
+                </div>
+
+                <!-- Calendar Pane -->
+                <div id="dividend-calendar-pane" class="dividend-pane" style="display: none;">
+
+
+                    <div class="grid" style="grid-template-columns: 1fr 300px; gap: 2rem; align-items: start;">
+                        <div class="card" style="padding: 0; overflow: hidden;">
+                            <div id="dividend-calendar-grid"></div>
+                        </div>
+                        
+                        <div class="card" style="min-height: 500px;">
+                            <h3 style="font-size: 1.1rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">Day Details</h3>
+                            <div id="calendar-day-details">
+                                <div class="empty-state" style="padding: 2rem 0;">
+                                    <div style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;">📅</div>
+                                    <p style="font-size: 0.875rem; color: var(--text-muted);">Select a day to view its dividends</p>
+                                </div>
                             </div>
-                        </details>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="container tab-content" id="settings-tab">
+                <div class="settings-tabs" style="display: flex; gap: 2rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
+                    <button class="settings-tab-btn active" data-tab="portfolios" onclick="App.switchSettingsTab('portfolios', this)" style="background: none; border: none; color: var(--text); cursor: pointer; font-size: 1.1rem; font-weight: 600; padding: 0.5rem 0;">Portfolios</button>
+                    <button class="settings-tab-btn" data-tab="keys" onclick="App.switchSettingsTab('keys', this)" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.1rem; font-weight: 600; padding: 0.5rem 0;">Key Management</button>
+                </div>
+
+                <div id="settings-portfolios-pane" class="settings-pane active" style="display: block;">
+                    <div class="card" style="min-height: 400px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                            <h2>Accounts by Portfolio</h2>
+                            <button id="refreshBtn" class="btn btn-outline" style="width: auto; padding: 0.5rem 1rem;">
+                                Refresh All
+                            </button>
+                        </div>
+                        
+                        <div id="accountContainer">
+                            <div class="empty-state">
+                                <div class="empty-icon">📊</div>
+                                <p>No accounts loaded.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div style="margin-top: 1rem; text-align: center; font-size: 0.75rem; color: var(--text-muted);">
-                    &copy; 2026 CentralFolio. AES-256 Encrypted.
+                <div id="settings-keys-pane" class="settings-pane" style="display: none; animation: fadeIn 0.4s ease-out;">
+                    <div class="grid">
+                        <main>
+                            <div class="card">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                                    <h2 style="margin-bottom: 0;">Portfolios / Local Keys</h2>
+                                    <button id="addPortfolioBtn" class="btn btn-success btn-sm">Add New</button>
+                                </div>
+                                <p style="color: var(--text-muted); margin-bottom: 2rem; font-size: 0.875rem;">Manage your locally configured portfolios and SnapTrade API credentials.</p>
+                                
+                                <div id="portfolioList" class="portfolio-list">
+                                    <!-- Portfolios will be rendered here -->
+                                </div>
+                            </div>
+                        </main>
+
+                        <aside>
+                            <div class="card">
+                                <h2 style="margin-bottom: 1.5rem;">SnapTrade Users (Remote)</h2>
+                                <p style="color: var(--text-muted); margin-bottom: 2rem; font-size: 0.875rem;">Manage connections established with the remote SnapTrade API.</p>
+                                
+                                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                                    <button id="listUsersBtn" class="btn btn-outline" style="flex: 1;">List All Users</button>
+                                </div>
+                                
+                                <div id="adminUserList" style="margin-top: 1rem; max-height: 400px; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 12px; padding: 1rem;">
+                                    <div class="empty-state" style="padding: 2rem 0; font-size: 0.875rem;">Click above to load users.</div>
+                                </div>
+                                
+                                <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border);">
+                                    <h3 style="font-size: 1rem; color: var(--error); margin-bottom: 1rem;">Danger Zone</h3>
+                                    <p style="color: var(--text-muted); font-size: 0.8125rem; margin-bottom: 1rem;">Wiping all users removes them from SnapTrade completely. This action cannot be undone.</p>
+                                    <button id="wipeBtn" class="btn btn-danger" style="width: 100%;">Wipe All Users (Recovery)</button>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 1rem; text-align: center; font-size: 0.75rem; color: var(--text-muted);">
+                                &copy; 2026 CentralFolio. AES-256 Encrypted.
+                            </div>
+                        </aside>
+                    </div>
                 </div>
-            </aside>
+            </div>
         </div>
     </div>
 
@@ -557,296 +266,13 @@
         </div>
     </div>
 
+
     <div id="toast" class="toast"></div>
 
-    <script>
-        const portfolioList = document.getElementById('portfolioList');
-        const accountContainer = document.getElementById('accountContainer');
-        const portfolioModal = document.getElementById('portfolioModal');
-        const portfolioForm = document.getElementById('portfolioForm');
-        const modalTitle = document.getElementById('modalTitle');
-        const addPortfolioBtn = document.getElementById('addPortfolioBtn');
-        const refreshBtn = document.getElementById('refreshBtn');
-        const toast = document.getElementById('toast');
-        const totalBalanceEl = document.getElementById('totalBalance');
-        const portfolioCountEl = document.getElementById('portfolioCount');
-        
-        let activePortfolios = [];
-
-        function showToast(msg, type = 'success') {
-            toast.textContent = msg;
-            toast.className = `toast show ${type}`;
-            setTimeout(() => toast.classList.remove('show'), 4000);
-        }
-
-        function openModal(portfolio = null) {
-            if (portfolio) {
-                modalTitle.textContent = 'Edit Portfolio';
-                document.getElementById('portId').value = portfolio.id;
-                document.getElementById('portName').value = portfolio.name;
-                document.getElementById('clientId').value = portfolio.clientId;
-                document.getElementById('consumerKey').value = portfolio.consumerKey;
-                document.getElementById('userId').value = portfolio.userId;
-                document.getElementById('userSecret').value = portfolio.userSecret || '';
-            } else {
-                modalTitle.textContent = 'Add Portfolio';
-                portfolioForm.reset();
-                document.getElementById('portId').value = '';
-            }
-            portfolioModal.classList.add('show');
-        }
-
-        function closeModal() {
-            portfolioModal.classList.remove('show');
-        }
-
-        document.querySelector('.modal-close').onclick = closeModal;
-        window.onclick = (e) => { if (e.target === portfolioModal) closeModal(); };
-
-        addPortfolioBtn.onclick = () => openModal();
-
-        async function loadPortfolios() {
-            try {
-                const res = await fetch('/api/portfolios');
-                activePortfolios = await res.json();
-                renderPortfolios();
-                fetchAccounts();
-            } catch (err) {
-                showToast('Failed to load portfolios', 'error');
-            }
-        }
-
-        function renderPortfolios() {
-            portfolioCountEl.textContent = activePortfolios.length;
-            if (activePortfolios.length === 0) {
-                portfolioList.innerHTML = '<div class="empty-state" style="padding: 1rem;">No portfolios added.</div>';
-                return;
-            }
-
-            portfolioList.innerHTML = activePortfolios.map(p => `
-                <div class="portfolio-item">
-                    <div class="portfolio-header">
-                        <span class="portfolio-name">
-                            ${p.name}
-                            ${p.userSecret ? '<span class="status-badge status-active" style="padding: 0.1rem 0.4rem; font-size: 0.6rem; margin-left: 0.5rem;">Registered</span>' : ''}
-                        </span>
-                        <div style="display: flex; gap: 0.25rem;">
-                            <button class="btn btn-outline btn-sm" onclick="editPortfolio(${p.id})">Edit</button>
-                            <button class="btn btn-danger btn-sm" style="padding: 0.25rem 0.5rem;" onclick="deletePortfolioUI(${p.id})">&times;</button>
-                        </div>
-                    </div>
-                    <div class="portfolio-meta">User: ${p.userId}</div>
-                    <div class="portfolio-actions">
-                        ${!p.userSecret ? 
-                            `<button class="btn btn-success btn-sm" onclick="registerPortfolio(${p.id}, this)">
-                                <span class="loader"></span><span class="btn-text">Register</span>
-                             </button>` : 
-                            `<button class="btn btn-outline btn-sm" onclick="connectBrokerage(${p.id}, this)">
-                                <span class="loader"></span><span class="btn-text">Connect Brokerage</span>
-                             </button>`
-                        }
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        window.editPortfolio = (id) => {
-            const p = activePortfolios.find(x => x.id === id);
-            if (p) openModal(p);
-        };
-
-        window.deletePortfolioUI = async (id) => {
-            if (!confirm('Delete this portfolio and all its settings?')) return;
-            try {
-                const res = await fetch(`/api/portfolios/${id}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast('Portfolio deleted');
-                    loadPortfolios();
-                }
-            } catch (err) {
-                showToast('Delete failed', 'error');
-            }
-        };
-
-        portfolioForm.onsubmit = async (e) => {
-            e.preventDefault();
-            const saveBtn = document.getElementById('savePortBtn');
-            saveBtn.classList.add('loading');
-            saveBtn.disabled = true;
-
-            const data = {
-                id: document.getElementById('portId').value,
-                name: document.getElementById('portName').value,
-                clientId: document.getElementById('clientId').value,
-                consumerKey: document.getElementById('consumerKey').value,
-                userId: document.getElementById('userId').value,
-                userSecret: document.getElementById('userSecret').value
-            };
-
-            try {
-                const res = await fetch('/api/portfolios', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-                if (!res.ok) throw new Error('Save failed');
-                showToast('Portfolio saved successfully');
-                closeModal();
-                loadPortfolios();
-            } catch (err) {
-                showToast(err.message, 'error');
-            } finally {
-                saveBtn.classList.remove('loading');
-                saveBtn.disabled = false;
-            }
-        };
-
-        window.registerPortfolio = async (id, btn) => {
-            btn.classList.add('loading');
-            try {
-                const res = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ portfolioId: id })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Registration failed');
-                showToast('Successfully registered with SnapTrade');
-                loadPortfolios();
-            } catch (err) {
-                showToast(err.message, 'error');
-            } finally {
-                btn.classList.remove('loading');
-            }
-        };
-
-        window.connectBrokerage = async (id, btn) => {
-            btn.classList.add('loading');
-            try {
-                const res = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ portfolioId: id })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Failed to get link');
-                window.open(data.loginUrl, '_blank');
-                showToast('Portal opened. Refresh accounts after connecting.');
-            } catch (err) {
-                showToast(err.message, 'error');
-            } finally {
-                btn.classList.remove('loading');
-            }
-        };
-
-        async function fetchAccounts() {
-            accountContainer.innerHTML = '<div class="empty-state">Loading accounts for all portfolios...</div>';
-            try {
-                const res = await fetch('/api/accounts');
-                if (!res.ok) throw new Error('Failed to load accounts');
-                const groups = await res.json();
-                
-                if (groups.length === 0) {
-                    accountContainer.innerHTML = '<div class="empty-state">No portfolios configured.</div>';
-                    return;
-                }
-
-                let html = '';
-                let grandTotal = 0;
-
-                groups.forEach(group => {
-                    const portfolioTotal = group.accounts.reduce((sum, acc) => sum + (acc.balance?.total?.amount || 0), 0);
-                    grandTotal += portfolioTotal;
-
-                    html += `
-                        <div class="account-group">
-                            <div class="group-title">${group.portfolioName}</div>
-                            <div class="account-list">
-                                ${group.error ? `<div class="account-item" style="color: var(--error)">Error: ${group.error}</div>` : ''}
-                                ${group.accounts.length === 0 && !group.error ? `<div class="empty-state" style="padding: 1rem;">No accounts found.</div>` : ''}
-                                ${group.accounts.map(acc => `
-                                    <div class="account-item">
-                                        <div class="account-info">
-                                            <h4>${acc.name || 'Unnamed Account'}</h4>
-                                            <p>${acc.brokerage?.name || 'Unknown'} • ${acc.number || 'No Number'}</p>
-                                        </div>
-                                        <div class="account-balance">
-                                            <div class="balance-label">Net Value</div>
-                                            <div class="balance-amount">$${acc.balance?.total?.amount?.toLocaleString() || '0.00'}</div>
-                                        </div>
-                                    </div>
-                                `).join('')}
-                                ${group.accounts.length > 0 ? `
-                                    <div style="text-align: right; padding: 0.5rem 1.25rem; font-size: 0.8125rem; color: var(--text-muted);">
-                                        Portfolio Total: $${portfolioTotal.toLocaleString()}
-                                    </div>` : ''
-                                }
-                            </div>
-                        </div>
-                    `;
-                });
-
-                accountContainer.innerHTML = html;
-                totalBalanceEl.textContent = `$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-            } catch (err) {
-                accountContainer.innerHTML = `<div class="empty-state" style="color: var(--error)">Error: ${err.message}</div>`;
-            }
-        }
-
-        // Admin functionality
-        const listUsersBtn = document.getElementById('listUsersBtn');
-        const adminUserList = document.getElementById('adminUserList');
-        const wipeBtn = document.getElementById('wipeBtn');
-
-        listUsersBtn.onclick = async () => {
-            adminUserList.innerHTML = '<div style="font-size: 0.75rem; padding: 0.5rem;">Listing unique users...</div>';
-            try {
-                const res = await fetch('/api/admin/users');
-                const users = await res.json();
-                if (users.length === 0) {
-                    adminUserList.innerHTML = '<div style="font-size: 0.75rem; padding: 0.5rem;">No users found.</div>';
-                    return;
-                }
-                adminUserList.innerHTML = users.map(u => `
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                        <span style="font-size: 0.75rem; font-family: monospace;">${u}</span>
-                        <button class="btn-danger" style="padding: 0.2rem 0.4rem; font-size: 0.7rem;" onclick="deleteUser('${u}')">Delete</button>
-                    </div>
-                `).join('');
-            } catch (err) {
-                adminUserList.innerHTML = '<div style="color: var(--error); font-size: 0.75rem;">Failed to list.</div>';
-            }
-        };
-
-        window.deleteUser = async (uid) => {
-            if (!confirm(`Delete user ${uid}?`)) return;
-            try {
-                await fetch(`/api/admin/users/${uid}`, { method: 'DELETE' });
-                showToast('User deleted');
-                listUsersBtn.click();
-            } catch (err) {
-                showToast('Delete failed', 'error');
-            }
-        };
-
-        wipeBtn.onclick = async () => {
-            if (!confirm('WIPE ALL USERS from ALL SnapTrade keys? This cannot be undone.')) return;
-            wipeBtn.classList.add('loading');
-            try {
-                const res = await fetch('/api/admin/wipe', { method: 'POST' });
-                const data = await res.json();
-                showToast(`Wiped ${data.wipedCount} users. ${data.failedCount} failed.`);
-                listUsersBtn.click();
-            } catch (err) {
-                showToast('Wipe failed', 'error');
-            } finally {
-                wipeBtn.classList.remove('loading');
-            }
-        };
-
-        refreshBtn.onclick = fetchAccounts;
-
-        loadPortfolios();
-    </script>
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/api.js"></script>
+    <script src="/js/ui.js"></script>
+    <script src="/js/app.js"></script>
 </body>
 </html>

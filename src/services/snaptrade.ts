@@ -1,5 +1,5 @@
 import { Snaptrade } from "snaptrade-typescript-sdk";
-import { listPortfolios, getPortfolio, Portfolio } from "./db.js";
+import { listPortfolios, getPortfolio, Portfolio } from "../models/db.js";
 
 export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | number | string) {
   let portfolio: Portfolio | null = null;
@@ -78,4 +78,3 @@ export async function deleteUserFromPortfolios(userId: string) {
   }
   return { success: deleted };
 }
-

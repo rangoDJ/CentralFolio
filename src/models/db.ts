@@ -6,7 +6,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../snaptrade.db");
+// Adjusted path for src/models/db.ts
+const dbPath = path.resolve(__dirname, "../../snaptrade.db");
 
 const db = new Database(dbPath);
 

@@ -6,8 +6,8 @@
  *
  * Run: npm run login
  */
-import { getSnapTradeClientForPortfolio } from "./client.js";
-import { listPortfolios } from "./db.js";
+import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
+import { listPortfolios } from "../models/db.js";
 
 async function main() {
   const portfolios = listPortfolios();
@@ -49,5 +49,4 @@ main().catch((err) => {
   if (status) console.error("HTTP status:", status);
   if (body) console.error("Response body:", JSON.stringify(body, null, 2));
   console.error(err);
-  process.exit(1);
-});
+  

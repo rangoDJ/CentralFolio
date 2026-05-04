@@ -1,5 +1,5 @@
-import { deleteUserFromPortfolios } from "./client.js";
-import { listPortfolios } from "./db.js";
+import { deleteUserFromPortfolios } from "../services/snaptrade.js";
+import { listPortfolios } from "../models/db.js";
 
 async function main() {
   const portfolios = listPortfolios();

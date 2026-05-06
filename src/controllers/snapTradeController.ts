@@ -295,6 +295,7 @@ export const toggleAccountActive = (req: Request, res: Response) => {
 };
 
 export const getTransactions = async (req: Request, res: Response) => {
+  console.log('[HANDLER] getTransactions called!');
   const forceRefresh = req.query.forceRefresh === 'true';
   logger.info('SnapTrade', `GET /snapTrade/transactions — forceRefresh=${forceRefresh}`);
 

@@ -1,4 +1,4 @@
-import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds } from "../models/db.js";
+import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 
@@ -80,7 +80,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false): Pro
   try {
     logger.info('Transactions', 'Starting transaction refresh cycle...');
 
-    const portfolios = (await import("../models/db.js")).listPortfolios();
+    const portfolios = listPortfolios();
     const activeAccountIds = getActiveAccountIds();
 
     let processedCount = 0;

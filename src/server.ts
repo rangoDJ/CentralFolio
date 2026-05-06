@@ -13,6 +13,14 @@ app.use(express.json());
 app.use(requestLogger); // Log every HTTP request + response status + duration
 app.use(express.static(path.resolve(__dirname, "../public")));
 
+// Debug middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    console.log(`[SERVER] Request to ${req.method} ${req.path}`);
+  }
+  next();
+});
+
 // --- Routes ---
 app.use("/api", apiRoutes);
 

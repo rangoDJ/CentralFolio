@@ -30,6 +30,10 @@
                     <span style="font-size: 1.2rem;">📈</span>
                     <span>Dividend Tracker</span>
                 </button>
+                <button class="sidebar-item" data-tab="transactions" onclick="App.switchMainTab('transactions', this)">
+                    <span style="font-size: 1.2rem;">💳</span>
+                    <span>Transactions</span>
+                </button>
                 <button class="sidebar-item" data-tab="settings" onclick="App.switchMainTab('settings', this)">
                     <span style="font-size: 1.2rem;">⚙️</span>
                     <span>Settings</span>
@@ -161,6 +165,25 @@
                 </div>
             </div>
 
+            <div class="container tab-content" id="transactions-tab">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h2 style="margin-bottom: 0;">Transactions</h2>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <span id="transactions-last-updated" style="font-size: 0.875rem; color: var(--text-muted);"></span>
+                        <button id="refreshTransactionsBtn" class="btn btn-outline btn-sm" style="padding: 0.35rem 0.75rem;" onclick="App.loadAllTransactions(true)">
+                            <span class="loader" style="width: 12px; height: 12px; border-width: 2px;"></span>
+                            <span class="btn-text">Refresh</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="transactions-page-content">
+                    <div id="transactions-tabs" class="tabs-container" style="margin-bottom: 2rem;"></div>
+                    <div id="transactions-tables">
+                        <div class="empty-state">Select an account in Settings to view transactions.</div>
+                    </div>
+                </div>
+            </div>
+
             <div class="container tab-content" id="settings-tab">
                 <div class="settings-tabs" style="display: flex; gap: 2rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
                     <button class="settings-tab-btn active" data-tab="portfolios" onclick="App.switchSettingsTab('portfolios', this)" style="background: none; border: none; color: var(--text); cursor: pointer; font-size: 1.1rem; font-weight: 600; padding: 0.5rem 0;">Portfolios</button>
@@ -197,6 +220,82 @@
                                 
                                 <div id="portfolioList" class="portfolio-list">
                                     <!-- Portfolios will be rendered here -->
+                                </div>
+                            </div>
+
+                            <!-- Global Settings Card -->
+                            <div class="card" style="margin-top: 2rem;">
+                                <h2 style="margin-bottom: 1.5rem;">Dividend Data Providers</h2>
+                                <p style="color: var(--text-muted); margin-bottom: 2rem; font-size: 0.875rem;">Select which providers to use for dividend data. Multiple providers can be enabled for fallback support.</p>
+
+                                <!-- Yahoo Finance (Always Free) -->
+                                <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--card-bg); border-radius: 10px; margin-bottom: 1rem;">
+                                    <div>
+                                        <div style="font-weight: 600; margin-bottom: 0.25rem;">Yahoo Finance</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted);">US & Canadian stocks • Free • No key required</div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="provider-yahoo" checked disabled>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <!-- Polygon.io -->
+                                <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--card-bg); border-radius: 10px; margin-bottom: 1rem;">
+                                    <div>
+                                        <div style="font-weight: 600; margin-bottom: 0.25rem;">Polygon.io</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted);">Multiple markets • Free tier available • Requires API key</div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="provider-polygon">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <!-- Alpha Vantage -->
+                                <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--card-bg); border-radius: 10px; margin-bottom: 1rem;">
+                                    <div>
+                                        <div style="font-weight: 600; margin-bottom: 0.25rem;">Alpha Vantage</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted);">Global stocks • Free tier available • Requires API key</div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="provider-alphavantage">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <!-- Finnhub -->
+                                <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--card-bg); border-radius: 10px; margin-bottom: 1rem;">
+                                    <div>
+                                        <div style="font-weight: 600; margin-bottom: 0.25rem;">Finnhub</div>
+                                        <div style="font-size: 0.8rem; color: var(--text-muted);">Global stocks • Free tier available • Requires API key</div>
+                                    </div>
+                                    <label class="switch">
+                                        <input type="checkbox" id="provider-finnhub">
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <!-- API Keys Section -->
+                                <div style="margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--border);">
+                                    <h3 style="font-size: 1rem; margin-bottom: 1.5rem;">API Keys</h3>
+
+                                    <div class="form-group" style="display: none;" id="polygon-key-group">
+                                        <label for="polygonApiKey">Polygon.io API Key</label>
+                                        <input type="password" id="polygonApiKey" placeholder="Enter Polygon.io API key">
+                                    </div>
+
+                                    <div class="form-group" style="display: none;" id="alphavantage-key-group">
+                                        <label for="alphavantageApiKey">Alpha Vantage API Key</label>
+                                        <input type="password" id="alphavantageApiKey" placeholder="Enter Alpha Vantage API key">
+                                    </div>
+
+                                    <div class="form-group" style="display: none;" id="finnhub-key-group">
+                                        <label for="finnhubApiKey">Finnhub API Key</label>
+                                        <input type="password" id="finnhubApiKey" placeholder="Enter Finnhub API key">
+                                    </div>
+
+                                    <button id="saveDividendProvidersBtn" class="btn" style="width: auto; padding: 0.75rem 1.5rem; margin-top: 1rem;">Save Provider Settings</button>
                                 </div>
                             </div>
                         </main>

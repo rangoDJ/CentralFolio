@@ -48,28 +48,32 @@ const API = {
         return data.loginUrl;
     },
 
-    async getAccounts() {
-        const res = await fetch('/api/accounts');
+    async getAccounts(forceRefresh = false) {
+        const url = `/api/accounts${forceRefresh ? '?forceRefresh=true' : ''}`;
+        const res = await fetch(url);
         if (!res.ok) throw new Error('Failed to load accounts');
         return await res.json();
     },
 
-    async getHoldings(portfolioId, accountId) {
-        const res = await fetch(`/api/holdings/${portfolioId}/${accountId}`);
+    async getHoldings(portfolioId, accountId, forceRefresh = false) {
+        const url = `/api/holdings/${portfolioId}/${accountId}${forceRefresh ? '?forceRefresh=true' : ''}`;
+        const res = await fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch holdings');
         return data;
     },
 
-    async getDividendForecast(portfolioId, accountId) {
-        const res = await fetch(`/api/dividends/forecast/${portfolioId}/${accountId}`);
+    async getDividendForecast(portfolioId, accountId, forceRefresh = false) {
+        const url = `/api/dividends/forecast/${portfolioId}/${accountId}${forceRefresh ? '?forceRefresh=true' : ''}`;
+        const res = await fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch dividend forecast');
         return data;
     },
     
-    async getAllDividends() {
-        const res = await fetch('/api/portfolios/all-dividends');
+    async getAllDividends(forceRefresh = false) {
+        const url = `/api/portfolios/all-dividends${forceRefresh ? '?forceRefresh=true' : ''}`;
+        const res = await fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch all dividends');
         return data;
@@ -91,6 +95,42 @@ const API = {
         const res = await fetch('/api/admin/wipe', { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error('Wipe failed');
+        return data;
+    },
+
+    async getSettings() {
+        const res = await fetch('/api/admin/settings');
+        if (!res.ok) throw new Error('Failed to fetch settings');
+        return await res.json();
+    },
+
+    async updateSettings(settings) {
+        const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update settings');
+        return data;
+    },
+
+    async setAccountActive(accountId, isActive) {
+        const res = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/active`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isActive })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update account status');
+        return data;
+    },
+
+    async getTransactions(forceRefresh = false) {
+        const url = `/api/transactions${forceRefresh ? '?forceRefresh=true' : ''}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch transactions');
         return data;
     }
 };

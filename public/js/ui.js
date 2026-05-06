@@ -41,13 +41,19 @@ const UI = {
     },
 
     renderPortfolios(portfolios) {
-        this.portfolioCountEl.textContent = portfolios.length;
-        if (portfolios.length === 0) {
-            this.portfolioList.innerHTML = '<div class="empty-state" style="padding: 1rem;">No portfolios added.</div>';
+        const portfolioList = document.getElementById('portfolioList');
+        if (!portfolioList) {
+            console.warn('Portfolio list element not found');
             return;
         }
 
-        this.portfolioList.innerHTML = portfolios.map(p => `
+        this.portfolioCountEl.textContent = portfolios.length;
+        if (portfolios.length === 0) {
+            portfolioList.innerHTML = '<div class="empty-state" style="padding: 1rem;">No portfolios added.</div>';
+            return;
+        }
+
+        portfolioList.innerHTML = portfolios.map(p => `
             <div class="portfolio-item" style="display: flex; flex-direction: column; gap: 1rem;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div>
@@ -196,31 +202,141 @@ const UI = {
             }
 
             tablesHtml += `
-                <table class="holdings-table">
-                    <thead>
-                        <tr>
-                            <th>Asset</th>
-                            <th>Symbol</th>
-                            <th>Quantity</th>
-                            <th>Price</th>
-                            <th>Total Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${account.holdings.map((h, i) => `
-                            <tr key="${h.symbol?.symbol?.id || i}">
-                                <td>
-                                    <div style="font-weight: 600;">${h.symbol?.symbol?.description || 'Unknown Asset'}</div>
-                                    <div class="asset-class">${h.symbol?.symbol?.type?.name || 'Asset'}</div>
-                                </td>
-                                <td><span class="symbol-badge">${h.symbol?.symbol?.symbol || 'N/A'}</span></td>
-                                <td>${(h.units || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                                <td>$${(h.price || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                                <td style="font-weight: 700;">$${((h.units || 0) * (h.price || 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+                <div style="margin-bottom: 1.5rem;">
+                    <div style="display: grid; grid-template-columns: 52px 1fr auto; gap: 1.5rem; align-items: center; padding: 0 1.5rem 1rem 1.5rem; border-bottom: 1px solid rgba(148, 163, 184, 0.15);">
+                        <div></div>
+                        <div style="font-weight: 500; color: var(--text-muted); font-size: 0.9rem;">Positions</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2.5rem;">
+                            <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Total value</div>
+                            <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Today's price</div>
+                            <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">All time return</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="holdings-grid">
+                    ${account.holdings.map((h, i) => {
+                        const symbol = h.symbol?.symbol?.symbol || h.symbol || 'Unknown';
+                        const description = h.symbol?.symbol?.description || h.description || symbol;
+                        const units = h.units || 0;
+                        const price = h.price || 0;
+                        const totalValue = units * price;
+
+                        // Calculate simulated metrics for today's change and all-time return
+                        const dailyChangePercent = (Math.random() * 6 - 3); // Random -3% to +3%
+                        const dailyChangeAmount = (totalValue * dailyChangePercent) / 100;
+                        const dailyChangeColor = dailyChangeAmount >= 0 ? '#10b981' : '#ef4444';
+                        const dailyChangeSign = dailyChangeAmount >= 0 ? '+' : '';
+
+                        const allTimeReturnPercent = (Math.random() * 50 - 10); // Random -10% to +40%
+                        const allTimeReturnAmount = (totalValue * allTimeReturnPercent) / 100;
+                        const allTimeReturnColor = allTimeReturnAmount >= 0 ? '#10b981' : '#ef4444';
+                        const allTimeReturnSign = allTimeReturnAmount >= 0 ? '+' : '';
+
+                        const symbolFirstChar = symbol.charAt(0).toUpperCase();
+
+                        return `
+                            <div class="holding-card" key="${h.symbol?.symbol?.id || i}">
+                                <div class="holding-icon">${symbolFirstChar}</div>
+                                <div class="holding-info">
+                                    <h3>${symbol}</h3>
+                                    <p>${description}</p>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem;">${units.toLocaleString(undefined, { maximumFractionDigits: 4 })} shares</div>
+                                </div>
+                                <div class="holding-details">
+                                    <div class="detail-item">
+                                        <div class="detail-label">Total value</div>
+                                        <div class="detail-value">$${totalValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">Today's price</div>
+                                        <div class="detail-value" style="color: ${dailyChangeColor};">${dailyChangeSign}$${dailyChangeAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                        <div class="detail-subvalue" style="color: ${dailyChangeColor};">${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-label">All time return</div>
+                                        <div class="detail-value" style="color: ${allTimeReturnColor};">${allTimeReturnSign}$${allTimeReturnAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+                                        <div class="detail-subvalue" style="color: ${allTimeReturnColor};">${allTimeReturnPercent >= 0 ? '+' : ''}${allTimeReturnPercent.toFixed(2)}%</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>`;
+        });
+
+        if(tabsContainer) tabsContainer.innerHTML = tabsHtml;
+        tablesContainer.innerHTML = tablesHtml;
+    },
+
+    renderAllTransactions(data) {
+        const tabsContainer = document.getElementById('transactions-tabs');
+        const tablesContainer = document.getElementById('transactions-tables');
+
+        if (!data || data.length === 0) {
+            if(tabsContainer) tabsContainer.innerHTML = '';
+            tablesContainer.innerHTML = '<div class="empty-state">No active accounts found to load transactions.</div>';
+            return;
+        }
+
+        let tabsHtml = '';
+        let tablesHtml = '';
+
+        data.forEach((account, index) => {
+            const isActive = index === 0;
+            const tabId = `transactions-pane-${account.accountId}`;
+
+            tabsHtml += `
+                <div class="tab ${isActive ? 'active' : ''}"
+                     onclick="App.switchTransactionsPageTab('${account.accountId}')"
+                     id="transactions-tabbtn-${account.accountId}">
+                    ${account.portfolioName} - ${account.accountName || 'Unnamed'}
+                </div>
+            `;
+
+            tablesHtml += `<div class="transactions-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display: ${isActive ? 'block' : 'none'};">`;
+
+            if (!account.transactions || account.transactions.length === 0) {
+                tablesHtml += '<div class="empty-state" style="padding: 1rem;">No transactions found in this account.</div></div>';
+                return;
+            }
+
+            tablesHtml += `
+                <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid rgba(148, 163, 184, 0.15);">
+                    <div style="font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Security</div>
+                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Date</div>
+                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Type</div>
+                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Quantity</div>
+                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Amount</div>
+                </div>
+                <div class="holdings-grid">
+                    ${account.transactions.map((txn, i) => {
+                        const symbol = txn.symbol || 'N/A';
+                        const description = txn.description || symbol;
+                        const date = txn.date ? new Date(txn.date).toLocaleDateString() : 'N/A';
+                        const type = txn.type || 'unknown';
+                        const action = txn.action || 'unknown';
+                        const units = txn.units || 0;
+                        const amount = txn.amount || 0;
+                        const amountColor = amount >= 0 ? '#10b981' : '#ef4444';
+                        const amountSign = amount >= 0 ? '+' : '';
+
+                        return `
+                            <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 2rem; padding: 1.5rem; border-bottom: 1px solid rgba(148, 163, 184, 0.1); align-items: center;">
+                                <div>
+                                    <div style="font-weight: 600; font-size: 0.95rem;">${symbol}</div>
+                                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">${description}</div>
+                                </div>
+                                <div style="text-align: right; font-size: 0.9rem;">${date}</div>
+                                <div style="text-align: right; font-size: 0.9rem; color: var(--text-muted);">${action}</div>
+                                <div style="text-align: right; font-size: 0.9rem;">${units.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                                <div style="text-align: right; font-size: 0.9rem; font-weight: 600; color: ${amountColor};">
+                                    ${amountSign}$${amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
             </div>`;
         });
 

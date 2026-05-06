@@ -1,40 +1,71 @@
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
-import portfolioRoutes from "./routes/portfolioRoutes.js";
-import snapTradeRoutes from "./routes/snapTradeRoutes.js";
-import adminRoutes from "./routes/adminRoutes.js";
+import apiRoutes from "./routes/apiRoutes.js";
+import { logger, requestLogger } from "./utils/logger.js";
+import { getAllDividendsForAllPortfolios } from "./services/dividendService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const port = 3000;
+const port = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 app.use(express.json());
+app.use(requestLogger); // Log every HTTP request + response status + duration
 app.use(express.static(path.resolve(__dirname, "../public")));
 
 // --- Routes ---
-app.use("/api/portfolios", portfolioRoutes);
-app.use("/api", snapTradeRoutes); // register, accounts, holdings, login
-app.use("/api/admin", adminRoutes);
+app.use("/api", apiRoutes);
 
-// Catch-all for API routes to avoid returning HTML
-app.all(/^\/api\/.*/, (req, res) => {
-  console.log(`[API] 404 Unhandled: ${req.method} ${req.url}`);
-  res.status(404).json({ error: "API route not found" });
-});
-
-// Global error handler to ensure JSON responses for API routes
+// Global error handler — catches anything unhandled by controllers
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  logger.error('Server', `Unhandled error on ${req.method} ${req.path}: ${err.message}`, err.stack);
   if (req.path.startsWith('/api/')) {
-    console.error('[API] Global Error:', err);
-    return res.status(500).json({ 
-      error: "Internal Server Error", 
-      detail: err.message || "An unexpected error occurred" 
+    return res.status(500).json({
+      error: "Internal Server Error",
+      detail: err.message || "An unexpected error occurred"
     });
   }
   next(err);
 });
 
+// Schedule dividend fetch every 24 hours
+function scheduleDividendFetch() {
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+  const FETCH_TIMEOUT_MS = 10 * 60 * 1000; // 10 minute max timeout per fetch
+
+  async function fetchAndCache() {
+    try {
+      logger.info('Scheduler', 'Starting scheduled dividend fetch...');
+      const start = Date.now();
+
+      const fetchPromise = getAllDividendsForAllPortfolios();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Fetch timeout after ${FETCH_TIMEOUT_MS}ms`)), FETCH_TIMEOUT_MS)
+      );
+
+      await Promise.race([fetchPromise, timeoutPromise]);
+      const elapsed = Date.now() - start;
+      logger.info('Scheduler', `Scheduled dividend fetch completed in ${elapsed}ms`);
+    } catch (err: any) {
+      logger.error('Scheduler', `Scheduled dividend fetch failed: ${err.message}`);
+    }
+  }
+
+  // Schedule for every 24 hours (no fetch on startup)
+  setInterval(() => {
+    logger.info('Scheduler', 'Running 24h scheduled dividend fetch...');
+    fetchAndCache();
+  }, TWENTY_FOUR_HOURS_MS);
+  logger.info('Scheduler', 'Dividend fetch scheduled for every 24 hours');
+}
+
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  logger.info('Server', `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+  logger.info('Server', `  CentralFolio backend started`);
+  logger.info('Server', `  Listening at http://localhost:${port}`);
+  logger.info('Server', `  LOG_LEVEL=${process.env.LOG_LEVEL ?? 'info'}`);
+  logger.info('Server', `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+  // Start dividend fetch scheduler
+  scheduleDividendFetch();
 });

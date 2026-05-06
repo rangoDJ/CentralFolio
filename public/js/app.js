@@ -6,7 +6,7 @@ const App = {
     activePortfolios: [],
     currentGroups: [],
     activePortfolioId: null,
-    inactiveAccountIds: new Set(JSON.parse(localStorage.getItem('inactiveAccountIds') || '[]')),
+    inactiveAccountIds: new Set(), // seeded from server DB on fetchAccounts
     cachedHoldingsData: null,
     holdingsLastUpdated: null,
     cachedDividendsData: null,
@@ -29,23 +29,32 @@ const App = {
         const dividendSubBtn = document.querySelector(`.sub-tab-btn[data-subtab="${savedDividendSubTab}"]`);
         this.switchDividendSubTab(savedDividendSubTab, dividendSubBtn);
 
-        await this.loadPortfolios();
+        await Promise.all([
+            this.loadPortfolios(),
+            this.loadSettings()
+        ]);
     },
 
     setupEventListeners() {
         document.getElementById('addPortfolioBtn').onclick = () => UI.openModal();
         document.querySelector('.modal-close').onclick = () => UI.closeModal();
-        
-        window.onclick = (e) => { 
+
+        window.onclick = (e) => {
             if (e.target === UI.portfolioModal) UI.closeModal();
         };
 
         UI.portfolioForm.onsubmit = (e) => this.handlePortfolioSubmit(e);
-        
-        document.getElementById('refreshBtn').onclick = () => this.fetchAccounts();
-        
+
+        document.getElementById('refreshBtn').onclick = () => this.fetchAccounts(true);
+
         document.getElementById('listUsersBtn').onclick = () => this.handleListUsers();
         document.getElementById('wipeBtn').onclick = () => this.handleWipeUsers();
+        document.getElementById('saveDividendProvidersBtn').onclick = () => this.handleSaveSettings();
+
+        // Add listeners for provider toggles
+        document.getElementById('provider-polygon').addEventListener('change', () => this.updateProviderKeyVisibility());
+        document.getElementById('provider-alphavantage').addEventListener('change', () => this.updateProviderKeyVisibility());
+        document.getElementById('provider-finnhub').addEventListener('change', () => this.updateProviderKeyVisibility());
     },
 
     async loadPortfolios() {
@@ -128,11 +137,21 @@ const App = {
         }
     },
 
-    async fetchAccounts() {
+    async fetchAccounts(forceRefresh = false) {
         UI.accountContainer.innerHTML = '<div class="empty-state">Loading accounts for all portfolios...</div>';
         try {
-            this.currentGroups = await API.getAccounts();
-            
+            this.currentGroups = await API.getAccounts(forceRefresh);
+
+            // Build inactiveAccountIds from the DB-backed isActive field on each account
+            this.inactiveAccountIds = new Set();
+            for (const group of this.currentGroups) {
+                for (const acc of (group.accounts || [])) {
+                    if (acc.isActive === false) {
+                        this.inactiveAccountIds.add(acc.id);
+                    }
+                }
+            }
+
             if (this.currentGroups.length === 0) {
                 UI.accountContainer.innerHTML = '<div class="empty-state">No portfolios configured.</div>';
                 return;
@@ -153,14 +172,35 @@ const App = {
         UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
     },
 
-    toggleAccount(accountId) {
-        if (this.inactiveAccountIds.has(accountId)) {
+    async toggleAccount(accountId) {
+        const isCurrentlyInactive = this.inactiveAccountIds.has(accountId);
+        const newIsActive = isCurrentlyInactive; // toggling: if inactive → now active, and vice versa
+
+        // Clear holdings and dividend caches since account status changed
+        this.cachedHoldingsData = null;
+        this.cachedDividendsData = null;
+
+        // Optimistic UI update immediately
+        if (newIsActive) {
             this.inactiveAccountIds.delete(accountId);
         } else {
             this.inactiveAccountIds.add(accountId);
         }
-        localStorage.setItem('inactiveAccountIds', JSON.stringify(Array.from(this.inactiveAccountIds)));
         UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
+
+        // Persist to backend DB
+        try {
+            await API.setAccountActive(accountId, newIsActive);
+        } catch (err) {
+            // Rollback optimistic update on failure
+            if (newIsActive) {
+                this.inactiveAccountIds.add(accountId);
+            } else {
+                this.inactiveAccountIds.delete(accountId);
+            }
+            UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
+            UI.showToast('Failed to update account status: ' + err.message, 'error');
+        }
     },
 
     async handleListUsers() {
@@ -199,6 +239,76 @@ const App = {
         }
     },
 
+    async loadSettings() {
+        try {
+            const settings = await API.getSettings();
+
+            // Load dividend provider settings
+            if (settings.dividend_providers) {
+                const providers = JSON.parse(settings.dividend_providers);
+                document.getElementById('provider-yahoo').checked = providers.yahoo !== false;
+                document.getElementById('provider-polygon').checked = providers.polygon || false;
+                document.getElementById('provider-alphavantage').checked = providers.alphavantage || false;
+                document.getElementById('provider-finnhub').checked = providers.finnhub || false;
+            }
+
+            // Load API keys
+            if (settings.polygon_api_key) {
+                document.getElementById('polygonApiKey').value = settings.polygon_api_key;
+            }
+            if (settings.alphavantage_api_key) {
+                document.getElementById('alphavantageApiKey').value = settings.alphavantage_api_key;
+            }
+            if (settings.finnhub_api_key) {
+                document.getElementById('finnhubApiKey').value = settings.finnhub_api_key;
+            }
+
+            // Update visibility of API key inputs
+            this.updateProviderKeyVisibility();
+        } catch (err) {
+            console.error('Failed to load settings:', err);
+        }
+    },
+
+    updateProviderKeyVisibility() {
+        document.getElementById('polygon-key-group').style.display =
+            document.getElementById('provider-polygon').checked ? 'block' : 'none';
+        document.getElementById('alphavantage-key-group').style.display =
+            document.getElementById('provider-alphavantage').checked ? 'block' : 'none';
+        document.getElementById('finnhub-key-group').style.display =
+            document.getElementById('provider-finnhub').checked ? 'block' : 'none';
+    },
+
+    async handleSaveSettings() {
+        const saveBtn = document.getElementById('saveDividendProvidersBtn');
+        saveBtn.classList.add('loading');
+        saveBtn.disabled = true;
+
+        try {
+            const providers = {
+                yahoo: true, // Always enabled
+                polygon: document.getElementById('provider-polygon').checked,
+                alphavantage: document.getElementById('provider-alphavantage').checked,
+                finnhub: document.getElementById('provider-finnhub').checked
+            };
+
+            const settings = {
+                dividend_providers: JSON.stringify(providers),
+                polygon_api_key: document.getElementById('polygonApiKey').value.trim() || null,
+                alphavantage_api_key: document.getElementById('alphavantageApiKey').value.trim() || null,
+                finnhub_api_key: document.getElementById('finnhubApiKey').value.trim() || null
+            };
+
+            await API.updateSettings(settings);
+            UI.showToast('Dividend provider settings saved successfully');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            saveBtn.classList.remove('loading');
+            saveBtn.disabled = false;
+        }
+    },
+
     async loadAllHoldings(forceRefresh = false) {
         const container = document.getElementById('holdings-page-content');
         if (!container) return;
@@ -228,7 +338,7 @@ const App = {
                 for (const acc of group.accounts) {
                     if (!this.inactiveAccountIds.has(acc.id)) {
                         try {
-                            const data = await API.getHoldings(group.portfolioId, acc.id);
+                            const data = await API.getHoldings(group.portfolioId, acc.id, forceRefresh);
                             allHoldingsData.push({
                                 portfolioName: group.portfolioName,
                                 accountName: acc.name,
@@ -236,12 +346,15 @@ const App = {
                                 holdings: data
                             });
                         } catch (err) {
-                            allHoldingsData.push({
-                                portfolioName: group.portfolioName,
-                                accountName: acc.name,
-                                accountId: acc.id,
-                                error: err.message
-                            });
+                            // Skip disabled accounts silently, only show other errors
+                            if (err.message !== 'Account is disabled') {
+                                allHoldingsData.push({
+                                    portfolioName: group.portfolioName,
+                                    accountName: acc.name,
+                                    accountId: acc.id,
+                                    error: err.message
+                                });
+                            }
                         }
                     }
                 }
@@ -278,20 +391,32 @@ const App = {
             return;
         }
 
-        if (refreshBtn) refreshBtn.classList.add('loading');
-        
-        container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block; border-top-color:var(--primary);"></span><br>Loading dividends...</div>';
-        
+        if (refreshBtn) {
+            refreshBtn.classList.add('loading');
+            refreshBtn.disabled = true;
+        }
+
+        container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block; border-top-color:var(--primary);"></span><br>' + (forceRefresh ? 'Fetching fresh dividend data...' : 'Loading dividends...') + '</div>';
+
         try {
-            this.cachedDividendsData = await API.getAllDividends();
+            const start = Date.now();
+            this.cachedDividendsData = await API.getAllDividends(forceRefresh);
+            const elapsed = Date.now() - start;
             this.dividendsLastUpdated = new Date();
             this.updateDividendsTimestamp();
 
             UI.renderDividends(this.cachedDividendsData);
+            if (forceRefresh) {
+                UI.showToast(`Dividend data refreshed (${elapsed}ms)`);
+            }
         } catch (err) {
             container.innerHTML = `<div class="empty-state" style="color: var(--error)">Error: ${err.message}</div>`;
+            UI.showToast(`Failed to refresh dividends: ${err.message}`, 'error');
         } finally {
-            if (refreshBtn) refreshBtn.classList.remove('loading');
+            if (refreshBtn) {
+                refreshBtn.classList.remove('loading');
+                refreshBtn.disabled = false;
+            }
         }
     },
 
@@ -322,6 +447,75 @@ const App = {
         this.currentCalendarDate = newDate;
         UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate);
     },
+
+    async loadAllTransactions(forceRefresh = false) {
+        const container = document.getElementById('transactions-page-content');
+        if (!container) return;
+
+        const refreshBtn = document.getElementById('refreshTransactionsBtn');
+
+        if (refreshBtn) {
+            refreshBtn.classList.add('loading');
+            refreshBtn.disabled = true;
+        }
+
+        try {
+            const start = Date.now();
+            const response = await API.getTransactions(forceRefresh);
+            this.transactionsLastUpdated = new Date();
+            this.updateTransactionsTimestamp();
+
+            const data = response
+                .filter(group => group.transactions && group.transactions.length > 0)
+                .map(group => ({
+                    portfolioName: group.portfolioName,
+                    accountName: group.accountName,
+                    accountId: group.accountId,
+                    transactions: group.transactions
+                }));
+
+            UI.renderAllTransactions(data);
+            this.cachedTransactionsData = data;
+
+            const elapsed = Date.now() - start;
+            if (elapsed > 1000) {
+                UI.showToast(`Transaction data refreshed (${elapsed}ms)`);
+            }
+        } catch (err) {
+            container.innerHTML = `<div class="empty-state" style="color: var(--error)">Error: ${err.message}</div>`;
+            UI.showToast(`Failed to refresh transactions: ${err.message}`, 'error');
+        } finally {
+            if (refreshBtn) {
+                refreshBtn.classList.remove('loading');
+                refreshBtn.disabled = false;
+            }
+        }
+    },
+
+    updateTransactionsTimestamp() {
+        const el = document.getElementById('transactions-last-updated');
+        if (el && this.transactionsLastUpdated) {
+            el.textContent = `Last updated: ${this.transactionsLastUpdated.toLocaleTimeString()}`;
+        }
+    },
+
+    switchTransactionsPageTab(accountId) {
+        document.querySelectorAll('#transactions-tabs .tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('#transactions-tables .transactions-pane').forEach(p => {
+            p.classList.remove('active');
+            p.style.display = 'none';
+        });
+
+        const activeTabBtn = document.getElementById(`transactions-tabbtn-${accountId}`);
+        const activePane = document.getElementById(`transactions-pane-${accountId}`);
+
+        if (activeTabBtn) activeTabBtn.classList.add('active');
+        if (activePane) {
+            activePane.classList.add('active');
+            activePane.style.display = 'block';
+        }
+    },
+
     switchHoldingsPageTab(accountId) {
         document.querySelectorAll('#holdings-tabs .tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('#holdings-tables .holdings-pane').forEach(p => {
@@ -365,6 +559,8 @@ const App = {
             }
         } else if (tabId === 'holdings') {
             this.loadAllHoldings();
+        } else if (tabId === 'transactions') {
+            this.loadAllTransactions();
         } else if (tabId === 'dividend-tracker') {
             const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
             if (subTab === 'forecast') {
@@ -375,14 +571,14 @@ const App = {
         }
     },
 
-    switchSettingsTab(paneId, btnElement) {
+    async switchSettingsTab(paneId, btnElement) {
         localStorage.setItem('activeSettingsTab', paneId);
         // Update active class on settings tabs
         document.querySelectorAll('.settings-tab-btn').forEach(btn => {
             btn.classList.remove('active');
             btn.style.color = 'var(--text-muted)';
         });
-        
+
         if (btnElement) {
             btnElement.classList.add('active');
             btnElement.style.color = 'var(--text)';
@@ -399,11 +595,21 @@ const App = {
             pane.classList.remove('active');
             pane.style.display = 'none';
         });
-        
+
         const activePane = document.getElementById('settings-' + paneId + '-pane');
         if (activePane) {
             activePane.classList.add('active');
             activePane.style.display = 'block';
+        }
+
+        // If switching to Keys tab, fetch and render portfolios from database
+        if (paneId === 'keys') {
+            try {
+                this.activePortfolios = await API.getPortfolios();
+                UI.renderPortfolios(this.activePortfolios);
+            } catch (err) {
+                console.error('Failed to load portfolios:', err);
+            }
         }
     },
 

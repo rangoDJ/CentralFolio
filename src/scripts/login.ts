@@ -49,4 +49,5 @@ main().catch((err) => {
   if (status) console.error("HTTP status:", status);
   if (body) console.error("Response body:", JSON.stringify(body, null, 2));
   console.error(err);
+});
   

@@ -1,9 +1,37 @@
+import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, getActiveAccountIds, getDividendProviders } from "../models/db.js";
+import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
+import { logger } from "../utils/logger.js";
 import YahooFinance from "yahoo-finance2";
 
-import { Portfolio, listPortfolios } from "../models/db.js";
-import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
-
 const yahooFinance = new YahooFinance();
+
+// Rate limiting state (shared across providers)
+let lastProviderRequestTime = 0;
+const MIN_INTERVAL_MS = 100;
+
+// In-memory cache for dividend metadata (24h TTL)
+const divMetadataCache = new Map<string, { 
+  frequency: number, 
+  lastExDate: string, 
+  amountPerShare: number, 
+  name: string,
+  timestamp: number 
+}>();
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+}
 
 export interface DividendEvent {
   symbol: string;
@@ -17,95 +45,443 @@ export interface DividendEvent {
   accountId?: string;
 }
 
-export async function getDividendForecastForAccount(portfolio: Portfolio, accountId: string): Promise<DividendEvent[]> {
+async function fetchFromYahooFinance(symbol: string): Promise<any> {
+  const now = Date.now();
+
   try {
-    const client = getSnapTradeClientForPortfolio(portfolio);
+    logger.info('YahooFinance', `Fetching dividend data for ${symbol}...`);
+
+    // Rate limiting
+    const elapsed = now - lastProviderRequestTime;
+    if (elapsed < MIN_INTERVAL_MS) {
+      const waitTime = MIN_INTERVAL_MS - elapsed;
+      await sleep(waitTime);
+    }
+    lastProviderRequestTime = Date.now();
+
+    const quote = await yahooFinance.quote(symbol);
+    const companyName = quote.longName || quote.shortName || symbol;
+
+    if (quote && quote.dividendDate) {
+      const quoteSummary = await yahooFinance.quoteSummary(symbol, { modules: ['fundProfile', 'summaryDetail'] });
+      const summaryData = quoteSummary.summaryDetail;
+
+      const amountPerShare = summaryData?.trailingAnnualDividendRate ||
+                            summaryData?.dividendRate ||
+                            quote.trailingAnnualDividendRate ||
+                            0;
+
+      let frequency = 1;
+      if (amountPerShare > 0) {
+        frequency = 4;
+      }
+
+      const lastExDate = quote.dividendDate
+        ? new Date(quote.dividendDate * 1000).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+
+      const data = {
+        frequency,
+        lastExDate,
+        amountPerShare: amountPerShare || 0,
+        name: companyName,
+        timestamp: Date.now()
+      };
+
+      logger.info('YahooFinance', `${symbol} → found dividend data (amount=$${data.amountPerShare})`);
+      return data;
+    }
+    return null;
+  } catch (err: any) {
+    logger.warn('YahooFinance', `${symbol} — error: ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchFromPolygon(symbol: string): Promise<any> {
+  const apiKey = getSetting("polygon_api_key");
+  if (!apiKey) {
+    logger.debug('Polygon', `${symbol} — API key not configured`);
+    return null;
+  }
+
+  try {
+    logger.info('Polygon', `Fetching dividend data for ${symbol}...`);
+
+    const elapsed = Date.now() - lastProviderRequestTime;
+    if (elapsed < MIN_INTERVAL_MS) {
+      await sleep(MIN_INTERVAL_MS - elapsed);
+    }
+    lastProviderRequestTime = Date.now();
+
+    const res = await fetch(`https://api.polygon.io/v2/reference/dividends?symbol=${symbol}&apiKey=${apiKey}`);
+
+    if (!res.ok) {
+      logger.warn('Polygon', `${symbol} — HTTP ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    if (!data.results || data.results.length === 0) {
+      logger.info('Polygon', `${symbol} — no dividend data found`);
+      return null;
+    }
+
+    const sorted = data.results.sort((a: any, b: any) =>
+      new Date(b.record_date).getTime() - new Date(a.record_date).getTime()
+    );
+    const latest = sorted[0];
+
+    const frequency = 4; // Default to quarterly
+
+    return {
+      frequency,
+      lastExDate: latest.record_date || new Date().toISOString().split('T')[0],
+      amountPerShare: parseFloat(latest.dividend_per_share) || 0,
+      name: symbol,
+      timestamp: Date.now()
+    };
+  } catch (err: any) {
+    logger.error('Polygon', `${symbol} — error: ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchFromAlphaVantage(symbol: string): Promise<any> {
+  const apiKey = getSetting("alphavantage_api_key");
+  if (!apiKey) {
+    logger.debug('AlphaVantage', `${symbol} — API key not configured`);
+    return null;
+  }
+
+  try {
+    logger.info('AlphaVantage', `Fetching dividend data for ${symbol}...`);
+
+    const elapsed = Date.now() - lastProviderRequestTime;
+    if (elapsed < MIN_INTERVAL_MS) {
+      await sleep(MIN_INTERVAL_MS - elapsed);
+    }
+    lastProviderRequestTime = Date.now();
+
+    const res = await fetch(
+      `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`
+    );
+
+    if (!res.ok) {
+      logger.warn('AlphaVantage', `${symbol} — HTTP ${res.status}`);
+      return null;
+    }
+
+    const data = await res.json();
+    if (!data['Global Quote'] || !data['Global Quote']['01. symbol']) {
+      logger.info('AlphaVantage', `${symbol} — no data found`);
+      return null;
+    }
+
+    const quote = data['Global Quote'];
+    const dividendYield = parseFloat(quote['06. dividend yield'] || '0');
+
+    if (!dividendYield || dividendYield === 0) {
+      logger.info('AlphaVantage', `${symbol} — no dividend yield found`);
+      return null;
+    }
+
+    const price = parseFloat(quote['05. price'] || '0');
+    const amountPerShare = (dividendYield / 100) * price;
+
+    return {
+      frequency: 4,
+      lastExDate: new Date().toISOString().split('T')[0],
+      amountPerShare: amountPerShare,
+      name: symbol,
+      timestamp: Date.now()
+    };
+  } catch (err: any) {
+    logger.error('AlphaVantage', `${symbol} — error: ${err.message}`);
+    return null;
+  }
+}
+
+async function fetchFromFinnhub(symbol: string): Promise<any> {
+  const apiKey = getSetting("finnhub_api_key");
+  if (!apiKey) {
+    logger.debug('Finnhub', `${symbol} — API key not configured`);
+    return null;
+  }
+
+  try {
+    logger.info('Finnhub', `Fetching dividend data for ${symbol}...`);
+
+    const elapsed = Date.now() - lastProviderRequestTime;
+    if (elapsed < MIN_INTERVAL_MS) {
+      await sleep(MIN_INTERVAL_MS - elapsed);
+    }
+    lastProviderRequestTime = Date.now();
+
+    const res = await fetch(
+      `https://finnhub.io/api/v1/stock/dividend?symbol=${symbol}&token=${apiKey}`
+    );
+
+    if (!res.ok) {
+      logger.warn('Finnhub', `${symbol} — HTTP ${res.status}`);
+      return null;
+    }
+
+    const dividends = await res.json();
+    if (!dividends || dividends.length === 0) {
+      logger.info('Finnhub', `${symbol} — no dividend history found`);
+      return null;
+    }
+
+    const sorted = dividends.sort((a: any, b: any) =>
+      new Date(b.exDate).getTime() - new Date(a.exDate).getTime()
+    );
+    const latest = sorted[0];
+
+    return {
+      frequency: 4,
+      lastExDate: latest.exDate,
+      amountPerShare: latest.amount ?? 0,
+      name: symbol,
+      timestamp: Date.now()
+    };
+  } catch (err: any) {
+    logger.error('Finnhub', `${symbol} — error: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Helper to fetch dividend metadata with multiple provider fallback
+ */
+async function fetchDividendMetadata(symbol: string): Promise<any> {
+  const now = Date.now();
+
+  // 1. Check in-memory Cache
+  if (divMetadataCache.has(symbol)) {
+    const cached = divMetadataCache.get(symbol)!;
+    if (now - cached.timestamp < CACHE_TTL_MS) {
+      logger.debug('Cache', `fetchDividendMetadata(${symbol}) → memory HIT`);
+      return cached;
+    }
+  }
+
+  // 2. Check DB Cache
+  const dbCached = getCachedDividendMetadata(symbol);
+  if (dbCached) {
+    const cachedAt = new Date(dbCached.cachedAt).getTime();
+    if (now - cachedAt < CACHE_TTL_MS) {
+      logger.debug('Cache', `fetchDividendMetadata(${symbol}) → DB HIT`);
+      const data = {
+        frequency: dbCached.frequency,
+        lastExDate: dbCached.lastExDate,
+        amountPerShare: dbCached.amountPerShare,
+        name: dbCached.name,
+        timestamp: cachedAt
+      };
+      divMetadataCache.set(symbol, data);
+      return data;
+    }
+  }
+
+  // 3. Get enabled providers from settings
+  const providers = getDividendProviders();
+  const providerOrder = [
+    { name: 'yahoo', enabled: providers.yahoo, fn: fetchFromYahooFinance },
+    { name: 'polygon', enabled: providers.polygon, fn: fetchFromPolygon },
+    { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
+    { name: 'finnhub', enabled: providers.finnhub, fn: fetchFromFinnhub }
+  ];
+
+  // Try each enabled provider in order
+  for (const provider of providerOrder) {
+    if (!provider.enabled) continue;
+
+    const data = await provider.fn(symbol);
+    if (data) {
+      divMetadataCache.set(symbol, data);
+      saveCachedDividendMetadata(symbol, data);
+      logger.info('Dividend', `${symbol} → saved to cache via ${provider.name}`);
+      return data;
+    }
+  }
+
+  logger.warn('Dividend', `${symbol} — no dividend data available from any provider`);
+  return null;
+}
+
+export async function getDividendForecastForAccount(portfolio: Portfolio, accountId: string, forceRefresh: boolean = false): Promise<DividendEvent[]> {
+  const TTL_MS = 24 * 60 * 60 * 1000;
+  logger.info('Forecast', `getDividendForecastForAccount — portfolio="${portfolio.name}" account=${accountId} forceRefresh=${forceRefresh}`);
+
+  try {
+    let positions: any[] = [];
     
-    // 1. Get current holdings
-    const positionsResponse = await client.accountInformation.getUserAccountPositions({
-      userId: portfolio.userId,
-      userSecret: portfolio.userSecret!,
-      accountId: accountId,
-    });
-    const positions = positionsResponse.data;
+    const cached = getCachedPositions(accountId);
+    const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
+
+    if (isFresh && !forceRefresh) {
+      logger.info('Cache', `getDividendForecastForAccount — positions cache HIT for account ${accountId} (${cached.length} position(s))`);
+      positions = cached.map(p => ({
+        symbol: { symbol: { symbol: p.symbol }, description: p.description },
+        units: p.units
+      }));
+    } else {
+      logger.info('SnapTrade', `getDividendForecastForAccount — fetching fresh positions for account ${accountId}...`);
+      const client = getSnapTradeClientForPortfolio(portfolio);
+      const positionsResponse = await client.accountInformation.getUserAccountPositions({
+        userId: portfolio.userId,
+        userSecret: portfolio.userSecret!,
+        accountId: accountId,
+      });
+      positions = positionsResponse.data;
+      const posCount = Array.isArray(positions) ? positions.length : 0;
+      logger.info('SnapTrade', `getDividendForecastForAccount — received ${posCount} position(s), saving to cache`);
+      saveCachedPositions(accountId, positions);
+    }
 
     const forecast: DividendEvent[] = [];
     const now = new Date();
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(now.getFullYear() - 1);
-    const oneYearFromNow = new Date();
-    oneYearFromNow.setFullYear(now.getFullYear() + 1);
+    const validPositions = positions.filter(p => {
+      const sym = (p.symbol as any)?.symbol?.symbol;
+      const units = p.units || 0;
+      return sym && units > 0;
+    });
 
-    // 2. For each holding, fetch historical dividends and project them
-    for (const position of positions) {
+    logger.info('Forecast', `Processing ${validPositions.length} valid position(s) for account ${accountId}...`);
+
+    for (const position of validPositions) {
       const symbolInfo = (position.symbol as any)?.symbol;
       const symbol = symbolInfo?.symbol;
       const units = position.units || 0;
 
-      if (!symbol || units <= 0) continue;
-
       try {
-        // Fetch last 12 months of dividends using chart() to project the next 12 months
-        const chartResult = await yahooFinance.chart(symbol, {
-          period1: oneYearAgo.toISOString().split('T')[0],
-          interval: '1d'
-        });
+        const idx = validPositions.indexOf(position) + 1;
+        const total = validPositions.length;
+        logger.info('Forecast', `  [${idx}/${total}] Processing ${symbol} (${units} units)...`);
 
-        const history = chartResult.events?.dividends;
-
-        if (history && history.length > 0) {
-          // Find latest dividend amount to use for all future projections of this stock
-          const latestDiv = [...history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-          const amountPerShare = latestDiv.amount;
-
-          for (const div of history) {
-            const pastDate = new Date(div.date);
-            const futureDate = new Date(pastDate);
-            futureDate.setFullYear(futureDate.getFullYear() + 1);
-
-            // If the projected date is in the future (within next 12 months)
-            if (futureDate >= now && futureDate <= oneYearFromNow) {
-              forecast.push({
-                symbol,
-                date: futureDate.toISOString(),
-                amount: amountPerShare * units,
-                amountPerShare,
-                units,
-                name: symbolInfo?.description || symbol
-              });
-            }
-          }
+        const METADATA_TIMEOUT_MS = 45000; // 45 second overall timeout per symbol
+        let metadata;
+        try {
+          metadata = await withTimeout(
+            fetchDividendMetadata(symbol),
+            METADATA_TIMEOUT_MS,
+            `fetchDividendMetadata(${symbol})`
+          );
+        } catch (timeoutErr: any) {
+          logger.warn('Forecast', `  ${symbol} — TIMEOUT after ${METADATA_TIMEOUT_MS}ms: ${timeoutErr.message}`);
+          continue;
         }
+
+        if (!metadata) {
+          logger.warn('Forecast', `  ${symbol} — no dividend data available`);
+          continue;
+        }
+
+        const { frequency, lastExDate, amountPerShare, name } = metadata;
+        logger.info('Forecast', `  ${symbol} — metadata: freq=${frequency}, lastEx=${lastExDate}, amount=${amountPerShare}`);
+
+        // Validate metadata
+        if (!frequency || frequency <= 0 || !lastExDate || amountPerShare < 0) {
+          logger.warn('Forecast', `  ${symbol} — invalid metadata (freq=${frequency}, lastEx=${lastExDate}), skipping`);
+          continue;
+        }
+
+        const monthsToAdd = 12 / frequency;
+        logger.info('Forecast', `  ${symbol} — monthsToAdd=${monthsToAdd}`);
+
+        let currentProjDate = new Date(lastExDate);
+        logger.info('Forecast', `  ${symbol} — starting projection from ${currentProjDate.toISOString()}`);
+
+        let loopCount = 0;
+        while (currentProjDate < now && loopCount < 100) {
+          currentProjDate.setMonth(currentProjDate.getMonth() + monthsToAdd);
+          loopCount++;
+        }
+        logger.info('Forecast', `  ${symbol} — caught up to present in ${loopCount} iterations`);
+
+        for (let i = 0; i < frequency; i++) {
+          forecast.push({
+            symbol,
+            date: currentProjDate.toISOString(),
+            amount: amountPerShare * units,
+            amountPerShare,
+            units,
+            name
+          });
+          currentProjDate.setMonth(currentProjDate.getMonth() + monthsToAdd);
+        }
+        logger.info('Forecast', `  ${symbol} → added ${frequency} projected event(s)`);
       } catch (err) {
-        console.warn(`[Forecast] Failed to fetch dividends for ${symbol}:`, err);
+        logger.warn('Forecast', `  ${symbol} — error: ${(err as any).message}`);
       }
     }
 
-
-    return forecast.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = forecast.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    logger.info('Forecast', `getDividendForecastForAccount complete — account ${accountId}: ${sorted.length} event(s) projected`);
+    return sorted;
   } catch (err: any) {
-    console.error(`[DividendService] Error for account ${accountId}:`, err.message);
+    logger.error('DividendSvc', `getDividendForecastForAccount failed — account ${accountId}: ${err.message}`);
     throw err;
   }
 }
 
+let cachedAllDividends: any[] = [];
+let cachedDividendsTime: number = 0;
+const CACHE_DIVIDENDS_TTL_MS = 24 * 60 * 60 * 1000;
+
 export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
   const portfolios = listPortfolios();
   const results = [];
+  const TTL_MS = 24 * 60 * 60 * 1000;
+
+  // Fetch active account IDs once — accounts toggled off in the UI are excluded from dividend forecasting
+  const activeAccountIds = getActiveAccountIds();
+  logger.info('DividendSvc', `getAllDividendsForAllPortfolios — ${activeAccountIds.size} active account(s) across ${portfolios.length} portfolio(s)`);
+  if (activeAccountIds.size === 0) {
+    logger.warn('DividendSvc', 'No active accounts found — all accounts may be toggled off. Returning empty results.');
+    return [];
+  }
 
   for (const portfolio of portfolios) {
-    if (!portfolio.userSecret) continue;
+    if (!portfolio.userSecret) {
+      logger.warn('DividendSvc', `  "${portfolio.name}" — not registered (no userSecret), skipping`);
+      continue;
+    }
 
+    logger.info('DividendSvc', `  Processing portfolio "${portfolio.name}"...`);
     try {
-      const client = getSnapTradeClientForPortfolio(portfolio);
-      const accountsResponse = await client.accountInformation.listUserAccounts({
-        userId: portfolio.userId,
-        userSecret: portfolio.userSecret,
-      });
+      let accounts: any[] = [];
+      const cached = getCachedAccounts(portfolio.id!);
+      const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
 
-      for (const acc of accountsResponse.data) {
+      if (isFresh) {
+        logger.info('Cache', `  "${portfolio.name}" — accounts cache HIT (${cached.length} account(s))`);
+        accounts = cached;
+      } else {
+        logger.info('SnapTrade', `  "${portfolio.name}" — accounts cache MISS, fetching from SnapTrade...`);
+        const client = getSnapTradeClientForPortfolio(portfolio);
+        const accountsResponse = await client.accountInformation.listUserAccounts({
+          userId: portfolio.userId,
+          userSecret: portfolio.userSecret,
+        });
+        accounts = accountsResponse.data;
+        const accCount = Array.isArray(accounts) ? accounts.length : 0;
+        logger.info('SnapTrade', `  "${portfolio.name}" — received ${accCount} account(s), saving to cache`);
+        saveCachedAccounts(portfolio.id!, accounts);
+      }
+
+      const allAccounts: any[] = accounts;
+      const activeAccounts = allAccounts.filter(acc => activeAccountIds.has(acc.id));
+      const skipped = allAccounts.length - activeAccounts.length;
+
+      logger.info('DividendSvc', `  "${portfolio.name}" — ${activeAccounts.length} active account(s) of ${allAccounts.length} total (${skipped} inactive, skipped)`);
+
+      for (const acc of activeAccounts) {
+        logger.info('DividendSvc', `    Account: "${acc.name ?? acc.id}" (${acc.id})`);
         try {
           const dividends = await getDividendForecastForAccount(portfolio, acc.id);
+          logger.info('DividendSvc', `    → ${dividends.length} projected dividend event(s)`);
           results.push({
             portfolioName: portfolio.name,
             accountName: acc.name,
@@ -113,6 +489,7 @@ export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
             dividends: dividends
           });
         } catch (err: any) {
+          logger.warn('DividendSvc', `    → forecast failed for "${acc.name}": ${err.message}`);
           results.push({
             portfolioName: portfolio.name,
             accountName: acc.name,
@@ -123,9 +500,23 @@ export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
         }
       }
     } catch (err: any) {
-      console.error(`[DividendService] Failed to fetch accounts for portfolio ${portfolio.name}:`, err.message);
+      logger.error('DividendSvc', `  Failed to fetch accounts for portfolio "${portfolio.name}": ${err.message}`);
     }
   }
 
+  const totalEvents = results.reduce((s, r) => s + (r.dividends?.length ?? 0), 0);
+  logger.info('DividendSvc', `getAllDividendsForAllPortfolios complete — ${results.length} account(s), ${totalEvents} total event(s)`);
+  cachedAllDividends = results;
+  cachedDividendsTime = Date.now();
   return results;
+}
+
+export function getCachedAllDividends(): any[] | null {
+  const now = Date.now();
+  if (cachedAllDividends.length > 0 && (now - cachedDividendsTime < CACHE_DIVIDENDS_TTL_MS)) {
+    logger.debug('Cache', 'getCachedAllDividends → cache HIT');
+    return cachedAllDividends;
+  }
+  logger.debug('Cache', 'getCachedAllDividends → cache MISS or expired');
+  return null;
 }

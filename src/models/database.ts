@@ -114,9 +114,11 @@ for (const m of migrations) {
 const count = (db.prepare("SELECT count(*) as count FROM portfolios").get() as any).count;
 logger.info('DB', `Schema initialized. Found ${count} persisted portfolio(s).`);
 if (count > 0) {
-  const portfolios = db.prepare("SELECT name, userId, userSecret FROM portfolios").all() as any[];
+  const portfolios = db.prepare(
+    "SELECT name, userId, (userSecret IS NOT NULL AND userSecret != '') AS registered FROM portfolios"
+  ).all() as any[];
   portfolios.forEach(p => {
-    logger.info('DB', `  • "${p.name}" — userId: ${p.userId} | registered: ${!!p.userSecret}`);
+    logger.info('DB', `  • "${p.name}" — userId: ${p.userId} | registered: ${p.registered === 1}`);
   });
 }
 

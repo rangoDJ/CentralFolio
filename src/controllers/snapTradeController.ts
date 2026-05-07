@@ -6,6 +6,17 @@ import { refreshAllTransactions } from "../services/transactionService.js";
 import { onAccountDeactivated, onBrokerageReconnected } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
+/**
+ * Extracts a safe client-facing message from a SnapTrade SDK error.
+ * Logs the full detail server-side; never returns raw SDK internals to the client.
+ */
+function snapTradeError(err: any, clientFallback: string): { log: string; client: string } {
+  const body = err?.responseBody ?? err?.response?.data;
+  const log = body?.detail || body?.message || err?.message || 'unknown error';
+  const client = body?.detail || clientFallback;
+  return { log, client };
+}
+
 export const registerUser = async (req: Request, res: Response) => {
   const { portfolioId } = req.body;
   logger.info('SnapTrade', `POST /snapTrade/registerUser — portfolioId=${portfolioId}`);
@@ -39,17 +50,16 @@ export const registerUser = async (req: Request, res: Response) => {
     
     res.json({ success: true, userSecret });
   } catch (err: any) {
-    const body = err?.responseBody ?? err?.response?.data;
-    const detail = body?.detail || body?.message || "Registration failed";
-    logger.error('SnapTrade', `registerUser failed for portfolioId=${portfolioId}: ${detail}`);
-    
+    const { log, client } = snapTradeError(err, "Registration failed");
+    logger.error('SnapTrade', `registerUser failed for portfolioId=${portfolioId}: ${log}`);
+
     const portfolio = getPortfolio(String(portfolioId));
-    if (detail.includes("Personal keys can only register one user") && portfolio?.userSecret) {
+    if (log.includes("Personal keys can only register one user") && portfolio?.userSecret) {
       logger.warn('SnapTrade', `registerUser — already registered (SnapTrade error), returning existing secret`);
       return res.json({ success: true, userSecret: portfolio.userSecret, cached: true });
     }
-    
-    res.status(500).json({ error: detail });
+
+    res.status(500).json({ error: client });
   }
 };
 
@@ -148,13 +158,12 @@ export const listAccounts = async (req: Request, res: Response) => {
         });
 
       } catch (err: any) {
-        const body = err?.responseBody ?? err?.response?.data;
-        const errMsg = body?.detail || err.message || "Failed to fetch accounts";
-        logger.warn('SnapTrade', `  "${portfolio.name}" — failed: ${errMsg}`);
+        const { log, client } = snapTradeError(err, "Failed to fetch accounts");
+        logger.warn('SnapTrade', `  "${portfolio.name}" — failed: ${log}`);
         results.push({
           portfolioId: portfolio.id,
           portfolioName: portfolio.name,
-          error: errMsg,
+          error: client,
           accounts: []
         });
       }
@@ -221,10 +230,9 @@ export const getHoldings = async (req: Request, res: Response) => {
     saveCachedPositions(String(accountId), response.data);
     res.json(response.data);
   } catch (err: any) {
-    const body = err?.responseBody ?? err?.response?.data;
-    const detail = body?.detail || body?.message || err.message || "Failed to fetch holdings";
-    logger.error('SnapTrade', `getHoldings failed for account ${accountId}: ${detail}`);
-    res.status(500).json({ error: detail });
+    const { log, client } = snapTradeError(err, "Failed to fetch holdings");
+    logger.error('SnapTrade', `getHoldings failed for account ${accountId}: ${log}`);
+    res.status(500).json({ error: client });
   }
 };
 
@@ -244,17 +252,15 @@ export const getConnectionStatus = async (req: Request, res: Response) => {
     });
 
     const auths = Array.isArray(response.data) ? response.data : [];
-    logger.info('SnapTrade', `getConnectionStatus — raw auths: ${JSON.stringify(auths)}`);
     // Return the highest-privilege connection type across all authorizations
     const hasTradeAuth = auths.some((a: any) => a.type === 'trade');
     const connectionType = hasTradeAuth ? 'trade' : (auths.length > 0 ? 'read' : 'none');
     logger.info('SnapTrade', `getConnectionStatus — portfolio=${portfolioId} type=${connectionType} (${auths.length} auth(s))`);
     res.json({ connectionType, authorizations: auths.length });
   } catch (err: any) {
-    const body = err?.responseBody ?? err?.response?.data;
-    const detail = body?.detail || err.message || "Failed to fetch connection status";
-    logger.error('SnapTrade', `getConnectionStatus failed for portfolioId=${portfolioId}: ${detail}`);
-    res.status(500).json({ error: detail });
+    const { log, client } = snapTradeError(err, "Failed to fetch connection status");
+    logger.error('SnapTrade', `getConnectionStatus failed for portfolioId=${portfolioId}: ${log}`);
+    res.status(500).json({ error: client });
   }
 };
 
@@ -286,10 +292,9 @@ export const getLoginLink = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `getLoginLink — generated URL for "${portfolio.name}"`);
     res.json({ loginUrl });
   } catch (err: any) {
-    const body = err?.responseBody ?? err?.response?.data;
-    const detail = body?.detail || "Login generation failed";
-    logger.error('SnapTrade', `getLoginLink failed for portfolioId=${portfolioId}: ${detail}`);
-    res.status(500).json({ error: detail });
+    const { log, client } = snapTradeError(err, "Login generation failed");
+    logger.error('SnapTrade', `getLoginLink failed for portfolioId=${portfolioId}: ${log}`);
+    res.status(500).json({ error: client });
   }
 };
 
@@ -335,10 +340,9 @@ export const getTradeLoginLink = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `getTradeLoginLink — generated trade URL for "${portfolio.name}"`);
     res.json({ loginUrl });
   } catch (err: any) {
-    const body = err?.responseBody ?? err?.response?.data;
-    const detail = body?.detail || "Trade login generation failed";
-    logger.error('SnapTrade', `getTradeLoginLink failed for portfolioId=${portfolioId}: ${detail}`);
-    res.status(500).json({ error: detail });
+    const { log, client } = snapTradeError(err, "Trade login generation failed");
+    logger.error('SnapTrade', `getTradeLoginLink failed for portfolioId=${portfolioId}: ${log}`);
+    res.status(500).json({ error: client });
   }
 };
 
@@ -371,10 +375,9 @@ export const getDividendForecast = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `getDividendForecast — ${forecast.length} event(s) for account ${accountId} in ${Date.now() - start}ms`);
     res.json(forecast);
   } catch (err: any) {
-    const body = err?.responseBody ?? err?.response?.data;
-    const detail = body?.detail || body?.message || err.message || "Failed to generate forecast";
-    logger.error('SnapTrade', `getDividendForecast failed for account ${accountId}: ${detail}`);
-    res.status(500).json({ error: detail });
+    const { log, client } = snapTradeError(err, "Failed to generate forecast");
+    logger.error('SnapTrade', `getDividendForecast failed for account ${accountId}: ${log}`);
+    res.status(500).json({ error: client });
   }
 };
 
@@ -575,9 +578,8 @@ export const placeTrade = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `placeTrade — order placed successfully for account ${accountId}`);
     res.json({ success: true, order: response.data });
   } catch (err: any) {
-    const body = err?.responseBody ?? err?.response?.data;
-    const detail = body?.detail || body?.message || err.message || "Order placement failed";
-    logger.error('SnapTrade', `placeTrade failed for account ${accountId}: ${detail}`);
-    res.status(500).json({ error: detail });
+    const { log, client } = snapTradeError(err, "Order placement failed");
+    logger.error('SnapTrade', `placeTrade failed for account ${accountId}: ${log}`);
+    res.status(500).json({ error: client });
   }
 };

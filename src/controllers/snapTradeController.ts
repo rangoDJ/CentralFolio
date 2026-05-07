@@ -493,6 +493,10 @@ export const invalidatePortfolioCache = (req: Request, res: Response) => {
   }
 };
 
+const VALID_ACTIONS     = ['BUY', 'SELL'] as const;
+const VALID_ORDER_TYPES = ['Market', 'Limit'] as const;
+const VALID_TIF         = ['Day', 'GTC'] as const;
+
 export const placeTrade = async (req: Request, res: Response) => {
   const { portfolioId, accountId, ticker, action, orderType, units, price, timeInForce } = req.body;
 
@@ -500,6 +504,37 @@ export const placeTrade = async (req: Request, res: Response) => {
     logger.warn('SnapTrade', 'placeTrade — missing required fields');
     return res.status(400).json({ error: "Missing required fields: portfolioId, accountId, ticker, action, orderType, units" });
   }
+
+  // ── Field validation ───────────────────────────────────────────────────────
+  const unitsNum = Number(units);
+  if (!Number.isFinite(unitsNum) || unitsNum <= 0) {
+    return res.status(400).json({ error: "units must be a positive number" });
+  }
+
+  if (!(VALID_ACTIONS as readonly string[]).includes(action)) {
+    return res.status(400).json({ error: `action must be one of: ${VALID_ACTIONS.join(', ')}` });
+  }
+
+  if (!(VALID_ORDER_TYPES as readonly string[]).includes(orderType)) {
+    return res.status(400).json({ error: `orderType must be one of: ${VALID_ORDER_TYPES.join(', ')}` });
+  }
+
+  const tif = timeInForce || 'Day';
+  if (!(VALID_TIF as readonly string[]).includes(tif)) {
+    return res.status(400).json({ error: `timeInForce must be one of: ${VALID_TIF.join(', ')}` });
+  }
+
+  if (orderType === 'Limit') {
+    const priceNum = Number(price);
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      return res.status(400).json({ error: "price must be a positive number for Limit orders" });
+    }
+  }
+
+  if (typeof ticker !== 'string' || !/^[A-Za-z0-9.:\-]{1,20}$/.test(ticker.trim())) {
+    return res.status(400).json({ error: "ticker contains invalid characters or is too long" });
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
@@ -525,14 +560,14 @@ export const placeTrade = async (req: Request, res: Response) => {
       userId: portfolio.userId,
       userSecret: portfolio.userSecret!,
       account_id: String(accountId),
-      action: String(action),
-      order_type: String(orderType),
-      time_in_force: String(timeInForce || 'Day'),
-      units: Number(units),
-      symbol: String(ticker),
+      action,
+      order_type: orderType,
+      time_in_force: tif,
+      units: unitsNum,
+      symbol: ticker.trim(),
       universal_symbol_id: null,
     };
-    if (orderType === 'Limit' && price != null) {
+    if (orderType === 'Limit') {
       orderBody.price = Number(price);
     }
 

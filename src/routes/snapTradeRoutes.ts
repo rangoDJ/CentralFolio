@@ -1,17 +1,18 @@
 import { Router } from "express";
-import { registerUser, listAccounts, getHoldings, getLoginLink, getDividendForecast, toggleAccountActive, getTransactions } from "../controllers/snapTradeController.js";
+import { registerUser, listAccounts, getHoldings, getLoginLink, getTradeLoginLink, getConnectionStatus, getDividendForecast, toggleAccountActive, renameAccount, getTransactions, placeTrade } from "../controllers/snapTradeController.js";
 
 const router = Router();
 
-console.log('[SNAP] Registering SnapTrade routes...');
 router.post("/register", registerUser);
 router.get("/accounts", listAccounts);
 router.get("/transactions", getTransactions);
-console.log('[SNAP] Registered /transactions route');
 router.patch("/accounts/:accountId/active", toggleAccountActive);
+router.patch("/accounts/:accountId/name", renameAccount);
+router.post("/trade", placeTrade);
 router.get("/holdings/:portfolioId/:accountId", getHoldings);
 router.get("/dividends/forecast/:portfolioId/:accountId", getDividendForecast);
 router.post("/login", getLoginLink);
-console.log('[SNAP] SnapTrade routes registered');
+router.post("/login/trade", getTradeLoginLink);
+router.get("/connection-status/:portfolioId", getConnectionStatus);
 
 export default router;

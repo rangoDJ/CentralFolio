@@ -28,44 +28,46 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
 
     const client = getSnapTradeClientForPortfolio(portfolioId);
 
-    // SnapTrade API returns activities (transactions)
-    const response = await client.accountInformation.getUserAccount({
-      userId: userId,
-      userSecret: userSecret,
-      accountId: accountId,
+    // Use date range: last 2 years — SnapTrade recommends providing startDate/endDate
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const response = await client.accountInformation.getAccountActivities({
+      accountId,
+      userId,
+      userSecret,
+      startDate,
+      endDate,
     });
 
-    const account = response.data;
+    // Response shape: { data: [...], pagination: { total_count, limit, offset } }
+    const raw = response.data as any;
+    const activities = Array.isArray(raw) ? raw : (raw?.data ?? raw?.activities ?? []);
+    logger.info('Transactions', `Got ${activities.length} activities for account ${accountId} (startDate=${startDate}, endDate=${endDate}, total=${raw?.pagination?.total_count ?? raw?.totalCount ?? 'N/A'})`);
 
-    if (!account || !account.id) {
-      logger.warn('Transactions', `Account ${accountId} not found in SnapTrade response`);
-      return [];
-    }
+    const transactions: Transaction[] = activities.map((activity: any) => {
+      // symbol is a nested object: { symbol: "HHIS.TO", description: "...", ... }
+      const symbolObj = activity.symbol;
+      const symbolStr = symbolObj?.symbol || symbolObj?.raw_symbol || null;
+      const description = symbolObj?.description || activity.description || symbolStr || 'Transaction';
+      const currency = activity.currency?.code || 'CAD';
+      // type is an object: { code: "BUY", description: "Buy" }
+      const typeCode = activity.type?.code || activity.type || 'unknown';
 
-    // Try to fetch activities/transactions
-    let transactions: Transaction[] = [];
-
-    // Check if account has activities data
-    if (account.activities && Array.isArray(account.activities)) {
-      logger.info('Transactions', `Found ${account.activities.length} activities for account ${accountId}`);
-
-      transactions = account.activities.map((activity: any) => ({
+      return {
         id: activity.id || `${accountId}-${Date.now()}-${Math.random()}`,
-        symbol: activity.symbol,
-        description: activity.description || activity.symbol || 'Transaction',
-        type: activity.type || 'unknown',
-        action: activity.action || 'unknown',
-        units: activity.units || 0,
-        price: activity.price || 0,
-        amount: activity.amount || activity.price * activity.units || 0,
-        date: activity.date || new Date().toISOString(),
-        currencyCode: activity.currencyCode || 'CAD'
-      }));
-    } else {
-      logger.debug('Transactions', `No activities data available for account ${accountId}`);
-    }
+        symbol: symbolStr,
+        description,
+        type: typeCode,
+        action: typeCode,
+        units: activity.units ?? null,
+        price: activity.price ?? null,
+        amount: activity.amount ?? 0,
+        date: activity.trade_date || activity.settlement_date || new Date().toISOString(),
+        currencyCode: currency,
+      };
+    });
 
-    logger.info('Transactions', `Fetched ${transactions.length} transaction(s) for account ${accountId}`);
     return transactions;
 
   } catch (err: any) {
@@ -76,7 +78,7 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
   }
 }
 
-export async function refreshAllTransactions(forceRefresh: boolean = false): Promise<void> {
+export async function refreshAllTransactions(forceRefresh: boolean = false, intervalMs: number = 24 * 60 * 60 * 1000): Promise<void> {
   try {
     logger.info('Transactions', 'Starting transaction refresh cycle...');
 
@@ -107,7 +109,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false): Pro
 
             // Check cache TTL (24 hours)
             const cachedTxns = getCachedTransactions(account.id);
-            const isFresh = cachedTxns.length > 0 && (Date.now() - new Date(cachedTxns[0].cachedAt).getTime() < 24 * 60 * 60 * 1000);
+            const isFresh = cachedTxns.length > 0 && (Date.now() - new Date(cachedTxns[0].cachedAt).getTime() < intervalMs);
 
             if (isFresh && !forceRefresh) {
               logger.debug('Transactions', `  Account ${account.id} — cache is fresh, skipping`);

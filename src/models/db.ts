@@ -47,6 +47,30 @@ try {
   // Column already exists — ignore
 }
 
+// Migration: add balanceTotal column to store account balance for dashboard display
+try {
+  db.exec(`ALTER TABLE accounts ADD COLUMN balanceTotal REAL`);
+  logger.info('Migration', 'Added balanceTotal column to accounts table');
+} catch (_) {
+  // Column already exists — ignore
+}
+
+// Migration: add symbolId to positions for trade order placement
+try {
+  db.exec(`ALTER TABLE positions ADD COLUMN symbolId TEXT`);
+  logger.info('Migration', 'Added symbolId column to positions table');
+} catch (_) {
+  // Column already exists — ignore
+}
+
+// Migration: add customName column for user-assigned account nicknames
+try {
+  db.exec(`ALTER TABLE accounts ADD COLUMN customName TEXT`);
+  logger.info('Migration', 'Added customName column to accounts table');
+} catch (_) {
+  // Column already exists — ignore
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +121,14 @@ db.exec(`
     FOREIGN KEY (accountId) REFERENCES accounts (id) ON DELETE CASCADE
   )
 `);
+
+// Migration: add tradingEnabled column to portfolios
+try {
+  db.exec(`ALTER TABLE portfolios ADD COLUMN tradingEnabled INTEGER NOT NULL DEFAULT 0`);
+  logger.info('Migration', 'Added tradingEnabled column to portfolios table');
+} catch (_) {
+  // Column already exists — ignore
+}
 
 // Startup verification log
 const count = (db.prepare("SELECT count(*) as count FROM portfolios").get() as any).count;
@@ -158,6 +190,7 @@ export interface Portfolio {
   consumerKey: string;
   userId: string;
   userSecret?: string;
+  tradingEnabled?: boolean | number;
 }
 
 export function listPortfolios(): Portfolio[] {
@@ -212,11 +245,20 @@ export function deletePortfolio(id: number | string) {
   db.prepare("DELETE FROM portfolios WHERE id = ?").run(id);
 }
 
+export function setPortfolioTradingEnabled(id: number | string, enabled: boolean) {
+  logger.info('DB', `setPortfolioTradingEnabled(${id}) → ${enabled}`);
+  db.prepare("UPDATE portfolios SET tradingEnabled = ? WHERE id = ?").run(enabled ? 1 : 0, id);
+}
+
 // Caching functions
 export function getCachedAccounts(portfolioId: number | string): any[] {
-  const rows = db.prepare("SELECT * FROM accounts WHERE portfolioId = ?").all(portfolioId);
+  const rows = db.prepare("SELECT * FROM accounts WHERE portfolioId = ?").all(portfolioId) as any[];
   logger.debug('DB', `getCachedAccounts(portfolio=${portfolioId}) → ${rows.length} row(s)`);
-  return rows;
+  return rows.map(r => ({
+    ...r,
+    isActive: r.isActive === 1 || r.isActive === true,
+    balance: r.balanceTotal != null ? { total: { amount: r.balanceTotal, currency: r.currency } } : undefined,
+  }));
 }
 
 export function getActiveAccountIds(): Set<string> {
@@ -259,23 +301,25 @@ export function setDividendProviders(providers: Record<string, boolean>) {
 }
 
 export function saveCachedAccounts(portfolioId: number | string, accounts: any[]) {
-  logger.info('DB', `saveCachedAccounts(portfolio=${portfolioId}) — saving ${accounts.length} account(s), preserving isActive flags`);
-  
-  // Preserve existing isActive flags before wiping the table
-  const existingActive = db.prepare("SELECT id, isActive FROM accounts WHERE portfolioId = ?").all(portfolioId) as any[];
-  const activeMap = new Map<string, number>(existingActive.map(r => [r.id, r.isActive]));
+  logger.info('DB', `saveCachedAccounts(portfolio=${portfolioId}) — saving ${accounts.length} account(s), preserving isActive flags and custom names`);
+
+  // Preserve existing isActive flags and custom names before wiping the table
+  const existing = db.prepare("SELECT id, isActive, customName FROM accounts WHERE portfolioId = ?").all(portfolioId) as any[];
+  const activeMap = new Map<string, number>(existing.map(r => [r.id, r.isActive]));
+  const customNameMap = new Map<string, string | null>(existing.map(r => [r.id, r.customName]));
 
   const deleteStmt = db.prepare("DELETE FROM accounts WHERE portfolioId = ?");
   const insertStmt = db.prepare(`
-    INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, cachedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cachedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `);
 
   const transaction = db.transaction((data) => {
     deleteStmt.run(portfolioId);
     for (const acc of data) {
-      // Default new accounts to active=1, restore existing flag if known
       const isActive = activeMap.has(acc.id) ? activeMap.get(acc.id) : 1;
+      const balanceTotal = acc.balance?.total?.amount ?? null;
+      const customName = customNameMap.get(acc.id) ?? null;
       insertStmt.run(
         acc.id,
         portfolioId,
@@ -283,12 +327,19 @@ export function saveCachedAccounts(portfolioId: number | string, accounts: any[]
         acc.number || null,
         acc.type || null,
         acc.currency || null,
-        isActive
+        isActive,
+        balanceTotal,
+        customName
       );
     }
   });
 
   transaction(accounts);
+}
+
+export function setAccountCustomName(accountId: string, customName: string | null) {
+  logger.info('DB', `setAccountCustomName(${accountId}) → "${customName}"`);
+  db.prepare("UPDATE accounts SET customName = ? WHERE id = ?").run(customName || null, accountId);
 }
 
 export function getCachedPositions(accountId: string): any[] {
@@ -301,19 +352,29 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
   logger.info('DB', `saveCachedPositions(account=${accountId}) — saving ${positions.length} position(s)`);
   const deleteStmt = db.prepare("DELETE FROM positions WHERE accountId = ?");
   const insertStmt = db.prepare(`
-    INSERT INTO positions (accountId, symbol, description, units, price, marketValue, cachedAt)
-    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO positions (accountId, symbol, symbolId, description, units, price, marketValue, cachedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `);
 
   const transaction = db.transaction((data) => {
     deleteStmt.run(accountId);
+    if (data.length > 0) {
+      logger.info('DB', `saveCachedPositions — first pos keys: ${Object.keys(data[0]).join(', ')}`);
+      logger.info('DB', `saveCachedPositions — first pos raw: ${JSON.stringify(data[0]).slice(0, 400)}`);
+    }
     for (const pos of data) {
-      const symbol = (pos.symbol as any)?.symbol?.symbol || pos.symbol?.symbol || pos.symbol;
-      const description = (pos.symbol as any)?.description || pos.description;
-      
+      // Support both V2 (instrument) and V1 (symbol) SnapTrade response shapes
+      const symbol = pos.instrument?.symbol || pos.instrument?.raw_symbol
+        || (pos.symbol as any)?.symbol?.symbol || pos.symbol?.symbol || pos.symbol;
+      const symbolId = pos.instrument?.id || (pos.symbol as any)?.symbol?.id || null;
+      const description = pos.instrument?.description
+        || (pos.symbol as any)?.description || pos.description;
+      logger.info('DB', `  pos: symbol=${symbol} symbolId=${symbolId}`);
+
       insertStmt.run(
         accountId,
         symbol || null,
+        symbolId || null,
         description || null,
         pos.units || 0,
         pos.price || 0,

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, Portfolio } from "../models/db.js";
+import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio } from "../models/db.js";
 import { getAllDividendsForAllPortfolios, getCachedAllDividends } from "../services/dividendService.js";
 import { logger } from "../utils/logger.js";
 
@@ -66,6 +66,25 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error('Portfolio', `savePortfolio failed: ${err.message}`);
     res.status(500).json({ error: "Failed to save portfolio", detail: err.message });
+  }
+};
+
+export const togglePortfolioTrading = (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { tradingEnabled } = req.body;
+
+  if (typeof tradingEnabled !== 'boolean') {
+    logger.warn('Portfolio', `togglePortfolioTrading — invalid body for portfolio ${id}`);
+    return res.status(400).json({ error: "Body must contain { tradingEnabled: boolean }" });
+  }
+
+  try {
+    setPortfolioTradingEnabled(String(id), tradingEnabled);
+    logger.info('Portfolio', `Portfolio id=${id} trading ${tradingEnabled ? 'ENABLED' : 'DISABLED'}`);
+    res.json({ success: true, id, tradingEnabled });
+  } catch (err: any) {
+    logger.error('Portfolio', `togglePortfolioTrading(${id}) failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
   }
 };
 

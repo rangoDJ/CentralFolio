@@ -20,6 +20,17 @@ const API = {
         return await res.json();
     },
 
+    async setPortfolioTrading(id, tradingEnabled) {
+        const res = await fetch(`/api/portfolios/${id}/trading`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tradingEnabled })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to update trading setting');
+        return data;
+    },
+
     async deletePortfolio(id) {
         const res = await fetch(`/api/portfolios/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Delete failed');
@@ -46,6 +57,25 @@ const API = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to get link');
         return data.loginUrl;
+    },
+
+    async getTradeLoginUrl(id) {
+        const redirectUrl = window.location.origin + window.location.pathname + '#settings';
+        const res = await fetch('/api/login/trade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ portfolioId: id, redirectUrl })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to get trade link');
+        return data.loginUrl;
+    },
+
+    async getConnectionStatus(portfolioId) {
+        const res = await fetch(`/api/connection-status/${portfolioId}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to get connection status');
+        return data;
     },
 
     async getAccounts(forceRefresh = false) {
@@ -112,6 +142,28 @@ const API = {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to update settings');
+        return data;
+    },
+
+    async placeTrade(data) {
+        const res = await fetch('/api/trade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Order placement failed');
+        return json;
+    },
+
+    async renameAccount(accountId, name) {
+        const res = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/name`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to rename account');
         return data;
     },
 

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPortfolio, savePortfolio, listPortfolios, getCachedAccounts, saveCachedAccounts, getCachedPositions, saveCachedPositions, setAccountActive, getAccountActive, getCachedTransactions } from "../models/db.js";
+import { getPortfolio, savePortfolio, listPortfolios, getCachedAccounts, saveCachedAccounts, getCachedPositions, saveCachedPositions, setAccountActive, getAccountActive, getCachedTransactions, setAccountCustomName } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
@@ -75,16 +75,24 @@ export const listAccounts = async (req: Request, res: Response) => {
       }
 
       try {
-        // Check cache
+        // Check cache — also treat as miss if balance data is missing (old cache pre-balance migration)
         const cached = getCachedAccounts(portfolio.id!);
-        const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
+        const hasBalance = cached.some((r: any) => r.balance != null);
+        const isFresh = cached.length > 0 && hasBalance && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
 
         if (isFresh && !forceRefresh) {
           logger.info('SnapTrade', `  "${portfolio.name}" — cache HIT (${cached.length} accounts)`);
+          // Augment cached accounts with position-based balance where SnapTrade balance is 0
+          const augmented = cached.map((acc: any) => {
+            const snapAmt = acc.balance?.total?.amount ?? 0;
+            if (snapAmt > 0) return acc;
+            const positionTotal = getCachedPositions(acc.id).reduce((s: number, p: any) => s + (p.marketValue || 0), 0);
+            return { ...acc, balance: { total: { amount: positionTotal, currency: acc.balance?.total?.currency || 'CAD' } } };
+          });
           results.push({
             portfolioId: portfolio.id,
             portfolioName: portfolio.name,
-            accounts: cached.map((row: any) => ({ ...row, isActive: row.isActive === 1 || row.isActive === true })),
+            accounts: augmented,
             cached: true
           });
           continue;
@@ -117,10 +125,19 @@ export const listAccounts = async (req: Request, res: Response) => {
 
         // Attach live data (balance, brokerage) from SnapTrade onto the cached rows
         const liveMap = new Map((response.data as any[]).map((a: any) => [a.id, a]));
-        const accountsWithIsActive = merged.map((row: any) => ({
-          ...(liveMap.get(row.id) ?? {}),
-          isActive: row.isActive === 1 || row.isActive === true,
-        }));
+        const accountsWithIsActive = merged.map((row: any) => {
+          const live = liveMap.get(row.id) ?? {};
+          const snapBalance = live.balance?.total?.amount ?? 0;
+          // SnapTrade often returns 0 for account balance — fall back to sum of cached positions
+          const positionTotal = snapBalance > 0 ? snapBalance
+            : getCachedPositions(row.id).reduce((s: number, p: any) => s + (p.marketValue || 0), 0);
+          return {
+            ...live,
+            isActive: row.isActive === 1 || row.isActive === true,
+            customName: row.customName || null,
+            balance: { total: { amount: positionTotal, currency: live.balance?.total?.currency || 'CAD' } },
+          };
+        });
 
         results.push({
           portfolioId: portfolio.id,
@@ -154,7 +171,6 @@ export const listAccounts = async (req: Request, res: Response) => {
 export const getHoldings = async (req: Request, res: Response) => {
   const { portfolioId, accountId } = req.params;
   const forceRefresh = req.query.forceRefresh === 'true';
-  const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   logger.info('SnapTrade', `GET /api/holdings — portfolio=${portfolioId} account=${accountId} forceRefresh=${forceRefresh}`);
 
@@ -165,30 +181,28 @@ export const getHoldings = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
 
-    // Check if account is active
     const isAccountActive = getAccountActive(String(accountId));
     if (isAccountActive === false) {
-      logger.warn('SnapTrade', `getHoldings — account ${accountId} is disabled, skipping sync`);
+      logger.warn('SnapTrade', `getHoldings — account ${accountId} is disabled`);
       return res.status(400).json({ error: "Account is disabled" });
     }
 
-    // Check cache
-    const cached = getCachedPositions(String(accountId));
-    const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
-
-    if (isFresh && !forceRefresh) {
-      logger.info('SnapTrade', `getHoldings — cache HIT for account ${accountId} (${cached.length} position(s))`);
-      const mapped = cached.map(p => ({
+    if (!forceRefresh) {
+      // Serve from cache — background scheduler keeps data fresh
+      const cached = getCachedPositions(String(accountId));
+      logger.info('SnapTrade', `getHoldings — serving ${cached.length} cached position(s) for account ${accountId}`);
+      return res.json(cached.map((p: any) => ({
         symbol: { symbol: { symbol: p.symbol }, description: p.description },
+        symbolId: p.symbolId || null,
         units: p.units,
         price: p.price,
         marketValue: p.marketValue,
         cached: true
-      }));
-      return res.json(mapped);
+      })));
     }
 
-    logger.info('SnapTrade', `getHoldings — cache MISS for account ${accountId}, fetching fresh positions...`);
+    // forceRefresh — fetch live from SnapTrade
+    logger.info('SnapTrade', `getHoldings — force refresh for account ${accountId}...`);
     const client = getSnapTradeClientForPortfolio(portfolio);
     const response = await client.accountInformation.getUserAccountPositions({
       userId: portfolio.userId,
@@ -197,13 +211,43 @@ export const getHoldings = async (req: Request, res: Response) => {
     });
 
     const posCount = Array.isArray(response.data) ? response.data.length : 0;
-    logger.info('SnapTrade', `getHoldings — received ${posCount} position(s) for account ${accountId}, saving to cache`);
+    logger.info('SnapTrade', `getHoldings — received ${posCount} position(s) for account ${accountId}`);
     saveCachedPositions(String(accountId), response.data);
     res.json(response.data);
   } catch (err: any) {
     const body = err?.responseBody ?? err?.response?.data;
     const detail = body?.detail || body?.message || err.message || "Failed to fetch holdings";
     logger.error('SnapTrade', `getHoldings failed for account ${accountId}: ${detail}`);
+    res.status(500).json({ error: detail });
+  }
+};
+
+export const getConnectionStatus = async (req: Request, res: Response) => {
+  const { portfolioId } = req.params;
+
+  try {
+    const portfolio = getPortfolio(String(portfolioId));
+    if (!portfolio || !portfolio.userSecret) {
+      return res.status(400).json({ error: "Portfolio not found or not registered" });
+    }
+
+    const client = getSnapTradeClientForPortfolio(portfolio);
+    const response = await client.connections.listBrokerageAuthorizations({
+      userId: portfolio.userId,
+      userSecret: portfolio.userSecret,
+    });
+
+    const auths = Array.isArray(response.data) ? response.data : [];
+    logger.info('SnapTrade', `getConnectionStatus — raw auths: ${JSON.stringify(auths)}`);
+    // Return the highest-privilege connection type across all authorizations
+    const hasTradeAuth = auths.some((a: any) => a.type === 'trade');
+    const connectionType = hasTradeAuth ? 'trade' : (auths.length > 0 ? 'read' : 'none');
+    logger.info('SnapTrade', `getConnectionStatus — portfolio=${portfolioId} type=${connectionType} (${auths.length} auth(s))`);
+    res.json({ connectionType, authorizations: auths.length });
+  } catch (err: any) {
+    const body = err?.responseBody ?? err?.response?.data;
+    const detail = body?.detail || err.message || "Failed to fetch connection status";
+    logger.error('SnapTrade', `getConnectionStatus failed for portfolioId=${portfolioId}: ${detail}`);
     res.status(500).json({ error: detail });
   }
 };
@@ -243,6 +287,55 @@ export const getLoginLink = async (req: Request, res: Response) => {
   }
 };
 
+export const getTradeLoginLink = async (req: Request, res: Response) => {
+  const { portfolioId, redirectUrl } = req.body;
+  logger.info('SnapTrade', `POST /snapTrade/loginLink/trade — portfolioId=${portfolioId}`);
+
+  if (!portfolioId) {
+    return res.status(400).json({ error: "Missing portfolioId" });
+  }
+
+  try {
+    const portfolio = getPortfolio(String(portfolioId));
+    if (!portfolio || !portfolio.userSecret) {
+      return res.status(400).json({ error: "Portfolio not found or not registered" });
+    }
+
+    const client = getSnapTradeClientForPortfolio(portfolio);
+
+    // Find the existing authorization ID so SnapTrade upgrades it rather than creating a new read-only one
+    let reconnectAuthId: string | undefined;
+    try {
+      const authsResp = await client.connections.listBrokerageAuthorizations({
+        userId: portfolio.userId,
+        userSecret: portfolio.userSecret,
+      });
+      const auths = Array.isArray(authsResp.data) ? authsResp.data : [];
+      if (auths.length > 0) reconnectAuthId = (auths[0] as any).id;
+      logger.info('SnapTrade', `getTradeLoginLink — reconnecting auth id=${reconnectAuthId ?? 'none'}`);
+    } catch (_) { /* proceed without reconnect param */ }
+
+    logger.info('SnapTrade', `getTradeLoginLink — generating trade-enabled URL for "${portfolio.name}"`);
+    const loginResponse = await client.authentication.loginSnapTradeUser({
+      userId: portfolio.userId,
+      userSecret: portfolio.userSecret,
+      connectionType: 'trade' as any,
+      ...(reconnectAuthId ? { reconnect: reconnectAuthId } : {}),
+      ...(redirectUrl ? { customRedirect: String(redirectUrl) } : {}),
+    });
+
+    const data = loginResponse.data as any;
+    const loginUrl = `${data.redirectURI || data.redirectUri}&broker=WEALTHSIMPLETRADE`;
+    logger.info('SnapTrade', `getTradeLoginLink — generated trade URL for "${portfolio.name}"`);
+    res.json({ loginUrl });
+  } catch (err: any) {
+    const body = err?.responseBody ?? err?.response?.data;
+    const detail = body?.detail || "Trade login generation failed";
+    logger.error('SnapTrade', `getTradeLoginLink failed for portfolioId=${portfolioId}: ${detail}`);
+    res.status(500).json({ error: detail });
+  }
+};
+
 export const getDividendForecast = async (req: Request, res: Response) => {
   const { portfolioId, accountId } = req.params;
   const forceRefresh = req.query.forceRefresh === 'true';
@@ -275,6 +368,25 @@ export const getDividendForecast = async (req: Request, res: Response) => {
   }
 };
 
+export const renameAccount = (req: Request, res: Response) => {
+  const { accountId } = req.params;
+  const { name } = req.body;
+
+  if (typeof name !== 'string' || !name.trim()) {
+    logger.warn('SnapTrade', `renameAccount — missing or invalid 'name' in body for account ${accountId}`);
+    return res.status(400).json({ error: "Body must contain { name: string }" });
+  }
+
+  try {
+    setAccountCustomName(String(accountId), name.trim());
+    logger.info('SnapTrade', `renameAccount — account ${accountId} renamed to "${name.trim()}"`);
+    res.json({ success: true, accountId, name: name.trim() });
+  } catch (err: any) {
+    logger.error('SnapTrade', `renameAccount failed for ${accountId}: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const toggleAccountActive = (req: Request, res: Response) => {
   const { accountId } = req.params;
   const { isActive } = req.body;
@@ -295,13 +407,14 @@ export const toggleAccountActive = (req: Request, res: Response) => {
 };
 
 export const getTransactions = async (req: Request, res: Response) => {
-  console.log('[HANDLER] getTransactions called!');
   const forceRefresh = req.query.forceRefresh === 'true';
   logger.info('SnapTrade', `GET /snapTrade/transactions — forceRefresh=${forceRefresh}`);
 
   try {
-    // Trigger transaction refresh
-    await refreshAllTransactions(forceRefresh);
+    // Only hit SnapTrade on forceRefresh — otherwise serve from cache
+    if (forceRefresh) {
+      await refreshAllTransactions(true);
+    }
 
     const portfolios = listPortfolios();
     const results = [];
@@ -317,15 +430,16 @@ export const getTransactions = async (req: Request, res: Response) => {
 
         for (const account of cachedAccounts) {
           const transactions = getCachedTransactions(account.id);
+          const displayName = account.customName || account.name;
           results.push({
             portfolioId: portfolio.id,
             portfolioName: portfolio.name,
             accountId: account.id,
-            accountName: account.name,
+            accountName: displayName,
             transactions: transactions.map((txn: any) => ({
               ...txn,
               portfolioName: portfolio.name,
-              accountName: account.name,
+              accountName: displayName,
               accountId: account.id
             }))
           });
@@ -341,5 +455,54 @@ export const getTransactions = async (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error('SnapTrade', `getTransactions fatal error: ${err.message}`);
     res.status(500).json({ error: "Failed to fetch transactions" });
+  }
+};
+
+export const placeTrade = async (req: Request, res: Response) => {
+  const { portfolioId, accountId, ticker, action, orderType, units, price, timeInForce } = req.body;
+
+  if (!portfolioId || !accountId || !ticker || !action || !orderType || !units) {
+    logger.warn('SnapTrade', 'placeTrade — missing required fields');
+    return res.status(400).json({ error: "Missing required fields: portfolioId, accountId, ticker, action, orderType, units" });
+  }
+
+  try {
+    const portfolio = getPortfolio(String(portfolioId));
+    if (!portfolio || !portfolio.userSecret) {
+      logger.warn('SnapTrade', `placeTrade — portfolio id=${portfolioId} not found or not registered`);
+      return res.status(400).json({ error: "Portfolio not found or not registered" });
+    }
+
+    if (!portfolio.tradingEnabled) {
+      logger.warn('SnapTrade', `placeTrade — trading not enabled for portfolio id=${portfolioId}`);
+      return res.status(403).json({ error: "Trading is not enabled for this portfolio" });
+    }
+
+    const client = getSnapTradeClientForPortfolio(portfolio);
+    logger.info('SnapTrade', `placeTrade — ${action} ${units} x ticker="${ticker}" account="${accountId}" orderType="${orderType}" tif="${timeInForce}"`);
+
+    const orderBody: any = {
+      userId: portfolio.userId,
+      userSecret: portfolio.userSecret!,
+      account_id: String(accountId),
+      action: String(action),
+      order_type: String(orderType),
+      time_in_force: String(timeInForce || 'Day'),
+      units: Number(units),
+      symbol: String(ticker),
+      universal_symbol_id: null,
+    };
+    if (orderType === 'Limit' && price != null) {
+      orderBody.price = Number(price);
+    }
+
+    const response = await (client as any).trading.placeForceOrder(orderBody);
+    logger.info('SnapTrade', `placeTrade — order placed successfully for account ${accountId}`);
+    res.json({ success: true, order: response.data });
+  } catch (err: any) {
+    const body = err?.responseBody ?? err?.response?.data;
+    const detail = body?.detail || body?.message || err.message || "Order placement failed";
+    logger.error('SnapTrade', `placeTrade failed for account ${accountId}: ${detail}`);
+    res.status(500).json({ error: detail });
   }
 };

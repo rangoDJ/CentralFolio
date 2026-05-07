@@ -484,15 +484,15 @@ export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
           logger.info('DividendSvc', `    → ${dividends.length} projected dividend event(s)`);
           results.push({
             portfolioName: portfolio.name,
-            accountName: acc.name,
+            accountName: acc.customName || acc.name,
             accountId: acc.id,
             dividends: dividends
           });
         } catch (err: any) {
-          logger.warn('DividendSvc', `    → forecast failed for "${acc.name}": ${err.message}`);
+          logger.warn('DividendSvc', `    → forecast failed for "${acc.customName || acc.name}": ${err.message}`);
           results.push({
             portfolioName: portfolio.name,
-            accountName: acc.name,
+            accountName: acc.customName || acc.name,
             accountId: acc.id,
             error: err.message,
             dividends: []

@@ -1,154 +1,176 @@
 /**
- * UI and Rendering logic for CentralFolio
+ * UI rendering for CentralFolio — Wealthsimple-style theme
  */
 const UI = {
-    // Elements
-    portfolioList: document.getElementById('portfolioList'),
+    portfolioList:    document.getElementById('portfolioList'),
     accountContainer: document.getElementById('accountContainer'),
-    portfolioModal: document.getElementById('portfolioModal'),
-    portfolioForm: document.getElementById('portfolioForm'),
-    modalTitle: document.getElementById('modalTitle'),
-    totalBalanceEl: document.getElementById('totalBalance'),
+    portfolioModal:   document.getElementById('portfolioModal'),
+    portfolioForm:    document.getElementById('portfolioForm'),
+    modalTitle:       document.getElementById('modalTitle'),
+    totalBalanceEl:   document.getElementById('totalBalance'),
     portfolioCountEl: document.getElementById('portfolioCount'),
-    toast: document.getElementById('toast'),
-    adminUserList: document.getElementById('adminUserList'),
+    toast:            document.getElementById('toast'),
+    adminUserList:    document.getElementById('adminUserList'),
+
+    accountsChartInstance: null,
+    dividendChartInstance: null,
 
     showToast(msg, type = 'success') {
         this.toast.textContent = msg;
-        this.toast.className = `toast show ${type}`;
-        setTimeout(() => this.toast.classList.remove('show'), 4000);
+        this.toast.className = `toast visible ${type}`;
+        clearTimeout(this._toastTimer);
+        this._toastTimer = setTimeout(() => this.toast.classList.remove('visible'), 4000);
     },
 
     openModal(portfolio = null) {
         if (portfolio) {
             this.modalTitle.textContent = 'Edit Portfolio';
-            document.getElementById('portId').value = portfolio.id;
-            document.getElementById('portName').value = portfolio.name;
-            document.getElementById('clientId').value = portfolio.clientId;
-            document.getElementById('consumerKey').value = portfolio.consumerKey;
-            document.getElementById('userId').value = portfolio.userId;
-            document.getElementById('userSecret').value = portfolio.userSecret || '';
+            document.getElementById('portId').value       = portfolio.id;
+            document.getElementById('portName').value     = portfolio.name;
+            document.getElementById('clientId').value     = portfolio.clientId;
+            document.getElementById('consumerKey').value  = portfolio.consumerKey;
+            document.getElementById('userId').value       = portfolio.userId;
+            document.getElementById('userSecret').value   = portfolio.userSecret || '';
         } else {
             this.modalTitle.textContent = 'Add Portfolio';
             this.portfolioForm.reset();
             document.getElementById('portId').value = '';
         }
-        this.portfolioModal.classList.add('show');
+        this.portfolioModal.classList.add('open');
     },
 
     closeModal() {
-        this.portfolioModal.classList.remove('show');
+        this.portfolioModal.classList.remove('open');
     },
 
     renderPortfolios(portfolios) {
-        const portfolioList = document.getElementById('portfolioList');
-        if (!portfolioList) {
-            console.warn('Portfolio list element not found');
-            return;
-        }
+        const list = document.getElementById('portfolioList');
+        if (!list) return;
 
         this.portfolioCountEl.textContent = portfolios.length;
+
         if (portfolios.length === 0) {
-            portfolioList.innerHTML = '<div class="empty-state" style="padding: 1rem;">No portfolios added.</div>';
+            list.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No portfolios added yet.</p></div>';
             return;
         }
 
-        portfolioList.innerHTML = portfolios.map(p => `
-            <div class="portfolio-item" style="display: flex; flex-direction: column; gap: 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        list.innerHTML = portfolios.map(p => `
+            <div class="portfolio-item">
+                <div class="portfolio-item-top">
                     <div>
-                        <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem;">
-                            <span class="portfolio-name" style="font-size: 1.1rem;">${p.name}</span>
-                            ${p.userSecret ? '<span class="status-badge status-active" style="padding: 0.2rem 0.5rem; font-size: 0.65rem;">Registered</span>' : ''}
+                        <div class="portfolio-item-name">
+                            ${p.name}
+                            ${p.userSecret
+                                ? '<span class="status-badge status-active" style="font-size:0.65rem;padding:0.15rem 0.55rem;">Registered</span>'
+                                : '<span class="status-badge status-inactive" style="font-size:0.65rem;padding:0.15rem 0.55rem;">Not registered</span>'}
+                            <span id="conn-badge-${p.id}" style="font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;"></span>
                         </div>
-                        <div class="portfolio-meta" style="margin: 0;">User: <span style="font-family: monospace; color: var(--text); opacity: 0.8;">${p.userId}</span></div>
+                        <div class="portfolio-item-meta">userId: ${p.userId}</div>
                     </div>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <button class="btn btn-outline btn-sm" style="padding: 0.35rem 0.75rem; font-size: 0.75rem;" onclick="App.editPortfolio(${p.id})">Edit</button>
-                        <button class="btn btn-danger btn-sm" style="padding: 0.35rem 0.6rem; font-size: 0.85rem; line-height: 1;" title="Delete Portfolio" onclick="App.deletePortfolio(${p.id})">&times;</button>
+                    <div class="portfolio-item-actions">
+                        <button class="btn btn-outline btn-sm" onclick="App.editPortfolio(${p.id})">Edit</button>
+                        <button class="btn btn-danger btn-sm" title="Delete" onclick="App.deletePortfolio(${p.id})">&times;</button>
                     </div>
                 </div>
-                
-                <div class="portfolio-actions" style="margin-top: 0.25rem;">
-                    ${!p.userSecret ? 
-                        `<button class="btn btn-success btn-sm" style="width: 100%; justify-content: center;" onclick="App.registerPortfolio(${p.id}, this)">
-                            <span class="loader"></span><span class="btn-text">Register with SnapTrade</span>
-                         </button>` : 
-                        `<button class="btn btn-outline btn-sm" style="width: 100%; justify-content: center; background: rgba(255,255,255,0.03);" onclick="App.connectBrokerage(${p.id}, this)">
-                            <span class="loader"></span><span class="btn-text">Connect Brokerage</span>
-                         </button>`
-                    }
+                <div class="settings-row" style="padding:0.6rem 0;border-top:1px solid var(--border);margin-top:0.5rem;">
+                    <div class="settings-row-info">
+                        <div class="settings-row-label" style="font-size:0.85rem;">Enable Trading</div>
+                        <div class="settings-row-desc" style="font-size:0.75rem;">Allow buy/sell orders through this portfolio</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" ${p.tradingEnabled ? 'checked' : ''}
+                               onchange="App.togglePortfolioTrading(${p.id}, this.checked)">
+                        <span class="slider"></span>
+                    </label>
                 </div>
+                ${p.tradingEnabled && p.userSecret
+                    ? `<button class="btn btn-outline btn-sm w-full" style="margin-bottom:0.4rem;" onclick="App.reconnectForTrading(${p.id}, this)">
+                           <span class="loader"></span><span class="btn-text">Reconnect with Trade Permissions</span>
+                       </button>`
+                    : ''}
+                ${!p.userSecret
+                    ? `<button class="btn btn-primary btn-sm w-full" onclick="App.registerPortfolio(${p.id}, this)">
+                           <span class="loader"></span><span class="btn-text">Register with SnapTrade</span>
+                       </button>`
+                    : `<button class="btn btn-outline btn-sm w-full" onclick="App.connectBrokerage(${p.id}, this)">
+                           <span class="loader"></span><span class="btn-text">Connect Brokerage</span>
+                       </button>`}
             </div>
         `).join('');
+
+        // Load connection type badge for each registered portfolio
+        portfolios.filter(p => p.userSecret).forEach(p => App.loadConnectionBadge(p.id));
     },
 
     renderAccountSection(currentGroups, activePortfolioId, inactiveAccountIds) {
         if (!currentGroups.length) return;
 
-        // Calculate Grand Total (Excluding Inactive)
         let grandTotal = 0;
-        currentGroups.forEach(group => {
-            group.accounts.forEach(acc => {
-                if (!inactiveAccountIds.has(acc.id)) {
-                    grandTotal += (acc.balance?.total?.amount || 0);
-                }
-            });
-        });
+        currentGroups.forEach(g => g.accounts.forEach(acc => {
+            if (!inactiveAccountIds.has(acc.id)) grandTotal += (acc.balance?.total?.amount || 0);
+        }));
         this.totalBalanceEl.textContent = `$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-        // Render Tabs
-        let html = `<div class="portfolio-tabs">`;
-        currentGroups.forEach(group => {
-            html += `
-                <div class="portfolio-tab ${group.portfolioId === activePortfolioId ? 'active' : ''}" 
-                     onclick="App.switchPortfolioTab(${group.portfolioId})">
-                    ${group.portfolioName}
-                </div>
-            `;
+        // Portfolio selector tabs
+        let html = '<div class="portfolio-tabs">';
+        currentGroups.forEach(g => {
+            html += `<button class="portfolio-tab ${g.portfolioId === activePortfolioId ? 'active' : ''}"
+                             onclick="App.switchPortfolioTab(${g.portfolioId})">${g.portfolioName}</button>`;
         });
-        html += `</div>`;
+        html += '</div>';
 
-        // Render Active Portfolio Accounts
-        const activeGroup = currentGroups.find(g => g.portfolioId === activePortfolioId) || currentGroups[0];
-        if (activeGroup) {
-            const portfolioTotal = activeGroup.accounts.reduce((sum, acc) => sum + (acc.balance?.total?.amount || 0), 0);
-            const activeTotal = activeGroup.accounts.reduce((sum, acc) => sum + (inactiveAccountIds.has(acc.id) ? 0 : (acc.balance?.total?.amount || 0)), 0);
+        // Active portfolio accounts
+        const active = currentGroups.find(g => g.portfolioId === activePortfolioId) || currentGroups[0];
+        if (active) {
+            const activeTotal = active.accounts.reduce((s, a) => s + (inactiveAccountIds.has(a.id) ? 0 : (a.balance?.total?.amount || 0)), 0);
+            const portTotal   = active.accounts.reduce((s, a) => s + (a.balance?.total?.amount || 0), 0);
 
-            html += `
-                <div class="account-group">
-                    <div class="account-list">
-                        ${activeGroup.error ? `<div class="account-item" style="color: var(--error)">Error: ${activeGroup.error}</div>` : ''}
-                        ${activeGroup.accounts.length === 0 && !activeGroup.error ? `<div class="empty-state" style="padding: 1rem;">No accounts found.</div>` : ''}
-                        ${activeGroup.accounts.map(acc => {
-                            const isInactive = inactiveAccountIds.has(acc.id);
-                            return `
-                                <div class="account-item ${isInactive ? 'inactive' : ''}">
-                                    <div class="account-info">
-                                        <div class="account-item-header">
-                                            <h4>${acc.name || 'Unnamed Account'}</h4>
-                                            <label class="switch" title="${isInactive ? 'Activate' : 'Deactivate'} Account">
-                                                <input type="checkbox" ${!isInactive ? 'checked' : ''} onchange="App.toggleAccount('${acc.id}')">
-                                                <span class="slider"></span>
-                                            </label>
-                                        </div>
-                                        <p>${acc.brokerage?.name || 'Unknown'} • ${acc.number || 'No Number'}</p>
-                                    </div>
-                                    <div class="account-balance">
-                                        <div class="balance-label">Net Value</div>
-                                        <div class="balance-amount">$${acc.balance?.total?.amount?.toLocaleString() || '0.00'}</div>
-                                    </div>
+            html += '<div class="account-group">';
+            html += `<div class="account-group-header">
+                        <span>${active.portfolioName}</span>
+                        <span style="font-feature-settings:'tnum'">Active $${activeTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} / Total $${portTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                     </div>`;
+
+            if (active.error) {
+                html += `<div class="empty-state" style="padding:1rem;color:var(--danger);">Error: ${active.error}</div>`;
+            } else if (active.accounts.length === 0) {
+                html += '<div class="empty-state" style="padding:1rem;"><p>No accounts found.</p></div>';
+            } else {
+                active.accounts.forEach(acc => {
+                    const inactive = inactiveAccountIds.has(acc.id);
+                    const balance  = acc.balance?.total?.amount;
+                    const displayName = acc.customName || acc.name || 'Unnamed Account';
+                    html += `
+                        <div class="account-row" style="${inactive ? 'opacity:0.5;' : ''}">
+                            <div class="account-row-info">
+                                <div id="acc-name-${acc.id}" style="display:flex;align-items:center;gap:0.3rem;">
+                                    <span class="account-row-name">${displayName}</span>
+                                    <button title="Rename account" onclick="App.startRenameAccount('${acc.id}')"
+                                            style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px 3px;line-height:1;border-radius:3px;opacity:0.45;flex-shrink:0;"
+                                            onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.45'">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                        </svg>
+                                    </button>
                                 </div>
-                            `;
-                        }).join('')}
-                        ${activeGroup.accounts.length > 0 ? `
-                            <div style="text-align: right; padding: 0.5rem 1.25rem; font-size: 0.8125rem; color: var(--text-muted);">
-                                Active Total: $${activeTotal.toLocaleString()} / Portfolio Total: $${portfolioTotal.toLocaleString()}
-                            </div>` : ''
-                        }
-                    </div>
-                </div>
-            `;
+                                <div class="account-row-meta">${acc.brokerage?.name || 'Unknown'} &middot; ${acc.number || 'No number'}</div>
+                            </div>
+                            <div class="account-row-right">
+                                ${balance !== undefined ? `
+                                    <div>
+                                        <div class="account-balance-val">$${(balance || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                                        <div class="account-balance-label">Net Value</div>
+                                    </div>` : ''}
+                                <label class="switch" title="${inactive ? 'Activate' : 'Deactivate'} account">
+                                    <input type="checkbox" ${!inactive ? 'checked' : ''} onchange="App.toggleAccount('${acc.id}')">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>`;
+                });
+            }
+            html += '</div>';
         }
 
         this.accountContainer.innerHTML = html;
@@ -156,221 +178,222 @@ const UI = {
     },
 
     renderAllHoldings(data) {
-        const tabsContainer = document.getElementById('holdings-tabs');
+        const tabsContainer   = document.getElementById('holdings-tabs');
         const tablesContainer = document.getElementById('holdings-tables');
-        
+
         if (!data || data.length === 0) {
-            if(tabsContainer) tabsContainer.innerHTML = '';
-            tablesContainer.innerHTML = '<div class="empty-state">No active accounts found to load holdings.</div>';
+            if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
+            tablesContainer.innerHTML = '<div class="empty-state"><p>No active accounts found to load holdings.</p></div>';
             return;
         }
 
-        let tabsHtml = '';
-        let tablesHtml = '';
-        
+        let tabsHtml = '', tablesHtml = '';
+
         data.forEach((account, index) => {
             const isActive = index === 0;
             const tabId = `holdings-pane-${account.accountId}`;
-            
-            tabsHtml += `
-                <div class="tab ${isActive ? 'active' : ''}" 
-                     onclick="App.switchHoldingsPageTab('${account.accountId}')"
-                     id="holdings-tabbtn-${account.accountId}">
-                    ${account.portfolioName} - ${account.accountName || 'Unnamed'}
-                </div>
-            `;
-            
-            tablesHtml += `<div class="holdings-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display: ${isActive ? 'block' : 'none'};">`;
-            
+
+            tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
+                                 onclick="App.switchHoldingsPageTab('${account.accountId}')"
+                                 id="holdings-tabbtn-${account.accountId}">
+                             ${account.accountName || 'Unnamed'}
+                         </button>`;
+
+            tablesHtml += `<div class="holdings-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
+
             if (account.error) {
                 tablesHtml += `
-                    <div class="empty-state" style="padding: 2rem;">
-                        <div class="empty-icon" style="color: var(--error);">⚠️</div>
-                        <p style="margin-bottom: 1rem; color: var(--error); font-weight: 600;">Connection Error</p>
-                        <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem;">Failed to load holdings for this account. The brokerage connection might be stale or expired.</p>
-                        <p style="font-size: 0.875rem; background: rgba(239, 68, 68, 0.1); color: var(--error); padding: 0.75rem; border-radius: 6px; display: inline-block; word-break: break-all; max-width: 100%;">${account.error}</p>
-                        <div style="margin-top: 2rem;">
-                            <button class="btn btn-outline" onclick="App.switchMainTab('settings'); App.switchSettingsTab('portfolios')">Go to Settings to Reconnect</button>
-                        </div>
+                    <div class="empty-state" style="padding:2.5rem 1.5rem;">
+                        <div class="empty-icon" style="color:var(--danger);">⚠</div>
+                        <p style="color:var(--danger);font-weight:600;margin-bottom:0.5rem;">Connection Error</p>
+                        <p>${account.error}</p>
+                        <button class="btn btn-outline btn-sm mt-2" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios')">Go to Settings</button>
                     </div></div>`;
                 return;
             }
 
             if (!account.holdings || account.holdings.length === 0) {
-                tablesHtml += '<div class="empty-state" style="padding: 1rem;">No holdings found in this account.</div></div>';
+                tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No holdings found in this account.</p></div></div>';
                 return;
             }
 
-            tablesHtml += `
-                <div style="margin-bottom: 1.5rem;">
-                    <div style="display: grid; grid-template-columns: 52px 1fr auto; gap: 1.5rem; align-items: center; padding: 0 1.5rem 1rem 1.5rem; border-bottom: 1px solid rgba(148, 163, 184, 0.15);">
-                        <div></div>
-                        <div style="font-weight: 500; color: var(--text-muted); font-size: 0.9rem;">Positions</div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2.5rem;">
-                            <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Total value</div>
-                            <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Today's price</div>
-                            <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">All time return</div>
+            const tradeCol = account.tradingEnabled;
+            tablesHtml += '<table class="data-table"><thead><tr>' +
+                '<th>Position</th>' +
+                '<th class="right">Shares</th>' +
+                '<th class="right">Price</th>' +
+                '<th class="right">Total Value</th>' +
+                '<th class="right">Today</th>' +
+                '<th class="right">All&#8209;Time Return</th>' +
+                (tradeCol ? '<th></th>' : '') +
+                '</tr></thead><tbody>';
+
+            account.holdings.forEach(h => {
+                const symbol      = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '—';
+                const description = h.symbol?.symbol?.description || h.description || symbol;
+                const symbolId    = h.symbolId || h.instrument?.id || h.symbol?.id || '';
+                const units       = h.units  || 0;
+                const price       = h.price  || 0;
+                const totalValue  = units * price;
+
+                const dailyPct    = (Math.random() * 6 - 3);
+                const dailyAmt    = (totalValue * dailyPct) / 100;
+                const dailySign   = dailyAmt >= 0 ? '+' : '';
+                const dailyCls    = dailyAmt >= 0 ? 'val-pos' : 'val-neg';
+
+                const atPct       = (Math.random() * 50 - 10);
+                const atAmt       = (totalValue * atPct) / 100;
+                const atSign      = atAmt >= 0 ? '+' : '';
+                const atCls       = atAmt >= 0 ? 'val-pos' : 'val-neg';
+
+                const safeDesc    = description.replace(/'/g, "\\'");
+                const tradeBtns   = tradeCol ? `
+                    <td style="white-space:nowrap;">
+                        <div style="display:flex;gap:0.3rem;justify-content:flex-end;">
+                            <button style="background:rgba(0,208,156,0.12);color:#00d09c;border:1px solid rgba(0,208,156,0.35);padding:0.2rem 0.55rem;font-size:0.72rem;font-weight:600;border-radius:4px;cursor:pointer;"
+                                    onclick="App.openTradeModal('${account.accountId}','${account.portfolioId}','${symbol}','${symbolId}','${safeDesc}',${price},'BUY')">Buy</button>
+                            <button style="background:rgba(247,111,142,0.12);color:#f76f8e;border:1px solid rgba(247,111,142,0.35);padding:0.2rem 0.55rem;font-size:0.72rem;font-weight:600;border-radius:4px;cursor:pointer;"
+                                    onclick="App.openTradeModal('${account.accountId}','${account.portfolioId}','${symbol}','${symbolId}','${safeDesc}',${price},'SELL')">Sell</button>
                         </div>
-                    </div>
-                </div>
-                <div class="holdings-grid">
-                    ${account.holdings.map((h, i) => {
-                        const symbol = h.symbol?.symbol?.symbol || h.symbol || 'Unknown';
-                        const description = h.symbol?.symbol?.description || h.description || symbol;
-                        const units = h.units || 0;
-                        const price = h.price || 0;
-                        const totalValue = units * price;
+                    </td>` : '';
 
-                        // Calculate simulated metrics for today's change and all-time return
-                        const dailyChangePercent = (Math.random() * 6 - 3); // Random -3% to +3%
-                        const dailyChangeAmount = (totalValue * dailyChangePercent) / 100;
-                        const dailyChangeColor = dailyChangeAmount >= 0 ? '#10b981' : '#ef4444';
-                        const dailyChangeSign = dailyChangeAmount >= 0 ? '+' : '';
+                tablesHtml += `
+                    <tr>
+                        <td>
+                            <div class="ticker-cell">${symbol}</div>
+                            <div class="ticker-desc">${description}</div>
+                        </td>
+                        <td class="right">${units.toLocaleString(undefined,{maximumFractionDigits:4})}</td>
+                        <td class="right">$${price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                        <td class="right" style="font-weight:600;">$${totalValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                        <td class="right">
+                            <span class="${dailyCls}">${dailySign}$${Math.abs(dailyAmt).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                            <div class="text-sm ${dailyCls}">${dailyPct >= 0 ? '+' : ''}${dailyPct.toFixed(2)}%</div>
+                        </td>
+                        <td class="right">
+                            <span class="${atCls}">${atSign}$${Math.abs(atAmt).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                            <div class="text-sm ${atCls}">${atPct >= 0 ? '+' : ''}${atPct.toFixed(2)}%</div>
+                        </td>
+                        ${tradeBtns}
+                    </tr>`;
+            });
 
-                        const allTimeReturnPercent = (Math.random() * 50 - 10); // Random -10% to +40%
-                        const allTimeReturnAmount = (totalValue * allTimeReturnPercent) / 100;
-                        const allTimeReturnColor = allTimeReturnAmount >= 0 ? '#10b981' : '#ef4444';
-                        const allTimeReturnSign = allTimeReturnAmount >= 0 ? '+' : '';
-
-                        const symbolFirstChar = symbol.charAt(0).toUpperCase();
-
-                        return `
-                            <div class="holding-card" key="${h.symbol?.symbol?.id || i}">
-                                <div class="holding-icon">${symbolFirstChar}</div>
-                                <div class="holding-info">
-                                    <h3>${symbol}</h3>
-                                    <p>${description}</p>
-                                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.4rem;">${units.toLocaleString(undefined, { maximumFractionDigits: 4 })} shares</div>
-                                </div>
-                                <div class="holding-details">
-                                    <div class="detail-item">
-                                        <div class="detail-label">Total value</div>
-                                        <div class="detail-value">$${totalValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                    </div>
-                                    <div class="detail-item">
-                                        <div class="detail-label">Today's price</div>
-                                        <div class="detail-value" style="color: ${dailyChangeColor};">${dailyChangeSign}$${dailyChangeAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                        <div class="detail-subvalue" style="color: ${dailyChangeColor};">${dailyChangePercent >= 0 ? '+' : ''}${dailyChangePercent.toFixed(2)}%</div>
-                                    </div>
-                                    <div class="detail-item">
-                                        <div class="detail-label">All time return</div>
-                                        <div class="detail-value" style="color: ${allTimeReturnColor};">${allTimeReturnSign}$${allTimeReturnAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                        <div class="detail-subvalue" style="color: ${allTimeReturnColor};">${allTimeReturnPercent >= 0 ? '+' : ''}${allTimeReturnPercent.toFixed(2)}%</div>
-                                    </div>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            </div>`;
+            tablesHtml += '</tbody></table></div>';
         });
 
-        if(tabsContainer) tabsContainer.innerHTML = tabsHtml;
+        if (tabsContainer) {
+            tabsContainer.innerHTML = tabsHtml;
+            tabsContainer.style.display = 'flex';
+        }
         tablesContainer.innerHTML = tablesHtml;
     },
 
     renderAllTransactions(data) {
-        const tabsContainer = document.getElementById('transactions-tabs');
+        const tabsContainer   = document.getElementById('transactions-tabs');
         const tablesContainer = document.getElementById('transactions-tables');
 
         if (!data || data.length === 0) {
-            if(tabsContainer) tabsContainer.innerHTML = '';
-            tablesContainer.innerHTML = '<div class="empty-state">No active accounts found to load transactions.</div>';
+            if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
+            tablesContainer.innerHTML = '<div class="empty-state"><p>No active accounts found to load transactions.</p></div>';
             return;
         }
 
-        let tabsHtml = '';
-        let tablesHtml = '';
+        const typeBadge = type => {
+            const t = (type || '').toUpperCase();
+            if (t === 'BUY')             return `<span class="type-badge badge-buy">Buy</span>`;
+            if (t === 'SELL')            return `<span class="type-badge badge-sell">Sell</span>`;
+            if (t === 'DIVIDEND')        return `<span class="type-badge badge-dividend">Dividend</span>`;
+            if (t === 'DEPOSIT' || t === 'TRANSFER_IN')  return `<span class="type-badge badge-dep">Deposit</span>`;
+            if (t === 'WITHDRAWAL' || t === 'TRANSFER_OUT') return `<span class="type-badge badge-with">Withdrawal</span>`;
+            return `<span class="type-badge badge-other">${type || '—'}</span>`;
+        };
+
+        let tabsHtml = '', tablesHtml = '';
 
         data.forEach((account, index) => {
             const isActive = index === 0;
             const tabId = `transactions-pane-${account.accountId}`;
 
-            tabsHtml += `
-                <div class="tab ${isActive ? 'active' : ''}"
-                     onclick="App.switchTransactionsPageTab('${account.accountId}')"
-                     id="transactions-tabbtn-${account.accountId}">
-                    ${account.portfolioName} - ${account.accountName || 'Unnamed'}
-                </div>
-            `;
+            tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
+                                 onclick="App.switchTransactionsPageTab('${account.accountId}')"
+                                 id="transactions-tabbtn-${account.accountId}">
+                             ${account.accountName || 'Unnamed'}
+                         </button>`;
 
-            tablesHtml += `<div class="transactions-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display: ${isActive ? 'block' : 'none'};">`;
+            tablesHtml += `<div class="transactions-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
 
             if (!account.transactions || account.transactions.length === 0) {
-                tablesHtml += '<div class="empty-state" style="padding: 1rem;">No transactions found in this account.</div></div>';
+                tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No transactions found in this account.</p></div></div>';
                 return;
             }
 
-            tablesHtml += `
-                <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 2rem; padding: 1rem 1.5rem; border-bottom: 1px solid rgba(148, 163, 184, 0.15);">
-                    <div style="font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Security</div>
-                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Date</div>
-                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Type</div>
-                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Quantity</div>
-                    <div style="text-align: right; font-weight: 500; color: var(--text-muted); font-size: 0.8rem;">Amount</div>
-                </div>
-                <div class="holdings-grid">
-                    ${account.transactions.map((txn, i) => {
-                        const symbol = txn.symbol || 'N/A';
-                        const description = txn.description || symbol;
-                        const date = txn.date ? new Date(txn.date).toLocaleDateString() : 'N/A';
-                        const type = txn.type || 'unknown';
-                        const action = txn.action || 'unknown';
-                        const units = txn.units || 0;
-                        const amount = txn.amount || 0;
-                        const amountColor = amount >= 0 ? '#10b981' : '#ef4444';
-                        const amountSign = amount >= 0 ? '+' : '';
+            tablesHtml += '<table class="data-table"><thead><tr>' +
+                '<th>Security</th>' +
+                '<th>Date</th>' +
+                '<th>Type</th>' +
+                '<th class="right">Quantity</th>' +
+                '<th class="right">Amount</th>' +
+                '</tr></thead><tbody>';
 
-                        return `
-                            <div style="display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 2rem; padding: 1.5rem; border-bottom: 1px solid rgba(148, 163, 184, 0.1); align-items: center;">
-                                <div>
-                                    <div style="font-weight: 600; font-size: 0.95rem;">${symbol}</div>
-                                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">${description}</div>
-                                </div>
-                                <div style="text-align: right; font-size: 0.9rem;">${date}</div>
-                                <div style="text-align: right; font-size: 0.9rem; color: var(--text-muted);">${action}</div>
-                                <div style="text-align: right; font-size: 0.9rem;">${units.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
-                                <div style="text-align: right; font-size: 0.9rem; font-weight: 600; color: ${amountColor};">
-                                    ${amountSign}$${amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                                </div>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            </div>`;
+            account.transactions.forEach(txn => {
+                const symbol      = txn.symbol || '—';
+                const description = txn.description || symbol;
+                const date        = txn.date ? new Date(txn.date).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}) : '—';
+                const units       = txn.units != null ? Number(txn.units).toLocaleString(undefined,{maximumFractionDigits:4}) : '—';
+                const amount      = txn.amount ?? 0;
+                const amtCls      = amount >= 0 ? 'val-pos' : 'val-neg';
+                const amtSign     = amount >= 0 ? '+' : '';
+
+                tablesHtml += `
+                    <tr>
+                        <td>
+                            <div class="ticker-cell">${symbol !== '—' ? symbol : description}</div>
+                            ${symbol !== '—' && description !== symbol ? `<div class="ticker-desc">${description}</div>` : ''}
+                        </td>
+                        <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${date}</td>
+                        <td>${typeBadge(txn.type)}</td>
+                        <td class="right" style="color:var(--text-muted);">${units}</td>
+                        <td class="right" style="font-weight:600;">
+                            <span class="${amtCls}">${amtSign}$${Math.abs(amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                            <div class="text-sm text-muted">${txn.currencyCode || ''}</div>
+                        </td>
+                    </tr>`;
+            });
+
+            tablesHtml += '</tbody></table></div>';
         });
 
-        if(tabsContainer) tabsContainer.innerHTML = tabsHtml;
+        if (tabsContainer) {
+            tabsContainer.innerHTML = tabsHtml;
+            tabsContainer.style.display = 'flex';
+        }
         tablesContainer.innerHTML = tablesHtml;
     },
 
     renderAdminUsers(users) {
-        if (users.length === 0) {
-            this.adminUserList.innerHTML = '<div style="font-size: 0.75rem; padding: 0.5rem;">No users found.</div>';
+        if (!users || users.length === 0) {
+            this.adminUserList.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No users found.</p></div>';
             return;
         }
         this.adminUserList.innerHTML = users.map(u => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05); transition: background-color 0.2s ease; border-radius: 6px;" onmouseover="this.style.backgroundColor='rgba(255,255,255,0.05)'" onmouseout="this.style.backgroundColor='transparent'">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span style="font-size: 1.1rem; opacity: 0.7;">👤</span>
-                    <span style="font-size: 0.85rem; font-family: monospace; font-weight: 500; color: var(--text);">${u}</span>
-                </div>
-                <button class="btn btn-danger btn-sm" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;" onclick="App.deleteAdminUser('${u}')">Delete</button>
+            <div class="admin-user-row">
+                <span class="admin-user-id">${u}</span>
+                <button class="btn btn-danger btn-sm" onclick="App.deleteAdminUser('${u}')">Delete</button>
             </div>
         `).join('');
     },
 
     renderDashboardChart(currentGroups, inactiveAccountIds) {
-        const container = document.getElementById('dashboardChartContainer');
-        if (!container) return;
+        const area = document.getElementById('dashboardChartArea');
+        if (!area) return;
 
-        let activeAccounts = [];
+        const activeAccounts = [];
         currentGroups.forEach(group => {
             group.accounts.forEach(acc => {
                 const amount = acc.balance?.total?.amount || 0;
                 if (!inactiveAccountIds.has(acc.id) && amount > 0) {
                     activeAccounts.push({
-                        label: `${group.portfolioName} - ${acc.name || 'Unnamed'}`,
+                        label: acc.customName || acc.name || 'Unnamed',
                         value: amount
                     });
                 }
@@ -378,460 +401,355 @@ const UI = {
         });
 
         if (activeAccounts.length === 0) {
-            container.style.display = 'flex';
-            container.style.alignItems = 'center';
-            container.style.justifyContent = 'center';
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">📈</div>
-                    <p>No account data available.</p>
-                    <p style="font-size: 0.875rem; margin-top: 0.5rem;">Please connect an account with a positive balance.</p>
-                </div>
-            `;
             if (this.accountsChartInstance) {
                 this.accountsChartInstance.destroy();
                 this.accountsChartInstance = null;
             }
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><p>No account data available. Connect an account with a positive balance.</p></div>';
             return;
         }
 
-        container.style.display = 'block';
         if (!document.getElementById('accountsChart')) {
-            container.innerHTML = '<canvas id="accountsChart"></canvas>';
+            area.innerHTML = '<canvas id="accountsChart" style="max-height:360px;"></canvas>';
         }
 
-        const ctx = document.getElementById('accountsChart').getContext('2d');
+        const ctx    = document.getElementById('accountsChart').getContext('2d');
         const labels = activeAccounts.map(a => a.label);
-        const data = activeAccounts.map(a => a.value);
+        const data   = activeAccounts.map(a => a.value);
 
-        // Generate nice HSL colors
-        const backgroundColors = activeAccounts.map((_, i) => `hsl(${i * (360 / activeAccounts.length)}, 70%, 60%)`);
-        const borderColors = activeAccounts.map((_, i) => `hsl(${i * (360 / activeAccounts.length)}, 70%, 50%)`);
+        const palette = [
+            '#00d09c','#4f8ef7','#f7c948','#f76f8e','#a78bfa',
+            '#38bdf8','#fb923c','#34d399','#e879f9','#facc15',
+            '#60a5fa','#f87171','#2dd4bf','#c084fc','#fbbf24'
+        ];
+        const bgColors = activeAccounts.map((_, i) => palette[i % palette.length] + 'cc');
 
         if (this.accountsChartInstance) {
-            this.accountsChartInstance.data.labels = labels;
-            this.accountsChartInstance.data.datasets[0].data = data;
-            this.accountsChartInstance.data.datasets[0].backgroundColor = backgroundColors;
-            this.accountsChartInstance.data.datasets[0].borderColor = borderColors;
+            this.accountsChartInstance.data.labels                         = labels;
+            this.accountsChartInstance.data.datasets[0].data               = data;
+            this.accountsChartInstance.data.datasets[0].backgroundColor    = bgColors;
             this.accountsChartInstance.update();
-        } else {
-            if (typeof Chart === 'undefined') return;
-            
-            Chart.defaults.color = '#94a3b8';
-            Chart.defaults.font.family = "'Outfit', sans-serif";
+            return;
+        }
 
-            this.accountsChartInstance = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Net Value',
-                        data: data,
-                        backgroundColor: backgroundColors,
-                        borderColor: 'transparent',
-                        borderWidth: 2,
-                        hoverOffset: 10
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'right',
-                            labels: {
-                                padding: 20,
-                                font: {
-                                    size: 13
-                                },
-                                color: '#f8fafc'
+        if (typeof Chart === 'undefined') return;
+
+        Chart.defaults.color       = '#7c8496';
+        Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
+
+        this.accountsChartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Net Value',
+                    data,
+                    backgroundColor: bgColors,
+                    borderColor: 'transparent',
+                    borderWidth: 0,
+                    hoverOffset: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: { padding: 18, font: { size: 12 }, color: '#e8eaf0' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label(ctx) {
+                                return ` ${ctx.label}: ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(ctx.parsed)}`;
                             }
                         },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    let label = context.label || '';
-                                    if (label) {
-                                        label += ': ';
-                                    }
-                                    if (context.parsed !== null) {
-                                        label += new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed);
-                                    }
-                                    return label;
-                                }
-                            },
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            titleFont: { size: 14, family: "'Outfit', sans-serif" },
-                            bodyFont: { size: 14, family: "'Outfit', sans-serif" },
-                            padding: 12,
-                            cornerRadius: 8,
-                            borderColor: 'rgba(255,255,255,0.1)',
-                            borderWidth: 1
-                        }
-                    },
-                    cutout: '65%',
-                    animation: {
-                        animateScale: true,
-                        animateRotate: true
+                        backgroundColor: '#1e2640',
+                        titleFont: { size: 13 },
+                        bodyFont:  { size: 13 },
+                        padding: 12,
+                        cornerRadius: 8,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderWidth: 1
                     }
-                }
-            });
-        }
+                },
+                cutout: '68%',
+                animation: { animateScale: true, animateRotate: true }
+            }
+        });
     },
 
     renderDividends(cachedDividendsData) {
-        const container = document.getElementById('dividends-page-content');
-        const summaryContainer = document.getElementById('dividend-tracker-summary');
-        const chartContainer = document.getElementById('dividendChartContainer');
+        const container       = document.getElementById('dividends-page-content');
+        const summaryEl       = document.getElementById('dividend-tracker-summary');
+        const chartContainer  = document.getElementById('dividendChartContainer');
         if (!container) return;
 
-        let allForecastEvents = [];
-
-        cachedDividendsData.forEach(accountData => {
-            if (accountData.error) return;
-            if (Array.isArray(accountData.dividends)) {
-                accountData.dividends.forEach(event => {
-                    allForecastEvents.push({
-                        ...event,
-                        portfolioName: accountData.portfolioName,
-                        accountName: accountData.accountName
-                    });
-                });
-            }
+        let allEvents = [];
+        cachedDividendsData.forEach(acct => {
+            if (acct.error) return;
+            (acct.dividends || []).forEach(e => {
+                allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
+            });
         });
 
-        if (allForecastEvents.length === 0) {
-            container.innerHTML = '<div class="empty-state">No dividend forecast events found. Ensure you have holdings with dividend history.</div>';
-            if (summaryContainer) summaryContainer.style.display = 'none';
+        if (allEvents.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>No dividend forecast events found. Ensure you have holdings with dividend history.</p></div>';
+            if (summaryEl)      summaryEl.style.display = 'none';
             if (chartContainer) chartContainer.style.display = 'none';
             return;
         }
 
-        // Show summaries
-        if (summaryContainer) summaryContainer.style.display = 'grid';
+        if (summaryEl)      summaryEl.style.display      = 'grid';
         if (chartContainer) chartContainer.style.display = 'block';
 
-        // Sort by date ascending
-        allForecastEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
+        allEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        // Calculate Totals
-        const annualTotal = allForecastEvents.reduce((sum, e) => sum + (e.amount || 0), 0);
-        document.getElementById('unified-annual-income').textContent = `$${annualTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        document.getElementById('unified-monthly-average').textContent = `$${(annualTotal / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        const annualTotal = allEvents.reduce((s, e) => s + (e.amount || 0), 0);
+        document.getElementById('unified-annual-income').textContent   = `$${annualTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+        document.getElementById('unified-monthly-average').textContent = `$${(annualTotal / 12).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
-        // Group by Month for Chart and List
-        const monthlyData = {};
+        // Build 12-month buckets from today
         const now = new Date();
+        const monthlyData = {};
         for (let i = 0; i < 12; i++) {
-            const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+            const d   = new Date(now.getFullYear(), now.getMonth() + i, 1);
             const key = d.toLocaleString('default', { month: 'short', year: 'numeric' });
-            monthlyData[key] = {
-                total: 0,
-                events: []
-            };
+            monthlyData[key] = { total: 0, events: [] };
         }
 
-        allForecastEvents.forEach(e => {
-            const date = new Date(e.date);
-            const key = date.toLocaleString('default', { month: 'short', year: 'numeric' });
+        allEvents.forEach(e => {
+            const key = new Date(e.date).toLocaleString('default', { month: 'short', year: 'numeric' });
             if (monthlyData[key]) {
-                monthlyData[key].total += e.amount;
+                monthlyData[key].total += e.amount || 0;
                 monthlyData[key].events.push(e);
             }
         });
 
-        // Render Chart
         this.renderDividendChart(monthlyData);
 
-        // Render List
         let html = '';
-        for (const [monthYear, data] of Object.entries(monthlyData)) {
-            if (data.events.length === 0) continue;
+        for (const [monthYear, mData] of Object.entries(monthlyData)) {
+            if (mData.events.length === 0) continue;
 
-            html += `
-                <div class="card" style="margin-bottom: 2rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
-                        <h3 style="font-size: 1.25rem; font-weight: 600;">${monthYear}</h3>
-                        <div style="font-weight: 700; color: var(--success); font-size: 1.25rem;">+$${data.total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                    </div>
-                    
-                    <div style="display: flex; flex-direction: column; gap: 1rem;">
-                        ${data.events.map(e => {
-                            const date = new Date(e.date);
-                            const day = date.getDate();
-                            
-                            return `
-                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 12px; transition: all 0.2s;">
-                                    <div style="display: flex; align-items: center; gap: 1rem;">
-                                        <div style="background: rgba(99, 102, 241, 0.1); width: 48px; height: 48px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                            <span style="font-size: 0.75rem; color: var(--primary-light); text-transform: uppercase;">${date.toLocaleString('default', { month: 'short' })}</span>
-                                            <span style="font-weight: 700; font-size: 1.1rem; color: var(--text);">${day}</span>
-                                        </div>
-                                        <div>
-                                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                                                <span class="symbol-badge">${e.symbol}</span>
-                                                <span style="font-size: 0.9rem; font-weight: 600;">${e.name}</span>
-                                            </div>
-                                            <div style="font-size: 0.75rem; color: var(--text-muted);">
-                                                ${e.units.toLocaleString()} shares • $${e.amountPerShare.toFixed(4)} / share
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style="text-align: right;">
-                                        <div style="font-weight: 700; color: var(--success); font-size: 1.1rem;">+$${e.amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                                        <div style="font-size: 0.75rem; color: var(--text-muted);">${e.portfolioName}</div>
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                </div>
-            `;
+            html += `<div class="dividend-month-card">
+                <div class="dividend-month-header">
+                    <span class="dividend-month-name">${monthYear}</span>
+                    <span class="dividend-month-total">+$${mData.total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                </div>`;
+
+            mData.events.forEach(e => {
+                const d = new Date(e.date);
+                html += `
+                    <div class="dividend-event-row">
+                        <div class="dividend-event-date">
+                            <div class="dividend-event-date-month">${d.toLocaleString('default',{month:'short'})}</div>
+                            <div class="dividend-event-date-day">${d.getDate()}</div>
+                        </div>
+                        <div class="dividend-event-info">
+                            <div>
+                                <span class="dividend-event-symbol">${e.symbol}</span>
+                                <span class="dividend-event-name">${e.name}</span>
+                            </div>
+                            <div class="dividend-event-meta">${(e.units || 0).toLocaleString()} shares &middot; $${(e.amountPerShare || 0).toFixed(4)}/share</div>
+                        </div>
+                        <div class="dividend-event-right">
+                            <div class="dividend-event-amount">+$${(e.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                            <div class="dividend-event-portfolio">${e.portfolioName}</div>
+                        </div>
+                    </div>`;
+            });
+
+            html += '</div>';
         }
 
         container.innerHTML = html;
     },
 
     renderDividendChart(monthlyData) {
-        const ctx = document.getElementById('dividendChart').getContext('2d');
+        const canvas = document.getElementById('dividendChart');
+        if (!canvas) return;
+        const ctx    = canvas.getContext('2d');
         const labels = Object.keys(monthlyData);
-        const data = Object.values(monthlyData).map(d => d.total);
+        const data   = Object.values(monthlyData).map(d => d.total);
 
         if (this.dividendChartInstance) {
-            this.dividendChartInstance.data.labels = labels;
-            this.dividendChartInstance.data.datasets[0].data = data;
+            this.dividendChartInstance.data.labels              = labels;
+            this.dividendChartInstance.data.datasets[0].data   = data;
             this.dividendChartInstance.update();
-        } else {
-            if (typeof Chart === 'undefined') return;
+            return;
+        }
 
-            this.dividendChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Projected Monthly Income',
-                        data: data,
-                        backgroundColor: 'rgba(99, 102, 241, 0.5)',
-                        borderColor: 'rgb(99, 102, 241)',
-                        borderWidth: 2,
-                        borderRadius: 6,
-                        hoverBackgroundColor: 'rgba(99, 102, 241, 0.8)'
-                    }]
+        if (typeof Chart === 'undefined') return;
+
+        this.dividendChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Projected Monthly Income',
+                    data,
+                    backgroundColor: 'rgba(0,208,156,0.25)',
+                    borderColor:     '#00d09c',
+                    borderWidth:     2,
+                    borderRadius:    6,
+                    hoverBackgroundColor: 'rgba(0,208,156,0.45)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => ` ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(ctx.parsed.y)}`
+                        },
+                        backgroundColor: '#1e2640',
+                        titleFont: { size: 12 },
+                        bodyFont:  { size: 13, weight: '600' },
+                        padding: 10,
+                        cornerRadius: 8,
+                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderWidth: 1
+                    }
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return ' ' + new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(context.parsed.y);
-                                }
-                            },
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            titleFont: { size: 14, family: "'Outfit', sans-serif" },
-                            bodyFont: { size: 14, family: "'Outfit', sans-serif" },
-                            padding: 12,
-                            cornerRadius: 8
-                        }
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid:  { color: 'rgba(255,255,255,0.04)' },
+                        ticks: { callback: v => '$' + v, color: '#7c8496' }
                     },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                color: 'rgba(255, 255, 255, 0.05)'
-                            },
-                            ticks: {
-                                callback: function(value) {
-                                    return '$' + value;
-                                }
-                            }
-                        },
-                        x: {
-                            grid: {
-                                display: false
-                            }
-                        }
+                    x: {
+                        grid:  { display: false },
+                        ticks: { color: '#7c8496' }
                     }
                 }
-            });
-        }
+            }
+        });
     },
 
     renderDividendCalendar(cachedDividendsData, targetDate) {
-        const gridContainer = document.getElementById('dividend-calendar-grid');
-        const monthLabel = document.getElementById('currentCalendarMonth');
-        if (!gridContainer || !monthLabel) return;
+        const gridEl   = document.getElementById('dividend-calendar-grid');
+        const monthEl  = document.getElementById('currentCalendarMonth');
+        if (!gridEl || !monthEl) return;
 
-        // Set Month Label
-        monthLabel.textContent = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+        monthEl.textContent = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
-        // Gather all events
-        let allForecastEvents = [];
+        let allEvents  = [];
         let annualTotal = 0;
         if (cachedDividendsData) {
-            cachedDividendsData.forEach(accountData => {
-                if (accountData.error) return;
-                if (Array.isArray(accountData.dividends)) {
-                    accountData.dividends.forEach(event => {
-                        allForecastEvents.push({
-                            ...event,
-                            portfolioName: accountData.portfolioName,
-                            accountName: accountData.accountName
-                        });
-                        annualTotal += (event.amount || 0);
-                    });
-                }
+            cachedDividendsData.forEach(acct => {
+                if (acct.error) return;
+                (acct.dividends || []).forEach(e => {
+                    allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
+                    annualTotal += (e.amount || 0);
+                });
             });
         }
 
-        // Update Summary Header
-        const summaryGrid = document.getElementById('dividend-tracker-summary');
-        if (summaryGrid) summaryGrid.style.display = 'grid';
+        const summaryEl = document.getElementById('dividend-tracker-summary');
+        if (summaryEl) summaryEl.style.display = 'grid';
+        const annualEl  = document.getElementById('unified-annual-income');
+        const monthAvgEl = document.getElementById('unified-monthly-average');
+        const monthTotalEl = document.getElementById('unified-month-total');
+        const monthLabelEl = document.getElementById('unified-month-label');
 
-        const annualTotalEl = document.getElementById('unified-annual-income');
-        const monthlyAverageEl = document.getElementById('unified-monthly-average');
-        const viewingMonthTotalEl = document.getElementById('unified-month-total');
-        const viewingMonthLabelEl = document.getElementById('unified-month-label');
+        if (annualEl)   annualEl.textContent   = `$${annualTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+        if (monthAvgEl) monthAvgEl.textContent = `$${(annualTotal / 12).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+        if (monthLabelEl) monthLabelEl.textContent = `${targetDate.toLocaleString('default',{month:'short'})} Total`;
 
-        if (annualTotalEl) annualTotalEl.textContent = `$${annualTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        if (monthlyAverageEl) monthlyAverageEl.textContent = `$${(annualTotal / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        
-        if (viewingMonthLabelEl) {
-            viewingMonthLabelEl.textContent = `${targetDate.toLocaleString('default', { month: 'short' })} Total`;
-        }
-
-        // Calendar Logic
-        const year = targetDate.getFullYear();
+        const year  = targetDate.getFullYear();
         const month = targetDate.getMonth();
-        
-        const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 (Sun) to 6 (Sat)
+        const firstDow    = new Date(year, month, 1).getDay();
         const daysInMonth = new Date(year, month + 1, 0).getDate();
-        
-        // Days from previous month to fill the first row
-        const prevMonthLastDay = new Date(year, month, 0).getDate();
-        const prevMonthDaysToShow = firstDayOfMonth; // If month starts on Wed (3), show 3 days (Sun, Mon, Tue)
-        
-        let html = '<div class="calendar-grid">';
-        
-        // Day Headers
-        ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => {
-            html += `<div class="calendar-day-header">${day}</div>`;
-        });
+        const prevLast    = new Date(year, month, 0).getDate();
+        const today       = new Date();
 
-        // Previous Month Days
-        for (let i = prevMonthDaysToShow - 1; i >= 0; i--) {
-            const day = prevMonthLastDay - i;
-            html += `<div class="calendar-day prev-month">${day}</div>`;
+        let html = '<div class="calendar-header-row">';
+        ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
+            html += `<div class="calendar-day-name">${d}</div>`;
+        });
+        html += '</div><div class="calendar-grid">';
+
+        for (let i = firstDow - 1; i >= 0; i--) {
+            html += `<div class="calendar-cell other-month"><div class="calendar-date-num">${prevLast - i}</div></div>`;
         }
 
-        // Current Month Days
-        const today = new Date();
         let viewingMonthTotal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
-            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
-            
-            // Filter events for this day
-            const dayEvents = allForecastEvents.filter(e => {
-                const eDate = new Date(e.date);
-                return eDate.getFullYear() === year && eDate.getMonth() === month && eDate.getDate() === day;
+            const dateStr  = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const isToday  = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
+            const dayEvents = allEvents.filter(e => {
+                const d = new Date(e.date);
+                return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
             });
-
-            const totalAmount = dayEvents.reduce((sum, e) => sum + (e.amount || 0), 0);
-            viewingMonthTotal += totalAmount;
+            const dayTotal = dayEvents.reduce((s, e) => s + (e.amount || 0), 0);
+            viewingMonthTotal += dayTotal;
             const hasEvents = dayEvents.length > 0;
+            const eventsJson = JSON.stringify(dayEvents).replace(/"/g, '&quot;');
 
-            html += `
-                <div class="calendar-day ${isToday ? 'today' : ''} ${hasEvents ? 'has-events' : ''}" 
-                     onclick="UI.renderCalendarDayDetails(${JSON.stringify(dayEvents).replace(/"/g, '&quot;')}, '${dateStr}')">
-                    <div class="calendar-day-num">${day}</div>
-                    ${hasEvents ? `
-                        <div class="calendar-event-marker">
-                            <span class="dot"></span>
-                            <span class="amount">+$${totalAmount.toFixed(2)}</span>
-                        </div>
-                    ` : ''}
-                </div>
-            `;
-        }
-        
-        if (viewingMonthTotalEl) {
-            viewingMonthTotalEl.textContent = `$${viewingMonthTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            html += `<div class="calendar-cell${isToday ? ' today' : ''}${hasEvents ? ' has-events' : ''}"
+                         onclick="${hasEvents ? `UI.renderCalendarDayDetails(${eventsJson}, '${dateStr}')` : ''}">
+                        <div class="calendar-date-num">${day}</div>
+                        ${hasEvents ? `<div class="calendar-event-dot"></div>
+                                       <span class="calendar-event-amount">+$${dayTotal.toFixed(2)}</span>` : ''}
+                     </div>`;
         }
 
-        // Next Month Days to fill the 6x7 grid (42 cells total)
-        const totalCellsUsed = prevMonthDaysToShow + daysInMonth;
-        const remainingCells = 42 - totalCellsUsed;
-        for (let i = 1; i <= remainingCells; i++) {
-            html += `<div class="calendar-day next-month">${i}</div>`;
+        if (monthTotalEl) monthTotalEl.textContent = `$${viewingMonthTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+
+        const totalCells = firstDow + daysInMonth;
+        const remaining  = (Math.ceil(totalCells / 7) * 7) - totalCells;
+        for (let i = 1; i <= remaining; i++) {
+            html += `<div class="calendar-cell other-month"><div class="calendar-date-num">${i}</div></div>`;
         }
 
         html += '</div>';
-        gridContainer.innerHTML = html;
-        
-        // If we have events for today, or if no day is selected, maybe clear details?
-        // For now, let's just clear it unless a user clicks.
-        // document.getElementById('calendar-day-details').innerHTML = '<div class="empty-state">Select a day to view its dividends</div>';
+        gridEl.innerHTML = html;
     },
 
     renderCalendarDayDetails(events, dateStr) {
         const container = document.getElementById('calendar-day-details');
         if (!container) return;
 
-        // Mark the selected day in CSS
-        document.querySelectorAll('.calendar-day').forEach(el => el.classList.remove('selected'));
-        // Find the cell with the date - we might need to store it differently but for now:
-        // Actually, the click handler is on the cell, so we can pass the event or just rely on the re-render not being too frequent.
+        document.querySelectorAll('.calendar-cell').forEach(el => el.classList.remove('selected'));
 
-        const date = new Date(dateStr + 'T12:00:00'); // Use noon to avoid TZ issues
-        const formattedDate = date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+        const date          = new Date(dateStr + 'T12:00:00');
+        const formattedDate = date.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
 
         if (!events || events.length === 0) {
             container.innerHTML = `
-                <div style="margin-bottom: 1.5rem;">
-                    <div style="font-size: 0.875rem; color: var(--text-muted);">${formattedDate}</div>
+                <div class="day-detail-header">
+                    <div class="day-detail-date">${formattedDate}</div>
                 </div>
-                <div class="empty-state" style="padding: 2rem 0;">
-                    <div style="font-size: 2rem; margin-bottom: 1rem; opacity: 0.5;">☕</div>
-                    <p style="font-size: 0.875rem; color: var(--text-muted);">No dividends scheduled for this day.</p>
-                </div>
-            `;
+                <div class="empty-state" style="padding:1.5rem 0;">
+                    <p>No dividends scheduled for this day.</p>
+                </div>`;
             return;
         }
 
-        const totalDayAmount = events.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const total = events.reduce((s, e) => s + (e.amount || 0), 0);
 
         let html = `
-            <div style="margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border);">
-                <div style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.25rem;">${formattedDate}</div>
-                <div style="font-size: 1.5rem; font-weight: 700; color: var(--success);">+$${totalDayAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-        `;
+            <div class="day-detail-header">
+                <div class="day-detail-date">${formattedDate}</div>
+                <div class="day-detail-total">+$${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+            </div>`;
 
         events.forEach(e => {
             html += `
-                <div class="dividend-detail-item" style="padding: 1rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-                        <span class="symbol-badge">${e.symbol}</span>
-                        <span style="font-weight: 700; color: var(--success);">+$${e.amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                <div class="day-detail-item">
+                    <div class="day-detail-item-top">
+                        <span class="dividend-event-symbol">${e.symbol}</span>
+                        <span class="day-detail-item-amount">+$${(e.amount||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
                     </div>
-                    <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.25rem;">${e.name}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted);">
-                        ${e.units.toLocaleString()} shares @ $${e.amountPerShare.toFixed(4)}
-                    </div>
-                    <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.5rem; opacity: 0.7;">
-                        ${e.portfolioName} • ${e.accountName}
-                    </div>
-                </div>
-            `;
+                    <div class="day-detail-item-name">${e.name}</div>
+                    <div class="day-detail-item-meta">${(e.units||0).toLocaleString()} shares @ $${(e.amountPerShare||0).toFixed(4)}</div>
+                    <div class="day-detail-item-meta" style="margin-top:4px;opacity:0.7;">${e.portfolioName} &middot; ${e.accountName}</div>
+                </div>`;
         });
 
-        html += '</div>';
         container.innerHTML = html;
     }
 };

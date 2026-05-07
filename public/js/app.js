@@ -12,6 +12,8 @@ const App = {
     cachedDividendsData: null,
     dividendsLastUpdated: null,
     currentCalendarDate: new Date(),
+    currentTrade: null,
+    currentTradeAction: 'BUY',
 
     async init() {
         this.setupEventListeners();
@@ -22,11 +24,11 @@ const App = {
         this.switchMainTab(savedMainTab, mainBtn);
 
         const savedSettingsTab = localStorage.getItem('activeSettingsTab') || 'portfolios';
-        const settingsBtn = document.querySelector(`.settings-tab-btn[data-tab="${savedSettingsTab}"]`);
+        const settingsBtn = document.querySelector(`.underline-tab[data-tab="${savedSettingsTab}"]`);
         this.switchSettingsTab(savedSettingsTab, settingsBtn);
 
         const savedDividendSubTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
-        const dividendSubBtn = document.querySelector(`.sub-tab-btn[data-subtab="${savedDividendSubTab}"]`);
+        const dividendSubBtn = document.querySelector(`#dividend-sub-tabs .pill-tab[data-subtab="${savedDividendSubTab}"]`);
         this.switchDividendSubTab(savedDividendSubTab, dividendSubBtn);
 
         await Promise.all([
@@ -39,8 +41,11 @@ const App = {
         document.getElementById('addPortfolioBtn').onclick = () => UI.openModal();
         document.querySelector('.modal-close').onclick = () => UI.closeModal();
 
+        document.getElementById('tradeModalClose').onclick = () => this.closeTradeModal();
+
         window.onclick = (e) => {
             if (e.target === UI.portfolioModal) UI.closeModal();
+            if (e.target === document.getElementById('tradeModal')) this.closeTradeModal();
         };
 
         UI.portfolioForm.onsubmit = (e) => this.handlePortfolioSubmit(e);
@@ -106,6 +111,20 @@ const App = {
         }
     },
 
+    async togglePortfolioTrading(id, enabled) {
+        try {
+            await API.setPortfolioTrading(id, enabled);
+            const p = this.activePortfolios.find(x => x.id === id);
+            if (p) p.tradingEnabled = enabled ? 1 : 0;
+            // Invalidate holdings cache so trade buttons appear on next visit
+            this.cachedHoldingsData = null;
+            UI.showToast(`Trading ${enabled ? 'enabled' : 'disabled'}`);
+        } catch (err) {
+            UI.showToast('Failed to update trading setting: ' + err.message, 'error');
+            UI.renderPortfolios(this.activePortfolios);
+        }
+    },
+
     editPortfolio(id) {
         const p = this.activePortfolios.find(x => x.id === id);
         if (p) UI.openModal(p);
@@ -137,6 +156,43 @@ const App = {
         }
     },
 
+    async reconnectForTrading(id, btn) {
+        btn.classList.add('loading');
+        try {
+            const loginUrl = await API.getTradeLoginUrl(id);
+            const popup = window.open(loginUrl, '_blank');
+            UI.showToast('Trade portal opened. Complete the reconnect to enable trade permissions.');
+            // Poll until popup closes then refresh the badge
+            const poll = setInterval(() => {
+                if (popup && popup.closed) {
+                    clearInterval(poll);
+                    this.loadConnectionBadge(id);
+                }
+            }, 1000);
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            btn.classList.remove('loading');
+        }
+    },
+
+    async loadConnectionBadge(portfolioId) {
+        const badge = document.getElementById(`conn-badge-${portfolioId}`);
+        if (!badge) return;
+        try {
+            const { connectionType } = await API.getConnectionStatus(portfolioId);
+            if (connectionType === 'trade') {
+                badge.textContent = 'Trade';
+                badge.className = 'status-badge status-active';
+                badge.style.cssText = 'font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;';
+            } else if (connectionType === 'read') {
+                badge.textContent = 'Read Only';
+                badge.className = 'status-badge status-inactive';
+                badge.style.cssText = 'font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;background:#7a5c00;color:#ffd;border-color:#b88a00;';
+            }
+        } catch (_) { /* silently skip if API fails */ }
+    },
+
     async fetchAccounts(forceRefresh = false) {
         UI.accountContainer.innerHTML = '<div class="empty-state">Loading accounts for all portfolios...</div>';
         try {
@@ -146,7 +202,7 @@ const App = {
             this.inactiveAccountIds = new Set();
             for (const group of this.currentGroups) {
                 for (const acc of (group.accounts || [])) {
-                    if (acc.isActive === false) {
+                    if (!acc.isActive) {
                         this.inactiveAccountIds.add(acc.id);
                     }
                 }
@@ -163,13 +219,132 @@ const App = {
 
             UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
         } catch (err) {
-            UI.accountContainer.innerHTML = `<div class="empty-state" style="color: var(--error)">Error: ${err.message}</div>`;
+            UI.accountContainer.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
         }
     },
 
     switchPortfolioTab(id) {
         this.activePortfolioId = id;
         UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
+    },
+
+    startRenameAccount(accountId) {
+        let currentName = '';
+        for (const group of this.currentGroups) {
+            const acc = group.accounts.find(a => a.id === accountId);
+            if (acc) { currentName = acc.customName || acc.name || ''; break; }
+        }
+        const nameEl = document.getElementById('acc-name-' + accountId);
+        if (!nameEl) return;
+        nameEl.innerHTML = `
+            <div style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;">
+                <input type="text" id="rename-input" value="${currentName.replace(/"/g, '&quot;')}"
+                       style="background:var(--surface-2);border:1px solid var(--primary);color:var(--text);border-radius:var(--radius-sm);padding:0.2rem 0.45rem;font-size:0.875rem;width:180px;"
+                       onkeydown="if(event.key==='Enter')App.confirmRenameAccount('${accountId}');else if(event.key==='Escape')UI.renderAccountSection(App.currentGroups,App.activePortfolioId,App.inactiveAccountIds)">
+                <button class="btn btn-primary btn-sm" onclick="App.confirmRenameAccount('${accountId}')">Save</button>
+                <button class="btn btn-outline btn-sm" onclick="UI.renderAccountSection(App.currentGroups,App.activePortfolioId,App.inactiveAccountIds)">Cancel</button>
+            </div>`;
+        setTimeout(() => document.getElementById('rename-input')?.focus(), 0);
+    },
+
+    async confirmRenameAccount(accountId) {
+        const input = document.getElementById('rename-input');
+        if (!input) return;
+        const newName = input.value.trim();
+        if (!newName) { UI.showToast('Name cannot be empty', 'error'); return; }
+
+        try {
+            await API.renameAccount(accountId, newName);
+            for (const group of this.currentGroups) {
+                const acc = group.accounts.find(a => a.id === accountId);
+                if (acc) { acc.customName = newName; break; }
+            }
+            this.cachedHoldingsData = null;
+            this.cachedDividendsData = null;
+            UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
+            UI.showToast('Account renamed');
+        } catch (err) {
+            UI.showToast('Failed to rename: ' + err.message, 'error');
+            UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
+        }
+    },
+
+    openTradeModal(accountId, portfolioId, symbol, symbolId, description, price, action = 'BUY') {
+        if (!symbolId) {
+            UI.showToast('Click "Refresh" on this page first to sync position data before trading', 'error');
+            return;
+        }
+        this.currentTrade = { accountId, portfolioId, symbol, symbolId };
+        document.getElementById('tradeSymbolTicker').textContent = symbol;
+        document.getElementById('tradeSymbolDesc').textContent = description || '';
+        document.getElementById('tradeCurrentPrice').textContent = price
+            ? `$${Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : '—';
+        document.getElementById('tradeUnits').value = '';
+        document.getElementById('tradeOrderType').value = 'Market';
+        document.getElementById('tradeLimitPriceGroup').style.display = 'none';
+        document.getElementById('tradeLimitPrice').value = '';
+        document.getElementById('tradeTimeInForce').value = 'Day';
+        this.setTradeAction(action);
+        document.getElementById('tradeModal').classList.add('open');
+        setTimeout(() => document.getElementById('tradeUnits').focus(), 100);
+    },
+
+    closeTradeModal() {
+        document.getElementById('tradeModal').classList.remove('open');
+        this.currentTrade = null;
+    },
+
+    setTradeAction(action) {
+        this.currentTradeAction = action;
+        const buyBtn  = document.getElementById('tradeBuyBtn');
+        const sellBtn = document.getElementById('tradeSellBtn');
+        if (action === 'BUY') {
+            buyBtn.className  = 'btn btn-primary';
+            sellBtn.className = 'btn btn-outline';
+        } else {
+            buyBtn.className  = 'btn btn-outline';
+            sellBtn.className = 'btn btn-danger';
+        }
+    },
+
+    updateTradeOrderType() {
+        const isLimit = document.getElementById('tradeOrderType').value === 'Limit';
+        const group   = document.getElementById('tradeLimitPriceGroup');
+        const input   = document.getElementById('tradeLimitPrice');
+        group.style.display = isLimit ? 'block' : 'none';
+        input.required = isLimit;
+    },
+
+    async submitTrade() {
+        if (!this.currentTrade) return;
+
+        const units     = parseFloat(document.getElementById('tradeUnits').value);
+        const orderType = document.getElementById('tradeOrderType').value;
+        const limitPrice = orderType === 'Limit' ? parseFloat(document.getElementById('tradeLimitPrice').value) : undefined;
+        const timeInForce = document.getElementById('tradeTimeInForce').value;
+
+        if (!units || units <= 0) { UI.showToast('Enter a valid quantity', 'error'); return; }
+        if (orderType === 'Limit' && (!limitPrice || limitPrice <= 0)) {
+            UI.showToast('Enter a valid limit price', 'error'); return;
+        }
+
+        const btn = document.getElementById('submitTradeBtn');
+        btn.classList.add('loading');
+        btn.disabled = true;
+
+        try {
+            const { portfolioId, accountId, symbol } = this.currentTrade;
+            const action = this.currentTradeAction;
+            await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, price: limitPrice, timeInForce });
+            this.closeTradeModal();
+            UI.showToast(`${action} order placed — ${units} × ${symbol}`);
+        } catch (err) {
+            UI.showToast('Order failed: ' + err.message, 'error');
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
     },
 
     async toggleAccount(accountId) {
@@ -209,7 +384,7 @@ const App = {
             const users = await API.getAdminUsers();
             UI.renderAdminUsers(users);
         } catch (err) {
-            UI.adminUserList.innerHTML = '<div style="color: var(--error); font-size: 0.75rem;">Failed to list.</div>';
+            UI.adminUserList.innerHTML = '<div style="color: var(--danger); font-size: 0.75rem;">Failed to list.</div>';
         }
     },
 
@@ -239,9 +414,38 @@ const App = {
         }
     },
 
+    async handleSaveRefreshSchedule() {
+        const btn = document.getElementById('saveRefreshScheduleBtn');
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            const hours = parseInt(document.getElementById('refreshIntervalHours').value, 10);
+            if (!hours || hours < 1) { UI.showToast('Interval must be at least 1 hour', 'error'); return; }
+            await API.updateSettings({ data_refresh_interval_hours: String(hours) });
+            UI.showToast(`Refresh interval saved — data will sync every ${hours} hour${hours === 1 ? '' : 's'}`);
+            this.updateRefreshHint(hours);
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+    },
+
+    updateRefreshHint(hours) {
+        const el = document.getElementById('nextRefreshHint');
+        if (el) el.textContent = `Server syncs every ${hours} hour${hours === 1 ? '' : 's'} · Use Refresh button for immediate update`;
+    },
+
     async loadSettings() {
         try {
             const settings = await API.getSettings();
+
+            // Load refresh interval
+            const intervalHours = parseInt(settings.data_refresh_interval_hours ?? '24', 10);
+            const intervalInput = document.getElementById('refreshIntervalHours');
+            if (intervalInput) intervalInput.value = intervalHours;
+            this.updateRefreshHint(intervalHours);
 
             // Load dividend provider settings
             if (settings.dividend_providers) {
@@ -310,7 +514,7 @@ const App = {
     },
 
     async loadAllHoldings(forceRefresh = false) {
-        const container = document.getElementById('holdings-page-content');
+        const container = document.getElementById('holdings-tables');
         if (!container) return;
 
         const refreshBtn = document.getElementById('refreshHoldingsBtn');
@@ -335,14 +539,18 @@ const App = {
 
             let allHoldingsData = [];
             for (const group of this.currentGroups) {
+                const portfolio = this.activePortfolios.find(p => p.id === group.portfolioId);
+                const tradingEnabled = portfolio?.tradingEnabled ? true : false;
                 for (const acc of group.accounts) {
                     if (!this.inactiveAccountIds.has(acc.id)) {
                         try {
                             const data = await API.getHoldings(group.portfolioId, acc.id, forceRefresh);
                             allHoldingsData.push({
                                 portfolioName: group.portfolioName,
-                                accountName: acc.name,
+                                accountName: acc.customName || acc.name,
                                 accountId: acc.id,
+                                portfolioId: group.portfolioId,
+                                tradingEnabled,
                                 holdings: data
                             });
                         } catch (err) {
@@ -350,7 +558,7 @@ const App = {
                             if (err.message !== 'Account is disabled') {
                                 allHoldingsData.push({
                                     portfolioName: group.portfolioName,
-                                    accountName: acc.name,
+                                    accountName: acc.customName || acc.name,
                                     accountId: acc.id,
                                     error: err.message
                                 });
@@ -366,7 +574,7 @@ const App = {
 
             UI.renderAllHoldings(this.cachedHoldingsData);
         } catch (err) {
-            container.innerHTML = `<div class="empty-state" style="color: var(--error)">Error: ${err.message}</div>`;
+            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
         } finally {
             if (refreshBtn) refreshBtn.classList.remove('loading');
         }
@@ -410,7 +618,7 @@ const App = {
                 UI.showToast(`Dividend data refreshed (${elapsed}ms)`);
             }
         } catch (err) {
-            container.innerHTML = `<div class="empty-state" style="color: var(--error)">Error: ${err.message}</div>`;
+            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
             UI.showToast(`Failed to refresh dividends: ${err.message}`, 'error');
         } finally {
             if (refreshBtn) {
@@ -449,7 +657,7 @@ const App = {
     },
 
     async loadAllTransactions(forceRefresh = false) {
-        const container = document.getElementById('transactions-page-content');
+        const container = document.getElementById('transactions-tables');
         if (!container) return;
 
         const refreshBtn = document.getElementById('refreshTransactionsBtn');
@@ -482,7 +690,7 @@ const App = {
                 UI.showToast(`Transaction data refreshed (${elapsed}ms)`);
             }
         } catch (err) {
-            container.innerHTML = `<div class="empty-state" style="color: var(--error)">Error: ${err.message}</div>`;
+            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
             UI.showToast(`Failed to refresh transactions: ${err.message}`, 'error');
         } finally {
             if (refreshBtn) {
@@ -500,7 +708,7 @@ const App = {
     },
 
     switchTransactionsPageTab(accountId) {
-        document.querySelectorAll('#transactions-tabs .tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('#transactions-tabs .pill-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('#transactions-tables .transactions-pane').forEach(p => {
             p.classList.remove('active');
             p.style.display = 'none';
@@ -517,7 +725,7 @@ const App = {
     },
 
     switchHoldingsPageTab(accountId) {
-        document.querySelectorAll('#holdings-tabs .tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('#holdings-tabs .pill-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('#holdings-tables .holdings-pane').forEach(p => {
             p.classList.remove('active');
             p.style.display = 'none';
@@ -542,6 +750,13 @@ const App = {
         } else {
             const btn = document.querySelector(`.sidebar-item[data-tab="${tabId}"]`);
             if (btn) btn.classList.add('active');
+        }
+
+        // Update page title
+        const pageTitleEl = document.getElementById('pageTitle');
+        if (pageTitleEl) {
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', settings: 'Settings' };
+            pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
         // Update active class on tab contents
@@ -574,33 +789,20 @@ const App = {
     async switchSettingsTab(paneId, btnElement) {
         localStorage.setItem('activeSettingsTab', paneId);
         // Update active class on settings tabs
-        document.querySelectorAll('.settings-tab-btn').forEach(btn => {
-            btn.classList.remove('active');
-            btn.style.color = 'var(--text-muted)';
-        });
+        document.querySelectorAll('.underline-tab').forEach(btn => btn.classList.remove('active'));
 
         if (btnElement) {
             btnElement.classList.add('active');
-            btnElement.style.color = 'var(--text)';
         } else {
-            const btn = document.querySelector(`.settings-tab-btn[data-tab="${paneId}"]`);
-            if (btn) {
-                btn.classList.add('active');
-                btn.style.color = 'var(--text)';
-            }
+            const btn = document.querySelector(`.underline-tab[data-tab="${paneId}"]`);
+            if (btn) btn.classList.add('active');
         }
 
-        // Update active class on panes
-        document.querySelectorAll('.settings-pane').forEach(pane => {
-            pane.classList.remove('active');
-            pane.style.display = 'none';
-        });
+        // Update active class on panes — CSS handles display via .pane.active
+        document.querySelectorAll('#settings-tab .pane').forEach(pane => pane.classList.remove('active'));
 
         const activePane = document.getElementById('settings-' + paneId + '-pane');
-        if (activePane) {
-            activePane.classList.add('active');
-            activePane.style.display = 'block';
-        }
+        if (activePane) activePane.classList.add('active');
 
         // If switching to Keys tab, fetch and render portfolios from database
         if (paneId === 'keys') {
@@ -615,42 +817,26 @@ const App = {
 
     switchDividendSubTab(subTabId, btnElement) {
         localStorage.setItem('activeDividendSubTab', subTabId);
-        
+
         // Update button styles
-        document.querySelectorAll('.sub-tab-btn').forEach(btn => btn.classList.remove('active'));
-        
+        document.querySelectorAll('#dividend-sub-tabs .pill-tab').forEach(btn => btn.classList.remove('active'));
+
         if (btnElement) {
             btnElement.classList.add('active');
         } else {
-            const btn = document.querySelector(`.sub-tab-btn[data-subtab="${subTabId}"]`);
+            const btn = document.querySelector(`#dividend-sub-tabs .pill-tab[data-subtab="${subTabId}"]`);
             if (btn) btn.classList.add('active');
         }
 
-        // Update pane visibility
-        document.querySelectorAll('.dividend-pane').forEach(pane => pane.classList.remove('active'));
-        
+        // Update pane visibility — CSS handles display via .pane.active
+        document.querySelectorAll('#dividend-tracker-tab .pane').forEach(pane => pane.classList.remove('active'));
+
         const activePane = document.getElementById('dividend-' + subTabId + '-pane');
-        if (activePane) {
-            activePane.classList.add('active');
-        }
+        if (activePane) activePane.classList.add('active');
 
-        // Update unified summary month total visibility
-        const monthTotalCard = document.getElementById('unified-month-total-card');
-        if (monthTotalCard) {
-            monthTotalCard.style.display = subTabId === 'calendar' ? 'block' : 'none';
-        }
-
-        // Update controls visibility
-        const trackerControls = document.getElementById('dividend-tracker-controls');
-        const calendarControls = document.getElementById('calendar-controls');
-        
         if (subTabId === 'forecast') {
-            if (trackerControls) trackerControls.style.display = 'flex';
-            if (calendarControls) calendarControls.style.display = 'none';
             this.loadAllDividends();
         } else {
-            if (trackerControls) trackerControls.style.display = 'none';
-            if (calendarControls) calendarControls.style.display = 'flex';
             this.loadDividendCalendar();
         }
     }

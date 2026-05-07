@@ -52,9 +52,21 @@ const App = {
         // Trade button delegation — data-* attributes prevent inline JS injection
         document.getElementById('holdings-tables').addEventListener('click', e => {
             const btn = e.target.closest('.trade-btn-buy, .trade-btn-sell');
-            if (!btn) return;
-            const d = btn.dataset;
-            this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), d.action);
+            if (btn) {
+                const d = btn.dataset;
+                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), d.action);
+                return;
+            }
+            const preset = e.target.closest('.trade-btn-preset');
+            if (preset) {
+                const d = preset.dataset;
+                const price = parseFloat(d.price);
+                const bucket = parseFloat(d.bucket);
+                if (!price || price <= 0) { UI.showToast('Price unavailable for this holding', 'error'); return; }
+                const units = Math.floor(bucket / price);
+                if (units < 1) { UI.showToast(`$${bucket} is less than 1 share of ${d.symbol} ($${price.toFixed(2)})`, 'error'); return; }
+                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, price, 'BUY', units);
+            }
         });
 
         window.onclick = (e) => {
@@ -284,7 +296,7 @@ const App = {
         }
     },
 
-    openTradeModal(accountId, portfolioId, symbol, symbolId, description, price, action = 'BUY') {
+    openTradeModal(accountId, portfolioId, symbol, symbolId, description, price, action = 'BUY', prefillUnits = null) {
         if (!symbolId) {
             UI.showToast('Click "Refresh" on this page first to sync position data before trading', 'error');
             return;
@@ -295,7 +307,7 @@ const App = {
         document.getElementById('tradeCurrentPrice').textContent = price
             ? `$${Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : '—';
-        document.getElementById('tradeUnits').value = '';
+        document.getElementById('tradeUnits').value = prefillUnits !== null ? String(prefillUnits) : '';
         document.getElementById('tradeOrderType').value = 'Market';
         document.getElementById('tradeLimitPriceGroup').style.display = 'none';
         document.getElementById('tradeLimitPrice').value = '';

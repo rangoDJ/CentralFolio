@@ -236,7 +236,7 @@ const UI = {
                 '<th class="right">Total Value</th>' +
                 '<th class="right">Today</th>' +
                 '<th class="right">All&#8209;Time Return</th>' +
-                (tradeCol ? '<th></th>' : '') +
+                (tradeCol ? '<th></th><th class="right">Quick Buy</th>' : '') +
                 '</tr></thead><tbody>';
 
             account.holdings.forEach(h => {
@@ -279,6 +279,22 @@ const UI = {
                         </div>
                     </td>` : '';
 
+                const presetBtns  = tradeCol ? `
+                    <td style="white-space:nowrap;">
+                        <div style="display:flex;gap:0.25rem;justify-content:flex-end;">
+                            ${[100, 250, 500].map(bucket => `
+                            <button class="trade-btn-preset"
+                                    data-account-id="${sanitize(account.accountId)}"
+                                    data-portfolio-id="${sanitize(account.portfolioId)}"
+                                    data-symbol="${sanitize(symbol)}"
+                                    data-symbol-id="${sanitize(symbolId)}"
+                                    data-description="${sanitize(description)}"
+                                    data-price="${price}"
+                                    data-bucket="${bucket}"
+                                    ${(!price || Math.floor(bucket / price) < 1) ? 'disabled' : ''}>$${bucket}</button>`).join('')}
+                        </div>
+                    </td>` : '';
+
                 tablesHtml += `
                     <tr>
                         <td>
@@ -297,6 +313,7 @@ const UI = {
                             <div class="text-sm ${atCls}">${atPct >= 0 ? '+' : ''}${atPct.toFixed(2)}%</div>
                         </td>
                         ${tradeBtns}
+                        ${presetBtns}
                     </tr>`;
             });
 

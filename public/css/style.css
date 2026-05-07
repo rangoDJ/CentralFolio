@@ -131,6 +131,20 @@ body {
 .trade-btn-buy:hover  { background: rgba(0,208,156,0.25); }
 .trade-btn-sell:hover { background: rgba(247,111,142,0.25); }
 
+.trade-btn-preset {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid rgba(99,179,237,0.35);
+  background: rgba(99,179,237,0.10);
+  color: #63b3ed;
+  white-space: nowrap;
+}
+.trade-btn-preset:hover:not(:disabled) { background: rgba(99,179,237,0.22); }
+.trade-btn-preset:disabled { opacity: 0.35; cursor: not-allowed; }
+
 .sidebar-footer {
   margin-top: auto;
   padding: 1rem 0.75rem 1.25rem;

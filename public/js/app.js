@@ -176,10 +176,11 @@ const App = {
             const loginUrl = await API.getTradeLoginUrl(id);
             const popup = window.open(loginUrl, '_blank');
             UI.showToast('Trade portal opened. Complete the reconnect to enable trade permissions.');
-            // Poll until popup closes then refresh the badge
-            const poll = setInterval(() => {
+            // Poll until popup closes, then invalidate stale cache and refresh the badge
+            const poll = setInterval(async () => {
                 if (popup && popup.closed) {
                     clearInterval(poll);
+                    try { await API.invalidatePortfolioCache(id); } catch (_) {}
                     this.loadConnectionBadge(id);
                 }
             }, 1000);

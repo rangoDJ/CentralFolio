@@ -520,3 +520,10 @@ export function getCachedAllDividends(): any[] | null {
   logger.debug('Cache', 'getCachedAllDividends → cache MISS or expired');
   return null;
 }
+
+export function clearDividendMemoryCache() {
+  divMetadataCache.clear();
+  cachedAllDividends = [];
+  cachedDividendsTime = 0;
+  logger.info('Cache', 'clearDividendMemoryCache() — in-memory dividend caches cleared');
+}

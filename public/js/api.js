@@ -201,5 +201,12 @@ const API = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to change password');
         return data;
+    },
+
+    async invalidatePortfolioCache(portfolioId) {
+        const res = await this._fetch(`/api/invalidate-cache/${encodeURIComponent(portfolioId)}`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Cache invalidation failed');
+        return data;
     }
 };

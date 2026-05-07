@@ -79,6 +79,17 @@ export function clearAccountCache() {
   db.prepare("DELETE FROM positions").run();
 }
 
+export function clearAccountsForPortfolio(portfolioId: number | string) {
+  db.transaction(() => {
+    db.prepare("DELETE FROM positions WHERE accountId IN (SELECT id FROM accounts WHERE portfolioId = ?)").run(String(portfolioId));
+    db.prepare("DELETE FROM accounts WHERE portfolioId = ?").run(String(portfolioId));
+  })();
+}
+
+export function clearPositionsForAccount(accountId: string) {
+  db.prepare("DELETE FROM positions WHERE accountId = ?").run(accountId);
+}
+
 // ── Positions ─────────────────────────────────────────────────────────────────
 
 export function getCachedPositions(accountId: string): any[] {

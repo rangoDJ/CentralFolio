@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { listAllUsersAcrossPortfolios, deleteUserFromPortfolios } from "../services/snaptrade.js";
 import { listSettings, setSetting } from "../models/db.js";
+import { clearAllCaches } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
 export const listUsers = async (req: Request, res: Response) => {
@@ -73,6 +74,17 @@ export const getSettings = (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error('Admin', `getSettings error: ${err.message}`);
     res.status(500).json({ error: "Failed to get settings", detail: err.message });
+  }
+};
+
+export const clearCache = (_req: Request, res: Response) => {
+  logger.warn('Admin', 'POST /admin/clear-cache — clearing all caches');
+  try {
+    clearAllCaches();
+    res.json({ success: true });
+  } catch (err: any) {
+    logger.error('Admin', `clearCache failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
   }
 };
 

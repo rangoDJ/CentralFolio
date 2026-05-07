@@ -3,6 +3,7 @@ import { getPortfolio, savePortfolio, listPortfolios, getCachedAccounts, saveCac
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
+import { onAccountDeactivated, onBrokerageReconnected } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
 export const registerUser = async (req: Request, res: Response) => {
@@ -398,6 +399,9 @@ export const toggleAccountActive = (req: Request, res: Response) => {
 
   try {
     setAccountActive(String(accountId), isActive);
+    if (!isActive) {
+      onAccountDeactivated(String(accountId));
+    }
     logger.info('SnapTrade', `toggleAccountActive — account ${accountId} set to ${isActive ? 'ACTIVE' : 'INACTIVE'}`);
     res.json({ success: true, accountId, isActive });
   } catch (err: any) {
@@ -455,6 +459,18 @@ export const getTransactions = async (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error('SnapTrade', `getTransactions fatal error: ${err.message}`);
     res.status(500).json({ error: "Failed to fetch transactions" });
+  }
+};
+
+export const invalidatePortfolioCache = (req: Request, res: Response) => {
+  const { portfolioId } = req.params;
+  logger.info('SnapTrade', `POST /snapTrade/invalidate-cache/${portfolioId} — frontend-triggered reconnect invalidation`);
+  try {
+    onBrokerageReconnected(String(portfolioId));
+    res.json({ success: true });
+  } catch (err: any) {
+    logger.error('SnapTrade', `invalidatePortfolioCache failed for ${portfolioId}: ${err.message}`);
+    res.status(500).json({ error: err.message });
   }
 };
 

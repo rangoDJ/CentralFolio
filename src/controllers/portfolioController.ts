@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio } from "../models/db.js";
 import { getAllDividendsForAllPortfolios, getCachedAllDividends } from "../services/dividendService.js";
+import { onPortfolioDeleted } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
 export const getPortfolios = (req: Request, res: Response) => {
@@ -92,6 +93,7 @@ export const removePortfolio = (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Portfolio', `DELETE /api/portfolios/${id}`);
   try {
+    onPortfolioDeleted(id);
     deletePortfolio(String(id));
     logger.info('Portfolio', `Portfolio id=${id} deleted`);
     res.json({ success: true });

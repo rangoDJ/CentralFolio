@@ -43,3 +43,8 @@ export function clearTransactionCache() {
   logger.warn('DB', 'clearTransactionCache() called — wiping transactions table.');
   db.prepare("DELETE FROM transactions").run();
 }
+
+export function clearTransactionsForAccount(accountId: string) {
+  logger.debug('DB', `clearTransactionsForAccount(${accountId})`);
+  db.prepare("DELETE FROM transactions WHERE accountId = ?").run(accountId);
+}

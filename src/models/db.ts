@@ -23,8 +23,10 @@ export {
   setAccountCustomName,
   saveCachedAccounts,
   clearAccountCache,
+  clearAccountsForPortfolio,
   getCachedPositions,
   saveCachedPositions,
+  clearPositionsForAccount,
 } from "../repositories/accountRepository.js";
 
 export {
@@ -48,6 +50,7 @@ export {
   getCachedTransactions,
   saveCachedTransactions,
   clearTransactionCache,
+  clearTransactionsForAccount,
 } from "../repositories/transactionRepository.js";
 
 // ── Backward compat ───────────────────────────────────────────────────────────

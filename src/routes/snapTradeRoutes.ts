@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { registerUser, listAccounts, getHoldings, getLoginLink, getTradeLoginLink, getConnectionStatus, getDividendForecast, toggleAccountActive, renameAccount, getTransactions, placeTrade } from "../controllers/snapTradeController.js";
+import { registerUser, listAccounts, getHoldings, getLoginLink, getTradeLoginLink, getConnectionStatus, getDividendForecast, toggleAccountActive, renameAccount, getTransactions, placeTrade, invalidatePortfolioCache } from "../controllers/snapTradeController.js";
 
 const router = Router();
 
@@ -14,5 +14,6 @@ router.get("/dividends/forecast/:portfolioId/:accountId", getDividendForecast);
 router.post("/login", getLoginLink);
 router.post("/login/trade", getTradeLoginLink);
 router.get("/connection-status/:portfolioId", getConnectionStatus);
+router.post("/invalidate-cache/:portfolioId", invalidatePortfolioCache);
 
 export default router;

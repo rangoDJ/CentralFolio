@@ -155,10 +155,10 @@ const API = {
         return data;
     },
 
-    async placeTrade(data) {
+    async placeTrade({ portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce }) {
         const res = await this._fetch('/api/trade', {
             method: 'POST',
-            body: JSON.stringify(data)
+            body: JSON.stringify({ portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce })
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Order placement failed');

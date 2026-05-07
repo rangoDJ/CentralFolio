@@ -501,17 +501,37 @@ const VALID_ORDER_TYPES = ['Market', 'Limit'] as const;
 const VALID_TIF         = ['Day', 'GTC'] as const;
 
 export const placeTrade = async (req: Request, res: Response) => {
-  const { portfolioId, accountId, ticker, action, orderType, units, price, timeInForce } = req.body;
+  const { portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce } = req.body;
 
-  if (!portfolioId || !accountId || !ticker || !action || !orderType || !units) {
+  if (!portfolioId || !accountId || !ticker || !action || !orderType) {
     logger.warn('SnapTrade', 'placeTrade — missing required fields');
-    return res.status(400).json({ error: "Missing required fields: portfolioId, accountId, ticker, action, orderType, units" });
+    return res.status(400).json({ error: "Missing required fields: portfolioId, accountId, ticker, action, orderType" });
+  }
+  if (!units && !notional_value) {
+    return res.status(400).json({ error: "Provide either units or notional_value" });
+  }
+  if (units && notional_value) {
+    return res.status(400).json({ error: "Provide units or notional_value, not both" });
   }
 
   // ── Field validation ───────────────────────────────────────────────────────
-  const unitsNum = Number(units);
-  if (!Number.isFinite(unitsNum) || unitsNum <= 0) {
-    return res.status(400).json({ error: "units must be a positive number" });
+  let unitsNum: number | undefined;
+  let notionalNum: number | undefined;
+
+  if (units != null) {
+    unitsNum = Number(units);
+    if (!Number.isFinite(unitsNum) || unitsNum <= 0) {
+      return res.status(400).json({ error: "units must be a positive number" });
+    }
+  } else {
+    notionalNum = Number(notional_value);
+    if (!Number.isFinite(notionalNum) || notionalNum <= 0) {
+      return res.status(400).json({ error: "notional_value must be a positive number" });
+    }
+    // SnapTrade only supports notional with Market + Day
+    if (orderType !== 'Market') {
+      return res.status(400).json({ error: "notional_value orders must use orderType Market" });
+    }
   }
 
   if (!(VALID_ACTIONS as readonly string[]).includes(action)) {
@@ -522,7 +542,7 @@ export const placeTrade = async (req: Request, res: Response) => {
     return res.status(400).json({ error: `orderType must be one of: ${VALID_ORDER_TYPES.join(', ')}` });
   }
 
-  const tif = timeInForce || 'Day';
+  const tif = notionalNum != null ? 'Day' : (timeInForce || 'Day');
   if (!(VALID_TIF as readonly string[]).includes(tif)) {
     return res.status(400).json({ error: `timeInForce must be one of: ${VALID_TIF.join(', ')}` });
   }
@@ -557,7 +577,8 @@ export const placeTrade = async (req: Request, res: Response) => {
     }
 
     const client = getSnapTradeClientForPortfolio(portfolio);
-    logger.info('SnapTrade', `placeTrade — ${action} ${units} x ticker="${ticker}" account="${accountId}" orderType="${orderType}" tif="${timeInForce}"`);
+    const qtyDesc = notionalNum != null ? `notional=$${notionalNum}` : `${unitsNum} units`;
+    logger.info('SnapTrade', `placeTrade — ${action} ${qtyDesc} ticker="${ticker}" account="${accountId}" orderType="${orderType}" tif="${tif}"`);
 
     const orderBody: any = {
       userId: portfolio.userId,
@@ -566,10 +587,14 @@ export const placeTrade = async (req: Request, res: Response) => {
       action,
       order_type: orderType,
       time_in_force: tif,
-      units: unitsNum,
       symbol: ticker.trim(),
       universal_symbol_id: null,
     };
+    if (notionalNum != null) {
+      orderBody.notional_value = { amount: notionalNum, currency: 'USD' };
+    } else {
+      orderBody.units = unitsNum;
+    }
     if (orderType === 'Limit') {
       orderBody.price = Number(price);
     }

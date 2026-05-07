@@ -291,7 +291,7 @@ const UI = {
                                     data-description="${sanitize(description)}"
                                     data-price="${price}"
                                     data-bucket="${bucket}"
-                                    ${(!price || Math.floor(bucket / price) < 1) ? 'disabled' : ''}>$${bucket}</button>`).join('')}
+                                    ${!price ? 'disabled' : ''}>$${bucket}</button>`).join('')}
                         </div>
                     </td>` : '';
 

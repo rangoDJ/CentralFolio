@@ -14,6 +14,7 @@ const App = {
     currentCalendarDate: new Date(),
     currentTrade: null,
     currentTradeAction: 'BUY',
+    currentTradeNotional: null,
 
     async init() {
         // Guard: redirect to login if not authenticated
@@ -63,9 +64,7 @@ const App = {
                 const price = parseFloat(d.price);
                 const bucket = parseFloat(d.bucket);
                 if (!price || price <= 0) { UI.showToast('Price unavailable for this holding', 'error'); return; }
-                const units = Math.floor(bucket / price);
-                if (units < 1) { UI.showToast(`$${bucket} is less than 1 share of ${d.symbol} ($${price.toFixed(2)})`, 'error'); return; }
-                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, price, 'BUY', units);
+                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, price, 'BUY', null, bucket);
             }
         });
 
@@ -296,30 +295,46 @@ const App = {
         }
     },
 
-    openTradeModal(accountId, portfolioId, symbol, symbolId, description, price, action = 'BUY', prefillUnits = null) {
+    openTradeModal(accountId, portfolioId, symbol, symbolId, description, price, action = 'BUY', prefillUnits = null, notional = null) {
         if (!symbolId) {
             UI.showToast('Click "Refresh" on this page first to sync position data before trading', 'error');
             return;
         }
         this.currentTrade = { accountId, portfolioId, symbol, symbolId };
+        this.currentTradeNotional = notional;
+
         document.getElementById('tradeSymbolTicker').textContent = symbol;
         document.getElementById('tradeSymbolDesc').textContent = description || '';
         document.getElementById('tradeCurrentPrice').textContent = price
             ? `$${Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : '—';
-        document.getElementById('tradeUnits').value = prefillUnits !== null ? String(prefillUnits) : '';
-        document.getElementById('tradeOrderType').value = 'Market';
+
+        const isNotional = notional != null;
+        document.getElementById('tradeNotionalGroup').style.display  = isNotional ? 'block' : 'none';
+        document.getElementById('tradeUnitsGroup').style.display      = isNotional ? 'none'  : 'block';
+        document.getElementById('tradeOrderTypeGroup').style.display  = isNotional ? 'none'  : 'block';
+        document.getElementById('tradeTifGroup').style.display        = isNotional ? 'none'  : 'block';
         document.getElementById('tradeLimitPriceGroup').style.display = 'none';
-        document.getElementById('tradeLimitPrice').value = '';
-        document.getElementById('tradeTimeInForce').value = 'Day';
+
+        if (isNotional) {
+            document.getElementById('tradeNotionalDisplay').textContent =
+                `$${Number(notional).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — Market order`;
+        } else {
+            document.getElementById('tradeUnits').value = prefillUnits !== null ? String(prefillUnits) : '';
+            document.getElementById('tradeOrderType').value = 'Market';
+            document.getElementById('tradeLimitPrice').value = '';
+            document.getElementById('tradeTimeInForce').value = 'Day';
+        }
+
         this.setTradeAction(action);
         document.getElementById('tradeModal').classList.add('open');
-        setTimeout(() => document.getElementById('tradeUnits').focus(), 100);
+        if (!isNotional) setTimeout(() => document.getElementById('tradeUnits').focus(), 100);
     },
 
     closeTradeModal() {
         document.getElementById('tradeModal').classList.remove('open');
         this.currentTrade = null;
+        this.currentTradeNotional = null;
     },
 
     setTradeAction(action) {
@@ -346,12 +361,13 @@ const App = {
     async submitTrade() {
         if (!this.currentTrade) return;
 
-        const units     = parseFloat(document.getElementById('tradeUnits').value);
-        const orderType = document.getElementById('tradeOrderType').value;
+        const isNotional = this.currentTradeNotional != null;
+        const units      = isNotional ? undefined : parseFloat(document.getElementById('tradeUnits').value);
+        const orderType  = isNotional ? 'Market' : document.getElementById('tradeOrderType').value;
         const limitPrice = orderType === 'Limit' ? parseFloat(document.getElementById('tradeLimitPrice').value) : undefined;
-        const timeInForce = document.getElementById('tradeTimeInForce').value;
+        const timeInForce = isNotional ? 'Day' : document.getElementById('tradeTimeInForce').value;
 
-        if (!units || units <= 0) { UI.showToast('Enter a valid quantity', 'error'); return; }
+        if (!isNotional && (!units || units <= 0)) { UI.showToast('Enter a valid quantity', 'error'); return; }
         if (orderType === 'Limit' && (!limitPrice || limitPrice <= 0)) {
             UI.showToast('Enter a valid limit price', 'error'); return;
         }
@@ -363,9 +379,13 @@ const App = {
         try {
             const { portfolioId, accountId, symbol } = this.currentTrade;
             const action = this.currentTradeAction;
-            await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, price: limitPrice, timeInForce });
+            const notional_value = this.currentTradeNotional ?? undefined;
+            await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, notional_value, price: limitPrice, timeInForce });
             this.closeTradeModal();
-            UI.showToast(`${action} order placed — ${units} × ${symbol}`);
+            const desc = notional_value != null
+                ? `${action} order placed — $${notional_value} of ${symbol}`
+                : `${action} order placed — ${units} × ${symbol}`;
+            UI.showToast(desc);
         } catch (err) {
             UI.showToast('Order failed: ' + err.message, 'error');
         } finally {

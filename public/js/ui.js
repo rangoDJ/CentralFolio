@@ -480,9 +480,8 @@ const UI = {
     },
 
     renderDividends(cachedDividendsData) {
-        const container       = document.getElementById('dividends-page-content');
-        const summaryEl       = document.getElementById('dividend-tracker-summary');
-        const chartContainer  = document.getElementById('dividendChartContainer');
+        const container  = document.getElementById('dividends-page-content');
+        const summaryRow = document.getElementById('dividendSummaryRow');
         if (!container) return;
 
         let allEvents = [];
@@ -495,19 +494,47 @@ const UI = {
 
         if (allEvents.length === 0) {
             container.innerHTML = '<div class="empty-state"><p>No dividend forecast events found. Ensure you have holdings with dividend history.</p></div>';
-            if (summaryEl)      summaryEl.style.display = 'none';
-            if (chartContainer) chartContainer.style.display = 'none';
+            if (summaryRow) summaryRow.style.display = 'none';
             return;
         }
 
-        if (summaryEl)      summaryEl.style.display      = 'grid';
-        if (chartContainer) chartContainer.style.display = 'block';
+        if (summaryRow) summaryRow.style.display = 'flex';
 
         allEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
 
         const annualTotal = allEvents.reduce((s, e) => s + (e.amount || 0), 0);
-        document.getElementById('unified-annual-income').textContent   = `$${annualTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-        document.getElementById('unified-monthly-average').textContent = `$${(annualTotal / 12).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+        const fmt = v => `$${v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+
+        document.getElementById('unified-annual-income').textContent   = fmt(annualTotal);
+        document.getElementById('unified-monthly-average').textContent = fmt(annualTotal / 12);
+        document.getElementById('unified-daily-income').textContent    = fmt(annualTotal / 365);
+
+        // Yield: annual income / total active portfolio value
+        try {
+            let portfolioValue = 0;
+            if (App.currentGroups) {
+                App.currentGroups.forEach(g => {
+                    (g.accounts || []).forEach(acc => {
+                        if (!App.inactiveAccountIds?.has(acc.id)) {
+                            portfolioValue += acc.balance?.total?.amount || 0;
+                        }
+                    });
+                });
+            }
+            const yieldEl = document.getElementById('unified-yield');
+            if (portfolioValue > 0) {
+                yieldEl.textContent = `${((annualTotal / portfolioValue) * 100).toFixed(2)}%`;
+            } else {
+                yieldEl.textContent = '—';
+            }
+        } catch (_) { document.getElementById('unified-yield').textContent = '—'; }
+
+        // Yet to receive: events from today onwards within the 12-month window
+        const today = new Date(); today.setHours(0,0,0,0);
+        const yetToReceive = allEvents
+            .filter(e => new Date(e.date) >= today)
+            .reduce((s, e) => s + (e.amount || 0), 0);
+        document.getElementById('unified-yet-to-receive').textContent = fmt(yetToReceive);
 
         // Build 12-month buckets from today
         const now = new Date();
@@ -568,19 +595,19 @@ const UI = {
 
     renderDividendChart(monthlyData) {
         const canvas = document.getElementById('dividendChart');
-        if (!canvas) return;
+        if (!canvas || typeof Chart === 'undefined') return;
         const ctx    = canvas.getContext('2d');
         const labels = Object.keys(monthlyData);
         const data   = Object.values(monthlyData).map(d => d.total);
+        const maxVal = Math.max(...data, 1);
 
         if (this.dividendChartInstance) {
-            this.dividendChartInstance.data.labels              = labels;
-            this.dividendChartInstance.data.datasets[0].data   = data;
+            this.dividendChartInstance.data.labels            = labels;
+            this.dividendChartInstance.data.datasets[0].data  = data;
+            this.dividendChartInstance.options.scales.y.max   = maxVal * 1.2;
             this.dividendChartInstance.update();
             return;
         }
-
-        if (typeof Chart === 'undefined') return;
 
         this.dividendChartInstance = new Chart(ctx, {
             type: 'bar',
@@ -589,11 +616,11 @@ const UI = {
                 datasets: [{
                     label: 'Projected Monthly Income',
                     data,
-                    backgroundColor: 'rgba(0,208,156,0.25)',
-                    borderColor:     '#00d09c',
-                    borderWidth:     2,
-                    borderRadius:    6,
-                    hoverBackgroundColor: 'rgba(0,208,156,0.45)'
+                    backgroundColor: 'rgba(29,161,242,0.35)',
+                    borderColor:     '#1da1f2',
+                    borderWidth:     0,
+                    borderRadius:    4,
+                    hoverBackgroundColor: 'rgba(29,161,242,0.6)'
                 }]
             },
             options: {
@@ -603,7 +630,7 @@ const UI = {
                     legend: { display: false },
                     tooltip: {
                         callbacks: {
-                            label: ctx => ` ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(ctx.parsed.y)}`
+                            label: c => ` $${c.parsed.y.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`
                         },
                         backgroundColor: '#1e2640',
                         titleFont: { size: 12 },
@@ -617,12 +644,16 @@ const UI = {
                 scales: {
                     y: {
                         beginAtZero: true,
+                        max: maxVal * 1.2,
                         grid:  { color: 'rgba(255,255,255,0.04)' },
-                        ticks: { callback: v => '$' + v, color: '#7c8496' }
+                        ticks: {
+                            color: '#7c8496',
+                            callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}`
+                        }
                     },
                     x: {
                         grid:  { display: false },
-                        ticks: { color: '#7c8496' }
+                        ticks: { color: '#7c8496', font: { size: 11 } }
                     }
                 }
             }

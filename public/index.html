@@ -37,7 +37,7 @@
             <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
             <polyline points="16 7 22 7 22 13"/>
           </svg>
-          <span>Dividends</span>
+          <span>Dividend Tracker</span>
         </button>
 
         <button class="sidebar-item" data-tab="transactions" onclick="App.switchMainTab('transactions', this)">
@@ -116,27 +116,12 @@
       <!-- Dividend Tracker -->
       <div class="container tab-content" id="dividend-tracker-tab">
         <div class="page-header">
-          <h1 class="page-heading">Dividends</h1>
+          <h1 class="page-heading">Dividend Tracker</h1>
           <div class="page-actions">
             <div id="dividend-sub-tabs" class="pill-tabs">
               <button class="pill-tab active" data-subtab="forecast" onclick="App.switchDividendSubTab('forecast', this)">Forecast</button>
               <button class="pill-tab" data-subtab="calendar" onclick="App.switchDividendSubTab('calendar', this)">Calendar</button>
             </div>
-          </div>
-        </div>
-
-        <div id="dividend-tracker-summary" class="stats-row mb-3" style="display:none;">
-          <div class="stat-card">
-            <div class="stat-label">Annual Projected Income</div>
-            <div id="unified-annual-income" class="stat-value green">$0.00</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Monthly Average</div>
-            <div id="unified-monthly-average" class="stat-value">$0.00</div>
-          </div>
-          <div class="stat-card" id="unified-month-total-card" style="display:none;">
-            <div class="stat-label" id="unified-month-label">Month Total</div>
-            <div id="unified-month-total" class="stat-value primary">$0.00</div>
           </div>
         </div>
 
@@ -149,12 +134,46 @@
               <span class="btn-text">Refresh</span>
             </button>
           </div>
-          <div class="card mb-3" id="dividendChartContainer" style="display:none;">
-            <div class="chart-container"><canvas id="dividendChart"></canvas></div>
+
+          <!-- Income summary + chart row -->
+          <div id="dividendSummaryRow" style="display:none;gap:1.25rem;margin-bottom:1.25rem;align-items:stretch;">
+            <!-- Left: income stats -->
+            <div class="card" id="dividendIncomeCard" style="min-width:220px;max-width:280px;flex-shrink:0;display:flex;flex-direction:column;gap:0.1rem;">
+              <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;">Annual income</div>
+              <div id="unified-annual-income" style="font-size:1.7rem;font-weight:700;color:#fff;margin-bottom:0.75rem;">$0.00</div>
+              <div class="divider-income-row">
+                <span class="divider-income-label">Monthly</span>
+                <span id="unified-monthly-average" class="divider-income-value">$0.00</span>
+              </div>
+              <div class="divider-income-row">
+                <span class="divider-income-label">Daily</span>
+                <span id="unified-daily-income" class="divider-income-value">$0.00</span>
+              </div>
+              <div class="divider-income-row">
+                <span class="divider-income-label">Yield</span>
+                <span id="unified-yield" class="divider-income-value">—</span>
+              </div>
+              <div class="divider-income-row" style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border);">
+                <span class="divider-income-label">Yet to receive</span>
+                <span id="unified-yet-to-receive" class="divider-income-value" style="color:#00d09c;">$0.00</span>
+              </div>
+            </div>
+            <!-- Right: bar chart -->
+            <div class="card" style="flex:1;min-width:0;">
+              <canvas id="dividendChart" style="height:200px;"></canvas>
+            </div>
           </div>
+
           <div id="dividends-page-content">
             <div class="empty-state">Select an account in Settings to view dividend forecast.</div>
           </div>
+        </div>
+
+        <!-- hidden stat cards kept for calendar sub-tab compatibility -->
+        <div style="display:none;">
+          <div id="unified-month-total-card"><div id="unified-month-label"></div><div id="unified-month-total"></div></div>
+          <div id="dividend-tracker-summary"></div>
+          <div id="dividendChartContainer"></div>
         </div>
 
         <!-- Calendar pane -->

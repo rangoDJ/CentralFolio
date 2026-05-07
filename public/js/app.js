@@ -141,8 +141,10 @@ const App = {
             await API.setPortfolioTrading(id, enabled);
             const p = this.activePortfolios.find(x => x.id === id);
             if (p) p.tradingEnabled = enabled ? 1 : 0;
-            // Invalidate holdings cache so trade buttons appear on next visit
+            UI.renderPortfolios(this.activePortfolios);
+            // Re-render holdings from cache so trade/preset columns update immediately
             this.cachedHoldingsData = null;
+            this.loadAllHoldings();
             UI.showToast(`Trading ${enabled ? 'enabled' : 'disabled'}`);
         } catch (err) {
             UI.showToast('Failed to update trading setting: ' + err.message, 'error');

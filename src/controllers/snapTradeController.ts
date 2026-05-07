@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPortfolio, savePortfolio, listPortfolios, getCachedAccounts, saveCachedAccounts, getCachedPositions, saveCachedPositions, setAccountActive, getAccountActive, getCachedTransactions, setAccountCustomName } from "../models/db.js";
+import { getPortfolio, savePortfolio, listPortfolios, getCachedAccounts, saveCachedAccounts, getCachedPositions, saveCachedPositions, setAccountActive, getAccountActive, accountBelongsToPortfolio, getCachedTransactions, setAccountCustomName } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
@@ -182,6 +182,11 @@ export const getHoldings = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
 
+    if (!accountBelongsToPortfolio(String(accountId), portfolioId)) {
+      logger.warn('SnapTrade', `getHoldings — account ${accountId} does not belong to portfolio ${portfolioId}`);
+      return res.status(403).json({ error: "Account does not belong to this portfolio" });
+    }
+
     const isAccountActive = getAccountActive(String(accountId));
     if (isAccountActive === false) {
       logger.warn('SnapTrade', `getHoldings — account ${accountId} is disabled`);
@@ -349,7 +354,11 @@ export const getDividendForecast = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
 
-    // Check if account is active
+    if (!accountBelongsToPortfolio(String(accountId), portfolioId)) {
+      logger.warn('SnapTrade', `getDividendForecast — account ${accountId} does not belong to portfolio ${portfolioId}`);
+      return res.status(403).json({ error: "Account does not belong to this portfolio" });
+    }
+
     const isAccountActive = getAccountActive(String(accountId));
     if (isAccountActive === false) {
       logger.warn('SnapTrade', `getDividendForecast — account ${accountId} is disabled, skipping forecast`);
@@ -378,6 +387,11 @@ export const renameAccount = (req: Request, res: Response) => {
     return res.status(400).json({ error: "Body must contain { name: string }" });
   }
 
+  if (getAccountActive(String(accountId)) === null) {
+    logger.warn('SnapTrade', `renameAccount — account ${accountId} not found`);
+    return res.status(404).json({ error: "Account not found" });
+  }
+
   try {
     setAccountCustomName(String(accountId), name.trim());
     logger.info('SnapTrade', `renameAccount — account ${accountId} renamed to "${name.trim()}"`);
@@ -395,6 +409,11 @@ export const toggleAccountActive = (req: Request, res: Response) => {
   if (typeof isActive !== 'boolean') {
     logger.warn('SnapTrade', `toggleAccountActive — missing or invalid 'isActive' boolean in body for account ${accountId}`);
     return res.status(400).json({ error: "Body must contain { isActive: boolean }" });
+  }
+
+  if (getAccountActive(String(accountId)) === null) {
+    logger.warn('SnapTrade', `toggleAccountActive — account ${accountId} not found`);
+    return res.status(404).json({ error: "Account not found" });
   }
 
   try {
@@ -492,6 +511,11 @@ export const placeTrade = async (req: Request, res: Response) => {
     if (!portfolio.tradingEnabled) {
       logger.warn('SnapTrade', `placeTrade — trading not enabled for portfolio id=${portfolioId}`);
       return res.status(403).json({ error: "Trading is not enabled for this portfolio" });
+    }
+
+    if (!accountBelongsToPortfolio(String(accountId), portfolioId)) {
+      logger.warn('SnapTrade', `placeTrade — account ${accountId} does not belong to portfolio ${portfolioId}`);
+      return res.status(403).json({ error: "Account does not belong to this portfolio" });
     }
 
     const client = getSnapTradeClientForPortfolio(portfolio);

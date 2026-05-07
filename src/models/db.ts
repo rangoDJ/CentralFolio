@@ -20,6 +20,7 @@ export {
   getActiveAccountIds,
   setAccountActive,
   getAccountActive,
+  accountBelongsToPortfolio,
   setAccountCustomName,
   saveCachedAccounts,
   clearAccountCache,

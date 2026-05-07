@@ -38,6 +38,11 @@ export function getAccountActive(accountId: string): boolean | null {
   return isActive;
 }
 
+export function accountBelongsToPortfolio(accountId: string, portfolioId: number | string): boolean {
+  const row = db.prepare("SELECT id FROM accounts WHERE id = ? AND portfolioId = ?").get(accountId, String(portfolioId));
+  return row != null;
+}
+
 export function setAccountCustomName(accountId: string, customName: string | null) {
   logger.info('DB', `setAccountCustomName(${accountId}) → "${customName}"`);
   db.prepare("UPDATE accounts SET customName = ? WHERE id = ?").run(customName || null, accountId);

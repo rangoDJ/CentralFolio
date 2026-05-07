@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CentralFolio — Login</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: #1a1f2e;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 380px;
+    }
+    .logo {
+      text-align: center;
+      margin-bottom: 1.75rem;
+    }
+    .logo h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .logo p {
+      font-size: 0.8rem;
+      color: #7c8496;
+      margin-top: 0.25rem;
+    }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1.25rem;
+      color: #cbd5e1;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin-bottom: 0.35rem;
+    }
+    input[type="password"] {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 7px;
+      padding: 0.65rem 0.85rem;
+      color: #e2e8f0;
+      font-size: 0.9rem;
+      outline: none;
+      margin-bottom: 1rem;
+      transition: border-color 0.15s;
+    }
+    input[type="password"]:focus { border-color: #00d09c; }
+    button {
+      width: 100%;
+      background: #00d09c;
+      color: #0f1117;
+      border: none;
+      border-radius: 7px;
+      padding: 0.7rem;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.88; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error {
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.3);
+      color: #f87171;
+      border-radius: 7px;
+      padding: 0.6rem 0.85rem;
+      font-size: 0.82rem;
+      margin-bottom: 1rem;
+      display: none;
+    }
+    .hint {
+      font-size: 0.75rem;
+      color: #7c8496;
+      margin-top: 1rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <h1>CentralFolio</h1>
+      <p>Portfolio Management</p>
+    </div>
+
+    <!-- Setup form (first run) -->
+    <div id="setupForm" style="display:none;">
+      <h2>Create your password</h2>
+      <div id="setupError" class="error"></div>
+      <label for="setupPassword">Password (min 8 characters)</label>
+      <input type="password" id="setupPassword" placeholder="Enter a password" autocomplete="new-password" />
+      <label for="setupConfirm">Confirm password</label>
+      <input type="password" id="setupConfirm" placeholder="Confirm password" autocomplete="new-password" />
+      <button id="setupBtn" onclick="doSetup()">Set Password</button>
+    </div>
+
+    <!-- Login form -->
+    <div id="loginForm" style="display:none;">
+      <h2>Sign in</h2>
+      <div id="loginError" class="error"></div>
+      <label for="loginPassword">Password</label>
+      <input type="password" id="loginPassword" placeholder="Enter your password" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter') doLogin()" />
+      <button id="loginBtn" onclick="doLogin()">Sign In</button>
+      <p class="hint">Access is restricted to authorized users only.</p>
+    </div>
+  </div>
+
+  <script>
+    async function init() {
+      // If already have a valid token, go straight to app
+      const token = localStorage.getItem('cf_token');
+      if (token) {
+        const ok = await verifyToken(token);
+        if (ok) { window.location.href = '/'; return; }
+        localStorage.removeItem('cf_token');
+      }
+      const res = await fetch('/auth/status');
+      const { configured } = await res.json();
+      if (configured) {
+        document.getElementById('loginForm').style.display = 'block';
+        setTimeout(() => document.getElementById('loginPassword').focus(), 50);
+      } else {
+        document.getElementById('setupForm').style.display = 'block';
+        setTimeout(() => document.getElementById('setupPassword').focus(), 50);
+      }
+    }
+
+    async function verifyToken(token) {
+      try {
+        const res = await fetch('/api/portfolios', { headers: { Authorization: 'Bearer ' + token } });
+        return res.status !== 401;
+      } catch { return false; }
+    }
+
+    async function doSetup() {
+      const btn = document.getElementById('setupBtn');
+      const errEl = document.getElementById('setupError');
+      const password = document.getElementById('setupPassword').value;
+      const confirm = document.getElementById('setupConfirm').value;
+      errEl.style.display = 'none';
+      if (password !== confirm) { showError(errEl, 'Passwords do not match.'); return; }
+      btn.disabled = true; btn.textContent = 'Setting up...';
+      try {
+        const res = await fetch('/auth/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(errEl, data.error); return; }
+        // Auto-login after setup
+        document.getElementById('setupForm').style.display = 'none';
+        document.getElementById('loginForm').style.display = 'block';
+        document.getElementById('loginPassword').focus();
+      } catch (e) {
+        showError(errEl, 'Setup failed. Try again.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Set Password';
+      }
+    }
+
+    async function doLogin() {
+      const btn = document.getElementById('loginBtn');
+      const errEl = document.getElementById('loginError');
+      const password = document.getElementById('loginPassword').value;
+      errEl.style.display = 'none';
+      btn.disabled = true; btn.textContent = 'Signing in...';
+      try {
+        const res = await fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+        const data = await res.json();
+        if (!res.ok) { showError(errEl, data.error); return; }
+        localStorage.setItem('cf_token', data.token);
+        window.location.href = '/';
+      } catch (e) {
+        showError(errEl, 'Login failed. Try again.');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Sign In';
+      }
+    }
+
+    function showError(el, msg) {
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+
+    init();
+  </script>
+</body>
+</html>

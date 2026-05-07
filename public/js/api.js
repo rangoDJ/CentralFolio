@@ -1,29 +1,43 @@
-/**
- * API logic for CentralFolio
- */
 const API = {
+    _token() {
+        return localStorage.getItem('cf_token') || '';
+    },
+
+    _headers(extra = {}) {
+        return { 'Content-Type': 'application/json', Authorization: `Bearer ${this._token()}`, ...extra };
+    },
+
+    async _fetch(url, options = {}) {
+        const res = await fetch(url, {
+            ...options,
+            headers: { ...this._headers(), ...(options.headers || {}) }
+        });
+        if (res.status === 401) {
+            localStorage.removeItem('cf_token');
+            window.location.href = '/login.html';
+            throw new Error('Session expired. Redirecting to login.');
+        }
+        return res;
+    },
+
     async getPortfolios() {
-        const res = await fetch('/api/portfolios');
+        const res = await this._fetch('/api/portfolios');
         return await res.json();
     },
 
     async savePortfolio(data) {
-        const res = await fetch('/api/portfolios', {
+        const res = await this._fetch('/api/portfolios', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
-        if (!res.ok) {
-            const error = await res.json();
-            throw new Error(error.error || 'Save failed');
-        }
-        return await res.json();
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Save failed');
+        return json;
     },
 
     async setPortfolioTrading(id, tradingEnabled) {
-        const res = await fetch(`/api/portfolios/${id}/trading`, {
+        const res = await this._fetch(`/api/portfolios/${id}/trading`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tradingEnabled })
         });
         const data = await res.json();
@@ -32,15 +46,14 @@ const API = {
     },
 
     async deletePortfolio(id) {
-        const res = await fetch(`/api/portfolios/${id}`, { method: 'DELETE' });
+        const res = await this._fetch(`/api/portfolios/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Delete failed');
         return true;
     },
 
     async registerPortfolio(id) {
-        const res = await fetch('/api/register', {
+        const res = await this._fetch('/api/register', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ portfolioId: id })
         });
         const data = await res.json();
@@ -49,9 +62,8 @@ const API = {
     },
 
     async getLoginUrl(id) {
-        const res = await fetch('/api/login', {
+        const res = await this._fetch('/api/login', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ portfolioId: id })
         });
         const data = await res.json();
@@ -61,9 +73,8 @@ const API = {
 
     async getTradeLoginUrl(id) {
         const redirectUrl = window.location.origin + window.location.pathname + '#settings';
-        const res = await fetch('/api/login/trade', {
+        const res = await this._fetch('/api/login/trade', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ portfolioId: id, redirectUrl })
         });
         const data = await res.json();
@@ -72,7 +83,7 @@ const API = {
     },
 
     async getConnectionStatus(portfolioId) {
-        const res = await fetch(`/api/connection-status/${portfolioId}`);
+        const res = await this._fetch(`/api/connection-status/${portfolioId}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to get connection status');
         return data;
@@ -80,14 +91,14 @@ const API = {
 
     async getAccounts(forceRefresh = false) {
         const url = `/api/accounts${forceRefresh ? '?forceRefresh=true' : ''}`;
-        const res = await fetch(url);
+        const res = await this._fetch(url);
         if (!res.ok) throw new Error('Failed to load accounts');
         return await res.json();
     },
 
     async getHoldings(portfolioId, accountId, forceRefresh = false) {
         const url = `/api/holdings/${portfolioId}/${accountId}${forceRefresh ? '?forceRefresh=true' : ''}`;
-        const res = await fetch(url);
+        const res = await this._fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch holdings');
         return data;
@@ -95,49 +106,48 @@ const API = {
 
     async getDividendForecast(portfolioId, accountId, forceRefresh = false) {
         const url = `/api/dividends/forecast/${portfolioId}/${accountId}${forceRefresh ? '?forceRefresh=true' : ''}`;
-        const res = await fetch(url);
+        const res = await this._fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch dividend forecast');
         return data;
     },
-    
+
     async getAllDividends(forceRefresh = false) {
         const url = `/api/portfolios/all-dividends${forceRefresh ? '?forceRefresh=true' : ''}`;
-        const res = await fetch(url);
+        const res = await this._fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch all dividends');
         return data;
     },
 
     async getAdminUsers() {
-        const res = await fetch('/api/admin/users');
+        const res = await this._fetch('/api/admin/users');
         if (!res.ok) throw new Error('Failed to list users');
         return await res.json();
     },
 
     async deleteAdminUser(uid) {
-        const res = await fetch(`/api/admin/users/${uid}`, { method: 'DELETE' });
+        const res = await this._fetch(`/api/admin/users/${uid}`, { method: 'DELETE' });
         if (!res.ok) throw new Error('Delete failed');
         return true;
     },
 
     async wipeAdminUsers() {
-        const res = await fetch('/api/admin/wipe', { method: 'POST' });
+        const res = await this._fetch('/api/admin/wipe', { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error('Wipe failed');
         return data;
     },
 
     async getSettings() {
-        const res = await fetch('/api/admin/settings');
+        const res = await this._fetch('/api/admin/settings');
         if (!res.ok) throw new Error('Failed to fetch settings');
         return await res.json();
     },
 
     async updateSettings(settings) {
-        const res = await fetch('/api/admin/settings', {
+        const res = await this._fetch('/api/admin/settings', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
         });
         const data = await res.json();
@@ -146,9 +156,8 @@ const API = {
     },
 
     async placeTrade(data) {
-        const res = await fetch('/api/trade', {
+        const res = await this._fetch('/api/trade', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
         const json = await res.json();
@@ -157,9 +166,8 @@ const API = {
     },
 
     async renameAccount(accountId, name) {
-        const res = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/name`, {
+        const res = await this._fetch(`/api/accounts/${encodeURIComponent(accountId)}/name`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name })
         });
         const data = await res.json();
@@ -168,9 +176,8 @@ const API = {
     },
 
     async setAccountActive(accountId, isActive) {
-        const res = await fetch(`/api/accounts/${encodeURIComponent(accountId)}/active`, {
+        const res = await this._fetch(`/api/accounts/${encodeURIComponent(accountId)}/active`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ isActive })
         });
         const data = await res.json();
@@ -180,9 +187,19 @@ const API = {
 
     async getTransactions(forceRefresh = false) {
         const url = `/api/transactions${forceRefresh ? '?forceRefresh=true' : ''}`;
-        const res = await fetch(url);
+        const res = await this._fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch transactions');
+        return data;
+    },
+
+    async changePassword(currentPassword, newPassword) {
+        const res = await this._fetch('/auth/change-password', {
+            method: 'POST',
+            body: JSON.stringify({ currentPassword, newPassword })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to change password');
         return data;
     }
 };

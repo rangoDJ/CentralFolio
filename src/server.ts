@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
 import apiRoutes from "./routes/apiRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+import { requireAuth } from "./middleware/auth.js";
 import { logger, requestLogger } from "./utils/logger.js";
 import { getAllDividendsForAllPortfolios } from "./services/dividendService.js";
 import { refreshAllHoldings } from "./services/holdingsService.js";
@@ -13,11 +15,14 @@ const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 app.use(express.json());
-app.use(requestLogger); // Log every HTTP request + response status + duration
+app.use(requestLogger);
 app.use(express.static(path.resolve(__dirname, "../public")));
 
-// --- Routes ---
-app.use("/api", apiRoutes);
+// --- Auth routes (public) ---
+app.use("/auth", authRoutes);
+
+// --- Protected API routes ---
+app.use("/api", requireAuth, apiRoutes);
 
 // Global error handler — catches anything unhandled by controllers
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

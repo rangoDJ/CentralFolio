@@ -118,6 +118,42 @@ body {
   border-radius: 0 2px 2px 0;
 }
 
+.trade-btn-buy, .trade-btn-sell {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid;
+}
+.trade-btn-buy  { background: rgba(0,208,156,0.12); color: #00d09c; border-color: rgba(0,208,156,0.35); }
+.trade-btn-sell { background: rgba(247,111,142,0.12); color: #f76f8e; border-color: rgba(247,111,142,0.35); }
+.trade-btn-buy:hover  { background: rgba(0,208,156,0.25); }
+.trade-btn-sell:hover { background: rgba(247,111,142,0.25); }
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 1rem 0.75rem 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-logout {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-logout:hover { background: rgba(239,68,68,0.1); color: #f87171; }
+.sidebar-logout svg  { flex-shrink: 0; }
+
 /* ── Topbar ──────────────────────────────────── */
 
 .topbar {

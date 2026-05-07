@@ -16,8 +16,14 @@ const App = {
     currentTradeAction: 'BUY',
 
     async init() {
+        // Guard: redirect to login if not authenticated
+        if (!localStorage.getItem('cf_token')) {
+            window.location.href = '/login.html';
+            return;
+        }
+
         this.setupEventListeners();
-        
+
         // Restore tab state
         const savedMainTab = localStorage.getItem('activeMainTab') || 'dashboard';
         const mainBtn = document.querySelector(`.sidebar-item[data-tab="${savedMainTab}"]`);
@@ -42,6 +48,14 @@ const App = {
         document.querySelector('.modal-close').onclick = () => UI.closeModal();
 
         document.getElementById('tradeModalClose').onclick = () => this.closeTradeModal();
+
+        // Trade button delegation — data-* attributes prevent inline JS injection
+        document.getElementById('holdings-tables').addEventListener('click', e => {
+            const btn = e.target.closest('.trade-btn-buy, .trade-btn-sell');
+            if (!btn) return;
+            const d = btn.dataset;
+            this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), d.action);
+        });
 
         window.onclick = (e) => {
             if (e.target === UI.portfolioModal) UI.closeModal();
@@ -219,7 +233,7 @@ const App = {
 
             UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
         } catch (err) {
-            UI.accountContainer.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
+            UI.accountContainer.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
         }
     },
 
@@ -574,7 +588,7 @@ const App = {
 
             UI.renderAllHoldings(this.cachedHoldingsData);
         } catch (err) {
-            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
+            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
         } finally {
             if (refreshBtn) refreshBtn.classList.remove('loading');
         }
@@ -618,7 +632,7 @@ const App = {
                 UI.showToast(`Dividend data refreshed (${elapsed}ms)`);
             }
         } catch (err) {
-            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
+            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
             UI.showToast(`Failed to refresh dividends: ${err.message}`, 'error');
         } finally {
             if (refreshBtn) {
@@ -690,7 +704,7 @@ const App = {
                 UI.showToast(`Transaction data refreshed (${elapsed}ms)`);
             }
         } catch (err) {
-            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${err.message}</div>`;
+            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
             UI.showToast(`Failed to refresh transactions: ${err.message}`, 'error');
         } finally {
             if (refreshBtn) {
@@ -739,6 +753,11 @@ const App = {
             activePane.classList.add('active');
             activePane.style.display = 'block';
         }
+    },
+
+    logout() {
+        localStorage.removeItem('cf_token');
+        window.location.href = '/login.html';
     },
 
     switchMainTab(tabId, btnElement) {

@@ -1,6 +1,17 @@
 /**
  * UI rendering for CentralFolio — Wealthsimple-style theme
  */
+
+function sanitize(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 const UI = {
     portfolioList:    document.getElementById('portfolioList'),
     accountContainer: document.getElementById('accountContainer'),
@@ -59,13 +70,13 @@ const UI = {
                 <div class="portfolio-item-top">
                     <div>
                         <div class="portfolio-item-name">
-                            ${p.name}
+                            ${sanitize(p.name)}
                             ${p.userSecret
                                 ? '<span class="status-badge status-active" style="font-size:0.65rem;padding:0.15rem 0.55rem;">Registered</span>'
                                 : '<span class="status-badge status-inactive" style="font-size:0.65rem;padding:0.15rem 0.55rem;">Not registered</span>'}
                             <span id="conn-badge-${p.id}" style="font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;"></span>
                         </div>
-                        <div class="portfolio-item-meta">userId: ${p.userId}</div>
+                        <div class="portfolio-item-meta">userId: ${sanitize(p.userId)}</div>
                     </div>
                     <div class="portfolio-item-actions">
                         <button class="btn btn-outline btn-sm" onclick="App.editPortfolio(${p.id})">Edit</button>
@@ -115,7 +126,7 @@ const UI = {
         let html = '<div class="portfolio-tabs">';
         currentGroups.forEach(g => {
             html += `<button class="portfolio-tab ${g.portfolioId === activePortfolioId ? 'active' : ''}"
-                             onclick="App.switchPortfolioTab(${g.portfolioId})">${g.portfolioName}</button>`;
+                             onclick="App.switchPortfolioTab(${g.portfolioId})">${sanitize(g.portfolioName)}</button>`;
         });
         html += '</div>';
 
@@ -127,12 +138,12 @@ const UI = {
 
             html += '<div class="account-group">';
             html += `<div class="account-group-header">
-                        <span>${active.portfolioName}</span>
+                        <span>${sanitize(active.portfolioName)}</span>
                         <span style="font-feature-settings:'tnum'">Active $${activeTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} / Total $${portTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
                      </div>`;
 
             if (active.error) {
-                html += `<div class="empty-state" style="padding:1rem;color:var(--danger);">Error: ${active.error}</div>`;
+                html += `<div class="empty-state" style="padding:1rem;color:var(--danger);">Error: ${sanitize(active.error)}</div>`;
             } else if (active.accounts.length === 0) {
                 html += '<div class="empty-state" style="padding:1rem;"><p>No accounts found.</p></div>';
             } else {
@@ -144,7 +155,7 @@ const UI = {
                         <div class="account-row" style="${inactive ? 'opacity:0.5;' : ''}">
                             <div class="account-row-info">
                                 <div id="acc-name-${acc.id}" style="display:flex;align-items:center;gap:0.3rem;">
-                                    <span class="account-row-name">${displayName}</span>
+                                    <span class="account-row-name">${sanitize(displayName)}</span>
                                     <button title="Rename account" onclick="App.startRenameAccount('${acc.id}')"
                                             style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px 3px;line-height:1;border-radius:3px;opacity:0.45;flex-shrink:0;"
                                             onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.45'">
@@ -154,7 +165,7 @@ const UI = {
                                         </svg>
                                     </button>
                                 </div>
-                                <div class="account-row-meta">${acc.brokerage?.name || 'Unknown'} &middot; ${acc.number || 'No number'}</div>
+                                <div class="account-row-meta">${sanitize(acc.brokerage?.name || 'Unknown')} &middot; ${sanitize(acc.number || 'No number')}</div>
                             </div>
                             <div class="account-row-right">
                                 ${balance !== undefined ? `
@@ -194,9 +205,9 @@ const UI = {
             const tabId = `holdings-pane-${account.accountId}`;
 
             tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                 onclick="App.switchHoldingsPageTab('${account.accountId}')"
-                                 id="holdings-tabbtn-${account.accountId}">
-                             ${account.accountName || 'Unnamed'}
+                                 onclick="App.switchHoldingsPageTab('${sanitize(account.accountId)}')"
+                                 id="holdings-tabbtn-${sanitize(account.accountId)}">
+                             ${sanitize(account.accountName || 'Unnamed')}
                          </button>`;
 
             tablesHtml += `<div class="holdings-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
@@ -206,7 +217,7 @@ const UI = {
                     <div class="empty-state" style="padding:2.5rem 1.5rem;">
                         <div class="empty-icon" style="color:var(--danger);">⚠</div>
                         <p style="color:var(--danger);font-weight:600;margin-bottom:0.5rem;">Connection Error</p>
-                        <p>${account.error}</p>
+                        <p>${sanitize(account.error)}</p>
                         <button class="btn btn-outline btn-sm mt-2" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios')">Go to Settings</button>
                     </div></div>`;
                 return;
@@ -246,22 +257,33 @@ const UI = {
                 const atSign      = atAmt >= 0 ? '+' : '';
                 const atCls       = atAmt >= 0 ? 'val-pos' : 'val-neg';
 
-                const safeDesc    = description.replace(/'/g, "\\'");
                 const tradeBtns   = tradeCol ? `
                     <td style="white-space:nowrap;">
                         <div style="display:flex;gap:0.3rem;justify-content:flex-end;">
-                            <button style="background:rgba(0,208,156,0.12);color:#00d09c;border:1px solid rgba(0,208,156,0.35);padding:0.2rem 0.55rem;font-size:0.72rem;font-weight:600;border-radius:4px;cursor:pointer;"
-                                    onclick="App.openTradeModal('${account.accountId}','${account.portfolioId}','${symbol}','${symbolId}','${safeDesc}',${price},'BUY')">Buy</button>
-                            <button style="background:rgba(247,111,142,0.12);color:#f76f8e;border:1px solid rgba(247,111,142,0.35);padding:0.2rem 0.55rem;font-size:0.72rem;font-weight:600;border-radius:4px;cursor:pointer;"
-                                    onclick="App.openTradeModal('${account.accountId}','${account.portfolioId}','${symbol}','${symbolId}','${safeDesc}',${price},'SELL')">Sell</button>
+                            <button class="trade-btn-buy"
+                                    data-account-id="${sanitize(account.accountId)}"
+                                    data-portfolio-id="${sanitize(account.portfolioId)}"
+                                    data-symbol="${sanitize(symbol)}"
+                                    data-symbol-id="${sanitize(symbolId)}"
+                                    data-description="${sanitize(description)}"
+                                    data-price="${price}"
+                                    data-action="BUY">Buy</button>
+                            <button class="trade-btn-sell"
+                                    data-account-id="${sanitize(account.accountId)}"
+                                    data-portfolio-id="${sanitize(account.portfolioId)}"
+                                    data-symbol="${sanitize(symbol)}"
+                                    data-symbol-id="${sanitize(symbolId)}"
+                                    data-description="${sanitize(description)}"
+                                    data-price="${price}"
+                                    data-action="SELL">Sell</button>
                         </div>
                     </td>` : '';
 
                 tablesHtml += `
                     <tr>
                         <td>
-                            <div class="ticker-cell">${symbol}</div>
-                            <div class="ticker-desc">${description}</div>
+                            <div class="ticker-cell">${sanitize(symbol)}</div>
+                            <div class="ticker-desc">${sanitize(description)}</div>
                         </td>
                         <td class="right">${units.toLocaleString(undefined,{maximumFractionDigits:4})}</td>
                         <td class="right">$${price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
@@ -315,9 +337,9 @@ const UI = {
             const tabId = `transactions-pane-${account.accountId}`;
 
             tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                 onclick="App.switchTransactionsPageTab('${account.accountId}')"
-                                 id="transactions-tabbtn-${account.accountId}">
-                             ${account.accountName || 'Unnamed'}
+                                 onclick="App.switchTransactionsPageTab('${sanitize(account.accountId)}')"
+                                 id="transactions-tabbtn-${sanitize(account.accountId)}">
+                             ${sanitize(account.accountName || 'Unnamed')}
                          </button>`;
 
             tablesHtml += `<div class="transactions-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
@@ -347,15 +369,15 @@ const UI = {
                 tablesHtml += `
                     <tr>
                         <td>
-                            <div class="ticker-cell">${symbol !== '—' ? symbol : description}</div>
-                            ${symbol !== '—' && description !== symbol ? `<div class="ticker-desc">${description}</div>` : ''}
+                            <div class="ticker-cell">${sanitize(symbol !== '—' ? symbol : description)}</div>
+                            ${symbol !== '—' && description !== symbol ? `<div class="ticker-desc">${sanitize(description)}</div>` : ''}
                         </td>
-                        <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${date}</td>
+                        <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${sanitize(date)}</td>
                         <td>${typeBadge(txn.type)}</td>
-                        <td class="right" style="color:var(--text-muted);">${units}</td>
+                        <td class="right" style="color:var(--text-muted);">${sanitize(units)}</td>
                         <td class="right" style="font-weight:600;">
                             <span class="${amtCls}">${amtSign}$${Math.abs(amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                            <div class="text-sm text-muted">${txn.currencyCode || ''}</div>
+                            <div class="text-sm text-muted">${sanitize(txn.currencyCode || '')}</div>
                         </td>
                     </tr>`;
             });
@@ -377,8 +399,8 @@ const UI = {
         }
         this.adminUserList.innerHTML = users.map(u => `
             <div class="admin-user-row">
-                <span class="admin-user-id">${u}</span>
-                <button class="btn btn-danger btn-sm" onclick="App.deleteAdminUser('${u}')">Delete</button>
+                <span class="admin-user-id">${sanitize(u)}</span>
+                <button class="btn btn-danger btn-sm" onclick="App.deleteAdminUser('${sanitize(u)}')">Delete</button>
             </div>
         `).join('');
     },
@@ -570,19 +592,19 @@ const UI = {
                 html += `
                     <div class="dividend-event-row">
                         <div class="dividend-event-date">
-                            <div class="dividend-event-date-month">${d.toLocaleString('default',{month:'short'})}</div>
+                            <div class="dividend-event-date-month">${sanitize(d.toLocaleString('default',{month:'short'}))}</div>
                             <div class="dividend-event-date-day">${d.getDate()}</div>
                         </div>
                         <div class="dividend-event-info">
                             <div>
-                                <span class="dividend-event-symbol">${e.symbol}</span>
-                                <span class="dividend-event-name">${e.name}</span>
+                                <span class="dividend-event-symbol">${sanitize(e.symbol)}</span>
+                                <span class="dividend-event-name">${sanitize(e.name)}</span>
                             </div>
                             <div class="dividend-event-meta">${(e.units || 0).toLocaleString()} shares &middot; $${(e.amountPerShare || 0).toFixed(4)}/share</div>
                         </div>
                         <div class="dividend-event-right">
                             <div class="dividend-event-amount">+$${(e.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-                            <div class="dividend-event-portfolio">${e.portfolioName}</div>
+                            <div class="dividend-event-portfolio">${sanitize(e.portfolioName)}</div>
                         </div>
                     </div>`;
             });

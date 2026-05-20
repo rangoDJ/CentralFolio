@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio } from "../models/db.js";
-import { getAllDividendsForAllPortfolios, getCachedAllDividends } from "../services/dividendService.js";
+import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches } from "../services/dividendService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
@@ -87,6 +87,12 @@ export const togglePortfolioTrading = (req: Request, res: Response) => {
     logger.error('Portfolio', `togglePortfolioTrading(${id}) failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
+};
+
+export const clearDividendCache = (req: Request, res: Response) => {
+  logger.info('Portfolio', 'POST /api/portfolios/clear-dividend-cache');
+  clearAllDividendCaches();
+  res.json({ success: true, message: 'Dividend cache cleared' });
 };
 
 export const removePortfolio = (req: Request, res: Response) => {

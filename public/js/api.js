@@ -120,6 +120,13 @@ const API = {
         return data;
     },
 
+    async clearDividendCache() {
+        const res = await this._fetch('/api/portfolios/clear-dividend-cache', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to clear dividend cache');
+        return data;
+    },
+
     async getAdminUsers() {
         const res = await this._fetch('/api/admin/users');
         if (!res.ok) throw new Error('Failed to list users');

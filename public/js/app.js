@@ -80,6 +80,7 @@ const App = {
         document.getElementById('listUsersBtn').onclick = () => this.handleListUsers();
         document.getElementById('wipeBtn').onclick = () => this.handleWipeUsers();
         document.getElementById('saveDividendProvidersBtn').onclick = () => this.handleSaveSettings();
+        document.getElementById('clearDividendCacheBtn').onclick = () => this.handleClearDividendCache();
 
         // Add listeners for provider toggles
         document.getElementById('provider-tiingo').addEventListener('change', () => this.updateProviderKeyVisibility());
@@ -589,6 +590,22 @@ const App = {
         } finally {
             saveBtn.classList.remove('loading');
             saveBtn.disabled = false;
+        }
+    },
+
+    async handleClearDividendCache() {
+        const btn = document.getElementById('clearDividendCacheBtn');
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            await API.clearDividendCache();
+            this.cachedDividendsData = null;
+            UI.showToast('Dividend cache cleared — next refresh will fetch fresh data');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
         }
     },
 

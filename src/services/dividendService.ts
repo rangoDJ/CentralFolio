@@ -1,4 +1,4 @@
-import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, getActiveAccountIds, getDividendProviders } from "../models/db.js";
+import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, getActiveAccountIds, getDividendProviders, clearDividendMetadataCache } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import YahooFinance from "yahoo-finance2";
@@ -396,13 +396,21 @@ async function fetchDividendMetadata(symbol: string): Promise<any> {
 
   // 3. Get enabled providers from settings
   const providers = getDividendProviders();
-  const providerOrder = [
-    { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
-    { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
-    { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
-    { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
-    { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub }
-  ];
+  // Tiingo runs first when enabled (paid, reliable) — Yahoo is the free fallback
+  const providerOrder = providers.tiingo
+    ? [
+        { name: 'tiingo',       enabled: true,                   fn: fetchFromTiingo },
+        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
+        { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
+        { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
+        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub }
+      ]
+    : [
+        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
+        { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
+        { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
+        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub }
+      ];
 
   // Try each enabled provider in order
   for (const provider of providerOrder) {
@@ -638,4 +646,10 @@ export function clearDividendMemoryCache() {
   cachedAllDividends = [];
   cachedDividendsTime = 0;
   logger.info('Cache', 'clearDividendMemoryCache() — in-memory dividend caches cleared');
+}
+
+export function clearAllDividendCaches() {
+  clearDividendMemoryCache();
+  clearDividendMetadataCache();
+  logger.info('Cache', 'clearAllDividendCaches() — memory + DB dividend caches cleared');
 }

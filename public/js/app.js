@@ -243,7 +243,11 @@ const App = {
             }
 
             if (this.currentGroups.length === 0) {
-                UI.accountContainer.innerHTML = '<div class="empty-state">No portfolios configured.</div>';
+                UI.accountContainer.innerHTML = `<div class="empty-state">
+                    <div class="empty-icon">🔑</div>
+                    <p><strong>No portfolios configured.</strong></p>
+                    <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to add your SnapTrade credentials.</p>
+                </div>`;
                 return;
             }
 
@@ -844,6 +848,16 @@ const App = {
     },
 
     async loadDashboard() {
+        if (!this.currentGroups || this.currentGroups.length === 0) {
+            const holdingsContainer = document.getElementById('dashHoldingsContainer');
+            if (holdingsContainer) holdingsContainer.innerHTML = `<div class="empty-state">
+                <div class="empty-icon">🔑</div>
+                <p><strong>No portfolios configured.</strong></p>
+                <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to add your SnapTrade credentials.</p>
+            </div>`;
+            return;
+        }
+
         // Render allocation chart and accounts table from already-loaded data (fast)
         if (this.currentGroups && this.currentGroups.length > 0) {
             if (UI.accountsChartInstance) {

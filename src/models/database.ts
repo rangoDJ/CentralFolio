@@ -1,10 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
 import { logger } from "../utils/logger.js";
-
-dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = path.resolve(__dirname, "../../snaptrade.db");
@@ -138,19 +135,7 @@ try {
     }
   }
 
-  const stillEmpty = (db.prepare("SELECT count(*) as count FROM portfolios").get() as any).count === 0;
-  if (stillEmpty && process.env.SNAPTRADE_CLIENT_ID && process.env.SNAPTRADE_CONSUMER_KEY) {
-    logger.info('Migration', 'Seeding initial portfolio from environment variables...');
-    db.prepare(`INSERT INTO portfolios (name, clientId, consumerKey, userId, userSecret) VALUES (?, ?, ?, ?, ?)`)
-      .run(
-        "Default Portfolio",
-        process.env.SNAPTRADE_CLIENT_ID,
-        process.env.SNAPTRADE_CONSUMER_KEY,
-        process.env.SNAPTRADE_USER_ID || "default-user",
-        process.env.SNAPTRADE_USER_SECRET || null
-      );
-    logger.info('Migration', 'Seeded default portfolio from env.');
-  }
+
 } catch (e) {
   logger.warn('Migration', `Migration/seed check failed: ${(e as any).message}`);
 }

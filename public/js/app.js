@@ -82,6 +82,7 @@ const App = {
         document.getElementById('saveDividendProvidersBtn').onclick = () => this.handleSaveSettings();
 
         // Add listeners for provider toggles
+        document.getElementById('provider-tiingo').addEventListener('change', () => this.updateProviderKeyVisibility());
         document.getElementById('provider-polygon').addEventListener('change', () => this.updateProviderKeyVisibility());
         document.getElementById('provider-alphavantage').addEventListener('change', () => this.updateProviderKeyVisibility());
         document.getElementById('provider-finnhub').addEventListener('change', () => this.updateProviderKeyVisibility());
@@ -521,12 +522,16 @@ const App = {
             if (settings.dividend_providers) {
                 const providers = JSON.parse(settings.dividend_providers);
                 document.getElementById('provider-yahoo').checked = providers.yahoo !== false;
+                document.getElementById('provider-tiingo').checked = providers.tiingo || false;
                 document.getElementById('provider-polygon').checked = providers.polygon || false;
                 document.getElementById('provider-alphavantage').checked = providers.alphavantage || false;
                 document.getElementById('provider-finnhub').checked = providers.finnhub || false;
             }
 
             // Load API keys
+            if (settings.tiingo_api_key) {
+                document.getElementById('tiingoApiKey').value = settings.tiingo_api_key;
+            }
             if (settings.polygon_api_key) {
                 document.getElementById('polygonApiKey').value = settings.polygon_api_key;
             }
@@ -545,6 +550,8 @@ const App = {
     },
 
     updateProviderKeyVisibility() {
+        document.getElementById('tiingo-key-group').style.display =
+            document.getElementById('provider-tiingo').checked ? 'block' : 'none';
         document.getElementById('polygon-key-group').style.display =
             document.getElementById('provider-polygon').checked ? 'block' : 'none';
         document.getElementById('alphavantage-key-group').style.display =
@@ -561,6 +568,7 @@ const App = {
         try {
             const providers = {
                 yahoo: true, // Always enabled
+                tiingo: document.getElementById('provider-tiingo').checked,
                 polygon: document.getElementById('provider-polygon').checked,
                 alphavantage: document.getElementById('provider-alphavantage').checked,
                 finnhub: document.getElementById('provider-finnhub').checked
@@ -568,6 +576,7 @@ const App = {
 
             const settings = {
                 dividend_providers: JSON.stringify(providers),
+                tiingo_api_key: document.getElementById('tiingoApiKey').value.trim() || null,
                 polygon_api_key: document.getElementById('polygonApiKey').value.trim() || null,
                 alphavantage_api_key: document.getElementById('alphavantageApiKey').value.trim() || null,
                 finnhub_api_key: document.getElementById('finnhubApiKey').value.trim() || null

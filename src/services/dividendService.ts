@@ -9,6 +9,7 @@ const yahooFinance = new YahooFinance();
 const lastRequestTime: Record<string, number> = {};
 const PROVIDER_INTERVAL_MS: Record<string, number> = {
   yahoo:        1500,
+  tiingo:        300,
   polygon:       300,
   alphavantage:  300,
   finnhub:       300,
@@ -139,6 +140,63 @@ async function fetchFromYahooFinance(symbol: string): Promise<any> {
   }
   }
   return null;
+}
+
+async function fetchFromTiingo(symbol: string): Promise<any> {
+  const apiKey = getSetting("tiingo_api_key");
+  if (!apiKey) {
+    logger.debug('Tiingo', `${symbol} — API key not configured`);
+    return null;
+  }
+
+  // Tiingo uses ticker without exchange suffix (e.g. "RY" not "RY.TO")
+  const ticker = symbol.split('.')[0];
+
+  try {
+    logger.info('Tiingo', `Fetching dividend data for ${ticker}...`);
+    await rateLimit('tiingo');
+
+    const res = await fetch(
+      `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(ticker)}/dividends?token=${apiKey}`
+    );
+
+    if (res.status === 404) {
+      logger.info('Tiingo', `${ticker} — not found`);
+      return null;
+    }
+    if (!res.ok) {
+      logger.warn('Tiingo', `${ticker} — HTTP ${res.status}`);
+      return null;
+    }
+
+    const dividends: any[] = await res.json();
+    if (!Array.isArray(dividends) || dividends.length === 0) {
+      logger.info('Tiingo', `${ticker} — no dividend history found`);
+      return null;
+    }
+
+    // Sort descending by ex-date
+    const sorted = dividends
+      .filter(d => d.exDate && d.divCash > 0)
+      .sort((a, b) => new Date(b.exDate).getTime() - new Date(a.exDate).getTime());
+
+    if (sorted.length === 0) return null;
+
+    const latest = sorted[0];
+    const frequency = inferFrequencyFromHistory(sorted.map(d => ({ ex_dividend_date: d.exDate })));
+
+    logger.info('Tiingo', `${ticker} → freq=${frequency}, lastEx=${latest.exDate}, amount=${latest.divCash}`);
+    return {
+      frequency,
+      lastExDate: latest.exDate.split('T')[0],
+      amountPerShare: latest.divCash,
+      name: ticker,
+      timestamp: Date.now()
+    };
+  } catch (err: any) {
+    logger.error('Tiingo', `${ticker} — error: ${err.message}`);
+    return null;
+  }
 }
 
 async function fetchFromPolygon(symbol: string): Promise<any> {
@@ -337,10 +395,11 @@ async function fetchDividendMetadata(symbol: string): Promise<any> {
   // 3. Get enabled providers from settings
   const providers = getDividendProviders();
   const providerOrder = [
-    { name: 'yahoo', enabled: providers.yahoo, fn: fetchFromYahooFinance },
-    { name: 'polygon', enabled: providers.polygon, fn: fetchFromPolygon },
+    { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
+    { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
+    { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
     { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
-    { name: 'finnhub', enabled: providers.finnhub, fn: fetchFromFinnhub }
+    { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub }
   ];
 
   // Try each enabled provider in order

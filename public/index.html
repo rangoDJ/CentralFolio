@@ -400,6 +400,14 @@
 
                 <div class="settings-row">
                   <div class="settings-row-info">
+                    <div class="settings-row-label">Tiingo</div>
+                    <div class="settings-row-desc">US &amp; Canadian stocks &middot; Paid &middot; Requires API key</div>
+                  </div>
+                  <label class="switch"><input type="checkbox" id="provider-tiingo"><span class="slider"></span></label>
+                </div>
+
+                <div class="settings-row">
+                  <div class="settings-row-info">
                     <div class="settings-row-label">Polygon.io</div>
                     <div class="settings-row-desc">Multiple markets &middot; Free tier &middot; Requires API key</div>
                   </div>
@@ -424,6 +432,10 @@
 
                 <div style="border-top:1px solid var(--border);padding-top:1.25rem;">
                   <p class="text-sm mb-2" style="font-weight:600;">API Keys</p>
+                  <div class="form-group" style="display:none;" id="tiingo-key-group">
+                    <label for="tiingoApiKey">Tiingo API Key</label>
+                    <input type="password" id="tiingoApiKey" placeholder="Enter Tiingo API key">
+                  </div>
                   <div class="form-group" style="display:none;" id="polygon-key-group">
                     <label for="polygonApiKey">Polygon.io API Key</label>
                     <input type="password" id="polygonApiKey" placeholder="Enter Polygon.io API key">

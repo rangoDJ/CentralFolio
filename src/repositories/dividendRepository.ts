@@ -28,11 +28,11 @@ export function clearDividendMetadataCache() {
 
 export function getDividendProviders(): Record<string, any> {
   const raw = getSetting("dividend_providers");
-  if (!raw) return { yahoo: true, polygon: false, alphavantage: false, finnhub: false };
+  if (!raw) return { yahoo: true, tiingo: false, polygon: false, alphavantage: false, finnhub: false };
   try {
     return JSON.parse(raw);
   } catch {
-    return { yahoo: true, polygon: false, alphavantage: false, finnhub: false };
+    return { yahoo: true, tiingo: false, polygon: false, alphavantage: false, finnhub: false };
   }
 }
 

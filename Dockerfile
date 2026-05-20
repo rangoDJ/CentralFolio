@@ -24,4 +24,4 @@ COPY . .
 EXPOSE 3000
 
 # Start the application using tsx as defined in package.json
-CMD ["npm", "start"]
+CMD ["node_modules/.bin/tsx", "src/server.ts"]

@@ -31,7 +31,7 @@ const divMetadataCache = new Map<string, {
   timestamp: number 
 }>();
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — dividend schedules rarely change
 
 async function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -396,21 +396,30 @@ async function fetchDividendMetadata(symbol: string): Promise<any> {
 
   // 3. Get enabled providers from settings
   const providers = getDividendProviders();
-  // Tiingo runs first when enabled (paid, reliable) — Yahoo is the free fallback
-  const providerOrder = providers.tiingo
+
+  // Canadian exchange suffixes — only Yahoo covers these reliably
+  const isCanadian = /\.(TO|TSX|V|CN|NEO)$/i.test(symbol);
+
+  // When Tiingo is enabled:
+  //   Canadian symbols → Yahoo first (Tiingo has no TSX data), others as fallback
+  //   US symbols       → Tiingo first, Yahoo last (avoids hitting Yahoo rate limit for US)
+  const providerOrder = providers.tiingo && !isCanadian
     ? [
         { name: 'tiingo',       enabled: true,                   fn: fetchFromTiingo },
-        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
         { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
         { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
-        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub }
+        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
+        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
       ]
     : [
         { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
+        { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
         { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
         { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
         { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub }
       ];
+
+  logger.debug('Dividend', `${symbol} — routing: ${isCanadian ? 'Canadian' : 'US'} → [${providerOrder.filter(p => p.enabled).map(p => p.name).join(', ')}]`);
 
   // Try each enabled provider in order
   for (const provider of providerOrder) {
@@ -548,7 +557,7 @@ export async function getDividendForecastForAccount(portfolio: Portfolio, accoun
 
 let cachedAllDividends: any[] = [];
 let cachedDividendsTime: number = 0;
-const CACHE_DIVIDENDS_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_DIVIDENDS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
   const portfolios = listPortfolios();

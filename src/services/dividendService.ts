@@ -5,9 +5,21 @@ import YahooFinance from "yahoo-finance2";
 
 const yahooFinance = new YahooFinance();
 
-// Rate limiting state (shared across providers)
-let lastProviderRequestTime = 0;
-const MIN_INTERVAL_MS = 100;
+// Per-provider rate limiting — Yahoo needs a much larger gap
+const lastRequestTime: Record<string, number> = {};
+const PROVIDER_INTERVAL_MS: Record<string, number> = {
+  yahoo:        1500,
+  polygon:       300,
+  alphavantage:  300,
+  finnhub:       300,
+};
+
+async function rateLimit(provider: string) {
+  const interval = PROVIDER_INTERVAL_MS[provider] ?? 300;
+  const elapsed = Date.now() - (lastRequestTime[provider] ?? 0);
+  if (elapsed < interval) await sleep(interval - elapsed);
+  lastRequestTime[provider] = Date.now();
+}
 
 // In-memory cache for dividend metadata (24h TTL)
 const divMetadataCache = new Map<string, { 
@@ -69,18 +81,12 @@ function inferFrequencyFromHistory(records: { ex_dividend_date: string }[]): num
 }
 
 async function fetchFromYahooFinance(symbol: string): Promise<any> {
-  const now = Date.now();
+  const MAX_RETRIES = 3;
 
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
   try {
-    logger.info('YahooFinance', `Fetching dividend data for ${symbol}...`);
-
-    // Rate limiting
-    const elapsed = now - lastProviderRequestTime;
-    if (elapsed < MIN_INTERVAL_MS) {
-      const waitTime = MIN_INTERVAL_MS - elapsed;
-      await sleep(waitTime);
-    }
-    lastProviderRequestTime = Date.now();
+    logger.info('YahooFinance', `Fetching dividend data for ${symbol}${attempt > 1 ? ` (attempt ${attempt})` : ''}...`);
+    await rateLimit('yahoo');
 
     const quote = await yahooFinance.quote(symbol);
     const companyName = quote.longName || quote.shortName || symbol;
@@ -121,9 +127,18 @@ async function fetchFromYahooFinance(symbol: string): Promise<any> {
     }
     return null;
   } catch (err: any) {
+    const isRateLimit = /too many|rate limit|429/i.test(err.message ?? '');
+    if (isRateLimit && attempt < MAX_RETRIES) {
+      const backoff = attempt * 3000;
+      logger.warn('YahooFinance', `${symbol} — rate limited, retrying in ${backoff / 1000}s...`);
+      await sleep(backoff);
+      continue;
+    }
     logger.warn('YahooFinance', `${symbol} — error: ${err.message}`);
     return null;
   }
+  }
+  return null;
 }
 
 async function fetchFromPolygon(symbol: string): Promise<any> {
@@ -135,12 +150,7 @@ async function fetchFromPolygon(symbol: string): Promise<any> {
 
   try {
     logger.info('Polygon', `Fetching dividend data for ${symbol}...`);
-
-    const elapsed = Date.now() - lastProviderRequestTime;
-    if (elapsed < MIN_INTERVAL_MS) {
-      await sleep(MIN_INTERVAL_MS - elapsed);
-    }
-    lastProviderRequestTime = Date.now();
+    await rateLimit('polygon');
 
     // v3 API returns frequency field and uses Authorization header (key not in URL)
     const res = await fetch(
@@ -187,12 +197,7 @@ async function fetchFromAlphaVantage(symbol: string): Promise<any> {
 
   try {
     logger.info('AlphaVantage', `Fetching dividend data for ${symbol}...`);
-
-    const elapsed = Date.now() - lastProviderRequestTime;
-    if (elapsed < MIN_INTERVAL_MS) {
-      await sleep(MIN_INTERVAL_MS - elapsed);
-    }
-    lastProviderRequestTime = Date.now();
+    await rateLimit('alphavantage');
 
     // OVERVIEW endpoint provides ExDividendDate, DividendDate, DividendPerShare, and frequency hints
     const res = await fetch(
@@ -257,12 +262,7 @@ async function fetchFromFinnhub(symbol: string): Promise<any> {
 
   try {
     logger.info('Finnhub', `Fetching dividend data for ${symbol}...`);
-
-    const elapsed = Date.now() - lastProviderRequestTime;
-    if (elapsed < MIN_INTERVAL_MS) {
-      await sleep(MIN_INTERVAL_MS - elapsed);
-    }
-    lastProviderRequestTime = Date.now();
+    await rateLimit('finnhub');
 
     // Use X-Finnhub-Token header to keep key out of URL
     const fromDate = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];

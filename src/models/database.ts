@@ -4,7 +4,8 @@ import { fileURLToPath } from "url";
 import { logger } from "../utils/logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.resolve(__dirname, "../../snaptrade.db");
+const dataDir = process.env.DATA_DIR ?? path.resolve(__dirname, "../..");
+const dbPath = path.join(dataDir, "snaptrade.db");
 
 logger.info('DB', `Opening database at: ${dbPath}`);
 export const db = new Database(dbPath);

@@ -6,7 +6,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./snaptrade.db:/app/snaptrade.db
+      - ./data:/data
     environment:
+      - DATA_DIR=/data
       - LOG_LEVEL=info
     restart: unless-stopped

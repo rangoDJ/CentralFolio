@@ -39,6 +39,7 @@ export interface DividendEvent {
   amount: number;
   amountPerShare: number;
   units: number;
+  frequency: number;
   name: string;
   portfolioName?: string;
   accountName?: string;
@@ -455,6 +456,7 @@ export async function getDividendForecastForAccount(portfolio: Portfolio, accoun
             date: currentProjDate.toISOString(),
             amount: amountPerShare * units,
             amountPerShare,
+            frequency,
             units,
             name
           });

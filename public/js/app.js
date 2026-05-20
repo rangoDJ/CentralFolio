@@ -829,6 +829,48 @@ const App = {
         }
     },
 
+    totalPortfolioValue() {
+        let total = 0;
+        if (this.currentGroups) {
+            this.currentGroups.forEach(g => {
+                (g.accounts || []).forEach(acc => {
+                    if (!this.inactiveAccountIds?.has(acc.id)) {
+                        total += acc.balance?.total?.amount || 0;
+                    }
+                });
+            });
+        }
+        return total;
+    },
+
+    async loadDashboard() {
+        // Render allocation chart and accounts table from already-loaded data (fast)
+        if (this.currentGroups && this.currentGroups.length > 0) {
+            if (UI.accountsChartInstance) {
+                UI.accountsChartInstance.resize();
+            } else {
+                UI.renderDashboardChart(this.currentGroups, this.inactiveAccountIds);
+            }
+            UI.renderDashboardHoldingsTable(this.currentGroups, this.inactiveAccountIds);
+        }
+
+        // Use cached dividend data if available, else load in background
+        if (this.cachedDividendsData) {
+            UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+        } else {
+            UI.setDashboardDividendLoading(true);
+            try {
+                this.cachedDividendsData = await API.getAllDividends(false);
+                this.dividendsLastUpdated = new Date();
+                UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+            } catch (_) {}
+            finally { UI.setDashboardDividendLoading(false); }
+        }
+
+        // Render dividends received from cached transaction data
+        UI.renderDashboardReceivedChart(this.cachedTransactionsData || null);
+    },
+
     toggleSidebar() {
         const sidebar = document.querySelector('.app-sidebar');
         const overlay = document.getElementById('sidebarOverlay');
@@ -875,11 +917,7 @@ const App = {
         }
 
         if (tabId === 'dashboard') {
-            if (UI.accountsChartInstance) {
-                UI.accountsChartInstance.resize();
-            } else if (this.currentGroups && this.currentGroups.length > 0) {
-                UI.renderDashboardChart(this.currentGroups, this.inactiveAccountIds);
-            }
+            this.loadDashboard();
         } else if (tabId === 'holdings') {
             this.loadAllHoldings();
         } else if (tabId === 'transactions') {

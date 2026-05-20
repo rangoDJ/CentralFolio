@@ -88,28 +88,87 @@
 
       <!-- Dashboard -->
       <div class="container tab-content active" id="dashboard-tab">
-        <div class="stats-row">
+
+        <!-- 4-card stat row -->
+        <div class="stats-row dash-stats">
           <div class="stat-card">
             <div class="stat-label">Total Net Value</div>
             <div id="totalBalance" class="stat-value" style="font-feature-settings:'tnum'">$0.00</div>
+            <div id="dashAccountCount" class="stat-sublabel">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Annual Passive Income</div>
+            <div id="dashAnnualIncome" class="stat-value primary">—</div>
+            <div id="dashMonthlyIncome" class="stat-sublabel">— / month</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Portfolio Yield</div>
+            <div id="dashYield" class="stat-value">—</div>
+            <div class="stat-sublabel">income / portfolio value</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Active Portfolios</div>
             <div id="portfolioCount" class="stat-value muted">0</div>
+            <div class="stat-sublabel">connected portfolios</div>
           </div>
         </div>
 
-        <div class="card" id="dashboardChartContainer">
-          <div class="card-header">
-            <span class="card-title">Portfolio Allocation</span>
+        <!-- Allocation chart + accounts breakdown -->
+        <div class="dash-main-row">
+          <div class="card" id="dashboardChartContainer">
+            <div class="card-header">
+              <span class="card-title">Portfolio Allocation</span>
+            </div>
+            <div class="chart-container-lg" id="dashboardChartArea">
+              <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                <p>Add a portfolio in Settings to get started.</p>
+              </div>
+            </div>
           </div>
-          <div class="chart-container-lg" id="dashboardChartArea">
-            <div class="empty-state">
-              <div class="empty-icon">📊</div>
-              <p>Add a portfolio in Settings to get started.</p>
+          <div class="card">
+            <div class="card-header"><span class="card-title">Accounts</span></div>
+            <div id="dashHoldingsTable">
+              <div class="empty-state" style="padding:1.5rem 0;"><p>No accounts loaded.</p></div>
             </div>
           </div>
         </div>
+
+        <!-- Upcoming dividend events -->
+        <div class="card mb-3">
+          <div class="card-header">
+            <span class="card-title">Upcoming Dividends</span>
+            <span id="dashEventsLoading" class="text-muted text-sm" style="display:none;">Loading…</span>
+          </div>
+          <div id="dashEventsStrip">
+            <div class="empty-state" style="padding:0.75rem 0;"><p>—</p></div>
+          </div>
+        </div>
+
+        <!-- Future payments + dividends received -->
+        <div class="dash-bottom-row">
+          <div class="card">
+            <div class="card-header" style="margin-bottom:0.35rem;">
+              <span class="card-title">Future Payments</span>
+              <span id="dashFutureTotal" class="text-sm" style="color:var(--primary);font-weight:600;">—</span>
+            </div>
+            <div id="dashFutureMonthly" class="stat-sublabel mb-3">—</div>
+            <div style="position:relative;height:150px;">
+              <canvas id="dashFutureChart"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header" style="margin-bottom:0.35rem;">
+              <span class="card-title">Dividends Received</span>
+              <span id="dashReceivedTotal" class="text-sm" style="color:var(--primary);font-weight:600;">—</span>
+            </div>
+            <div class="stat-sublabel mb-3">Last 12 months</div>
+            <div style="position:relative;height:150px;">
+              <canvas id="dashReceivedChart"></canvas>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Holdings -->

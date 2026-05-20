@@ -924,6 +924,119 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .font-mono { font-feature-settings: "tnum"; }
 .text-right { text-align: right; }
 
+/* ── Dashboard layout ────────────────────────── */
+
+.dash-stats { grid-template-columns: repeat(4, 1fr); }
+
+.stat-sublabel {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.3rem;
+  line-height: 1.4;
+}
+
+.dash-main-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dash-bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Upcoming dividend event cards ────────────── */
+
+.dash-events-strip {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.4rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.dash-events-strip::-webkit-scrollbar { height: 4px; }
+.dash-events-strip::-webkit-scrollbar-track { background: transparent; }
+.dash-events-strip::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.dash-event-card {
+  min-width: 158px;
+  max-width: 180px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.dash-event-type {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--warning);
+  margin-bottom: 0.4rem;
+}
+
+.dash-event-date-box {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.dash-event-day {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+  font-feature-settings: "tnum";
+}
+
+.dash-event-weekday {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.dash-event-ticker {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.1rem;
+}
+
+.dash-event-name {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.4rem;
+}
+
+.dash-event-meta {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-bottom: 0.3rem;
+}
+
+.dash-event-earn {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--success);
+  margin-top: auto;
+  padding-top: 0.3rem;
+}
+
 /* ── Sidebar toggle (mobile) ──────────────────── */
 
 .sidebar-toggle {
@@ -972,6 +1085,11 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   .container { padding: 1rem; }
 
   .topbar { padding: 0.75rem 1rem; }
+
+  /* Stack dashboard grids on mobile */
+  .dash-stats         { grid-template-columns: 1fr 1fr; }
+  .dash-main-row,
+  .dash-bottom-row    { grid-template-columns: 1fr; }
 
   /* Stack settings grid on mobile */
   #settings-keys-pane > div,

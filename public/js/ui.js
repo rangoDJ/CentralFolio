@@ -25,6 +25,8 @@ const UI = {
 
     accountsChartInstance: null,
     dividendChartInstance: null,
+    dashFutureChartInstance: null,
+    dashReceivedChartInstance: null,
     holdingsStore: new Map(),
     txStore: new Map(),
     TX_PAGE_SIZE: 25,
@@ -189,7 +191,241 @@ const UI = {
 
         this.accountContainer.innerHTML = html;
         this.renderDashboardChart(currentGroups, inactiveAccountIds);
+        this.renderDashboardHoldingsTable(currentGroups, inactiveAccountIds);
     },
+
+    // ── Dashboard widgets ────────────────────────────────────────────────
+
+    setDashboardDividendLoading(loading) {
+        const el = document.getElementById('dashEventsLoading');
+        if (el) el.style.display = loading ? 'inline' : 'none';
+        if (loading) {
+            const strip = document.getElementById('dashEventsStrip');
+            if (strip) strip.innerHTML = '<div class="empty-state" style="padding:0.75rem 0;">Loading dividend data…</div>';
+        }
+    },
+
+    renderDashboardHoldingsTable(currentGroups, inactiveAccountIds) {
+        const container = document.getElementById('dashHoldingsTable');
+        if (!container) return;
+
+        let grandTotal = 0;
+        const rows = [];
+        currentGroups.forEach(g => {
+            g.accounts.forEach(acc => {
+                if (!inactiveAccountIds.has(acc.id)) {
+                    const val = acc.balance?.total?.amount || 0;
+                    grandTotal += val;
+                    rows.push({ name: acc.customName || acc.name || 'Unnamed', brokerage: acc.brokerage?.name || '', value: val });
+                }
+            });
+        });
+
+        const countEl = document.getElementById('dashAccountCount');
+        if (countEl) countEl.textContent = `${rows.length} account${rows.length !== 1 ? 's' : ''} active`;
+
+        if (rows.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="padding:1.5rem 0;"><p>No active accounts.</p></div>';
+            return;
+        }
+
+        rows.sort((a, b) => b.value - a.value);
+
+        container.innerHTML = '<table class="data-table"><thead><tr>' +
+            '<th>Account</th><th class="right">Value</th><th class="right">Allocation</th>' +
+            '</tr></thead><tbody>' +
+            rows.map(r => {
+                const alloc = grandTotal > 0 ? (r.value / grandTotal * 100) : 0;
+                return `<tr>
+                    <td>
+                        <div style="font-size:0.85rem;font-weight:500;">${sanitize(r.name)}</div>
+                        ${r.brokerage ? `<div class="ticker-desc">${sanitize(r.brokerage)}</div>` : ''}
+                    </td>
+                    <td class="right" style="font-weight:600;">$${r.value.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                    <td class="right">
+                        <div>${alloc.toFixed(1)}%</div>
+                        <div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px;min-width:56px;">
+                            <div style="height:100%;background:var(--primary);border-radius:2px;width:${Math.min(alloc,100).toFixed(1)}%;"></div>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('') +
+            '</tbody></table>';
+    },
+
+    renderDashboardDividendWidgets(dividendsData, portfolioValue) {
+        if (!dividendsData) return;
+        let allEvents = [];
+        dividendsData.forEach(acct => {
+            if (acct.error) return;
+            (acct.dividends || []).forEach(e => allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName }));
+        });
+        allEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const annualTotal  = allEvents.reduce((s, e) => s + (e.amount || 0), 0);
+        const monthlyAvg   = annualTotal / 12;
+        const yieldPct     = portfolioValue > 0 ? (annualTotal / portfolioValue * 100) : 0;
+        const fmt          = v => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const el           = id => document.getElementById(id);
+
+        if (el('dashAnnualIncome'))  el('dashAnnualIncome').textContent  = fmt(annualTotal);
+        if (el('dashMonthlyIncome')) el('dashMonthlyIncome').textContent = `${fmt(monthlyAvg)} / month`;
+        if (el('dashYield'))         el('dashYield').textContent         = yieldPct > 0 ? `${yieldPct.toFixed(2)}%` : '—';
+
+        this.renderDashboardEventsStrip(allEvents);
+        this.renderDashboardFutureChart(allEvents);
+    },
+
+    renderDashboardEventsStrip(allEvents) {
+        const container = document.getElementById('dashEventsStrip');
+        if (!container) return;
+
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const upcoming = allEvents.filter(e => new Date(e.date) >= today).slice(0, 7);
+
+        if (upcoming.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="padding:0.75rem 0;"><p>No upcoming dividend events in the forecast.</p></div>';
+            return;
+        }
+
+        const freqLabel = f => ({ 1: 'annual', 2: 'semi-annual', 4: 'quarterly', 12: 'monthly', 52: 'weekly' }[f] || 'periodic');
+
+        container.innerHTML = '<div class="dash-events-strip">' +
+            upcoming.map(e => {
+                const d        = new Date(e.date);
+                const day      = d.getDate();
+                const month    = d.toLocaleString('default', { month: 'short' });
+                const weekday  = d.toLocaleString('default', { weekday: 'short' });
+                const freq     = freqLabel(e.frequency || 4);
+                const amt      = (e.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const perShare = (e.amountPerShare || 0).toFixed(4);
+                return `<div class="dash-event-card">
+                    <div class="dash-event-type">Ex-dividend</div>
+                    <div class="dash-event-date-box">
+                        <span class="dash-event-day">${day}</span>
+                        <span class="dash-event-weekday">${sanitize(weekday)} ${sanitize(month)}</span>
+                    </div>
+                    <div class="dash-event-ticker">${sanitize(e.symbol)}</div>
+                    <div class="dash-event-name">${sanitize(e.name || e.symbol)}</div>
+                    <div class="dash-event-meta">$${sanitize(perShare)}/share · ${freq}</div>
+                    <div class="dash-event-earn">+$${sanitize(amt)}</div>
+                </div>`;
+            }).join('') +
+        '</div>';
+    },
+
+    renderDashboardFutureChart(allEvents) {
+        const canvas = document.getElementById('dashFutureChart');
+        if (!canvas || typeof Chart === 'undefined') return;
+
+        const now = new Date();
+        const monthlyData = {};
+        for (let i = 0; i < 12; i++) {
+            const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+            monthlyData[d.toLocaleString('default', { month: 'short' })] = 0;
+        }
+
+        let totalNext12 = 0;
+        allEvents.forEach(e => {
+            const d = new Date(e.date);
+            const ahead = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth());
+            if (ahead >= 0 && ahead < 12) {
+                const key = d.toLocaleString('default', { month: 'short' });
+                if (monthlyData[key] !== undefined) { monthlyData[key] += (e.amount || 0); totalNext12 += (e.amount || 0); }
+            }
+        });
+
+        const labels = Object.keys(monthlyData);
+        const data   = Object.values(monthlyData);
+        const maxVal = Math.max(...data, 1);
+        const fmt    = v => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        const ftEl = document.getElementById('dashFutureTotal');
+        const fmEl = document.getElementById('dashFutureMonthly');
+        if (ftEl) ftEl.textContent = `${fmt(totalNext12)} next 12m`;
+        if (fmEl) fmEl.textContent = `${fmt(totalNext12 / 12)} monthly avg`;
+
+        const chartCfg = {
+            type: 'bar',
+            data: { labels, datasets: [{ data, backgroundColor: 'rgba(0,208,156,0.28)', borderColor: '#00d09c', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(0,208,156,0.55)' }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: '#1e2640', padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1 } },
+                scales: {
+                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#7c8496', font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
+                    x: { grid: { display: false }, ticks: { color: '#7c8496', font: { size: 10 } } }
+                }
+            }
+        };
+
+        if (this.dashFutureChartInstance) {
+            this.dashFutureChartInstance.data.labels = labels;
+            this.dashFutureChartInstance.data.datasets[0].data = data;
+            this.dashFutureChartInstance.options.scales.y.max = maxVal * 1.25;
+            this.dashFutureChartInstance.update();
+        } else {
+            this.dashFutureChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
+        }
+    },
+
+    renderDashboardReceivedChart(transactionsData) {
+        const canvas = document.getElementById('dashReceivedChart');
+        if (!canvas || typeof Chart === 'undefined') return;
+
+        const now = new Date();
+        const monthlyData = {};
+        for (let i = 11; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            monthlyData[d.toLocaleString('default', { month: 'short', year: '2-digit' })] = 0;
+        }
+
+        let total12m = 0;
+        if (transactionsData) {
+            transactionsData.forEach(acct => {
+                (acct.transactions || []).forEach(txn => {
+                    if (!['DIVIDEND', 'DIV'].includes((txn.type || '').toUpperCase())) return;
+                    const d = new Date(txn.date);
+                    const ago = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+                    if (ago >= 0 && ago < 12) {
+                        const key = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+                        if (monthlyData[key] !== undefined) { monthlyData[key] += Math.abs(txn.amount || 0); total12m += Math.abs(txn.amount || 0); }
+                    }
+                });
+            });
+        }
+
+        const labels = Object.keys(monthlyData);
+        const data   = Object.values(monthlyData);
+        const maxVal = Math.max(...data, 1);
+        const fmt    = v => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        const totalEl = document.getElementById('dashReceivedTotal');
+        if (totalEl) totalEl.textContent = total12m > 0 ? `${fmt(total12m)} received` : 'No data yet';
+
+        const chartCfg = {
+            type: 'bar',
+            data: { labels, datasets: [{ data, backgroundColor: 'rgba(79,142,247,0.28)', borderColor: '#4f8ef7', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(79,142,247,0.55)' }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: '#1e2640', padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1 } },
+                scales: {
+                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#7c8496', font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
+                    x: { grid: { display: false }, ticks: { color: '#7c8496', font: { size: 10 } } }
+                }
+            }
+        };
+
+        if (this.dashReceivedChartInstance) {
+            this.dashReceivedChartInstance.data.labels = labels;
+            this.dashReceivedChartInstance.data.datasets[0].data = data;
+            this.dashReceivedChartInstance.options.scales.y.max = maxVal * 1.25;
+            this.dashReceivedChartInstance.update();
+        } else {
+            this.dashReceivedChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
+        }
+    },
+
+    // ────────────────────────────────────────────────────────────────────
 
     renderAllHoldings(data) {
         const tabsContainer   = document.getElementById('holdings-tabs');

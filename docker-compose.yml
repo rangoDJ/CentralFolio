@@ -7,6 +7,6 @@ services:
       - "3000:3000"
     volumes:
       - ./snaptrade.db:/app/snaptrade.db
-    env_file:
-      - .env
+    environment:
+      - LOG_LEVEL=info
     restart: unless-stopped

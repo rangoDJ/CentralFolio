@@ -1,6 +1,7 @@
 import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { randomUUID } from "crypto";
 
 export interface Transaction {
   id: string;
@@ -55,7 +56,7 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
       const typeCode = activity.type?.code || activity.type || 'unknown';
 
       return {
-        id: activity.id || `${accountId}-${Date.now()}-${Math.random()}`,
+        id: activity.id || randomUUID(),
         symbol: symbolStr,
         description,
         type: typeCode,

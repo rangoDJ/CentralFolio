@@ -204,15 +204,21 @@ const App = {
         }
     },
 
-    async loadConnectionBadge(portfolioId) {
+    async loadConnectionBadge(portfolioId, tradingEnabled = true) {
         const badge = document.getElementById(`conn-badge-${portfolioId}`);
         if (!badge) return;
         try {
             const { connectionType } = await API.getConnectionStatus(portfolioId);
             if (connectionType === 'trade') {
-                badge.textContent = 'Trade';
-                badge.className = 'status-badge status-active';
-                badge.style.cssText = 'font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;';
+                if (tradingEnabled) {
+                    badge.textContent = 'Trade';
+                    badge.className = 'status-badge status-active';
+                    badge.style.cssText = 'font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;';
+                } else {
+                    badge.textContent = 'Trade (disabled)';
+                    badge.className = 'status-badge status-inactive';
+                    badge.style.cssText = 'font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;';
+                }
             } else if (connectionType === 'read') {
                 badge.textContent = 'Read Only';
                 badge.className = 'status-badge status-inactive';
@@ -266,13 +272,20 @@ const App = {
         if (!nameEl) return;
         nameEl.innerHTML = `
             <div style="display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;">
-                <input type="text" id="rename-input" value="${currentName.replace(/"/g, '&quot;')}"
-                       style="background:var(--surface-2);border:1px solid var(--primary);color:var(--text);border-radius:var(--radius-sm);padding:0.2rem 0.45rem;font-size:0.875rem;width:180px;"
-                       onkeydown="if(event.key==='Enter')App.confirmRenameAccount('${accountId}');else if(event.key==='Escape')UI.renderAccountSection(App.currentGroups,App.activePortfolioId,App.inactiveAccountIds)">
-                <button class="btn btn-primary btn-sm" onclick="App.confirmRenameAccount('${accountId}')">Save</button>
-                <button class="btn btn-outline btn-sm" onclick="UI.renderAccountSection(App.currentGroups,App.activePortfolioId,App.inactiveAccountIds)">Cancel</button>
+                <input type="text" id="rename-input"
+                       style="background:var(--surface-2);border:1px solid var(--primary);color:var(--text);border-radius:var(--radius-sm);padding:0.2rem 0.45rem;font-size:0.875rem;width:180px;">
+                <button class="btn btn-primary btn-sm" id="rename-save-btn">Save</button>
+                <button class="btn btn-outline btn-sm" id="rename-cancel-btn">Cancel</button>
             </div>`;
-        setTimeout(() => document.getElementById('rename-input')?.focus(), 0);
+        const input = document.getElementById('rename-input');
+        input.value = currentName;
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') this.confirmRenameAccount(accountId);
+            else if (e.key === 'Escape') UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
+        });
+        document.getElementById('rename-save-btn').addEventListener('click', () => this.confirmRenameAccount(accountId));
+        document.getElementById('rename-cancel-btn').addEventListener('click', () => UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds));
+        setTimeout(() => input?.focus(), 0);
     },
 
     async confirmRenameAccount(accountId) {
@@ -319,8 +332,12 @@ const App = {
         document.getElementById('tradeLimitPriceGroup').style.display = 'none';
 
         if (isNotional) {
-            document.getElementById('tradeNotionalDisplay').textContent =
-                `$${Number(notional).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — Market order`;
+            const estShares = price > 0
+                ? (notional / price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
+                : '—';
+            document.getElementById('tradeNotionalDisplay').innerHTML =
+                `<div style="font-size:0.95rem;font-weight:600;">$${Number(notional).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>` +
+                `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">≈ ${sanitize(estShares)} shares at market price · Day order</div>`;
         } else {
             document.getElementById('tradeUnits').value = prefillUnits !== null ? String(prefillUnits) : '';
             document.getElementById('tradeOrderType').value = 'Market';
@@ -790,12 +807,49 @@ const App = {
         }
     },
 
+    async handleChangePassword() {
+        const current  = document.getElementById('currentPassword').value;
+        const newPw    = document.getElementById('newPassword').value;
+        const confirm  = document.getElementById('confirmNewPassword').value;
+        if (!current || !newPw || !confirm) { UI.showToast('Fill in all fields', 'error'); return; }
+        if (newPw !== confirm) { UI.showToast('Passwords do not match', 'error'); return; }
+        if (newPw.length < 8) { UI.showToast('New password must be at least 8 characters', 'error'); return; }
+        const btn = document.getElementById('changePasswordBtn');
+        btn.classList.add('loading'); btn.disabled = true;
+        try {
+            await API.changePassword(current, newPw);
+            document.getElementById('currentPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmNewPassword').value = '';
+            UI.showToast('Password changed successfully');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            btn.classList.remove('loading'); btn.disabled = false;
+        }
+    },
+
+    toggleSidebar() {
+        const sidebar = document.querySelector('.app-sidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        sidebar.classList.toggle('sidebar-open');
+        overlay?.classList.toggle('visible');
+    },
+
+    closeSidebarOnMobile() {
+        if (window.innerWidth <= 768) {
+            document.querySelector('.app-sidebar')?.classList.remove('sidebar-open');
+            document.getElementById('sidebarOverlay')?.classList.remove('visible');
+        }
+    },
+
     logout() {
         localStorage.removeItem('cf_token');
         window.location.href = '/login.html';
     },
 
     switchMainTab(tabId, btnElement) {
+        this.closeSidebarOnMobile();
         localStorage.setItem('activeMainTab', tabId);
         // Update active class on sidebar items
         document.querySelectorAll('.sidebar-item').forEach(btn => btn.classList.remove('active'));

@@ -4,6 +4,27 @@ import jwt from "jsonwebtoken";
 import { getPasswordHash, setPasswordHash, getJwtSecret } from "../models/db.js";
 import { logger } from "../utils/logger.js";
 
+// Simple in-memory rate limiter: max 10 attempts per IP per 15 minutes
+const loginAttempts = new Map<string, { count: number; firstAt: number }>();
+const RATE_WINDOW_MS = 15 * 60 * 1000;
+const RATE_MAX = 10;
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+  if (!record || now - record.firstAt > RATE_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, firstAt: now });
+    return false;
+  }
+  if (record.count >= RATE_MAX) return true;
+  record.count++;
+  return false;
+}
+
+function clearRateLimit(ip: string) {
+  loginAttempts.delete(ip);
+}
+
 export const getAuthStatus = (req: Request, res: Response) => {
   const configured = !!getPasswordHash();
   res.json({ configured });
@@ -24,6 +45,11 @@ export const setup = async (req: Request, res: Response) => {
 };
 
 export const login = async (req: Request, res: Response) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  if (isRateLimited(ip)) {
+    logger.warn("Auth", `Rate limit exceeded for ${ip}`);
+    return res.status(429).json({ error: "Too many login attempts. Try again in 15 minutes." });
+  }
   const { password } = req.body;
   const hash = getPasswordHash();
   if (!hash) {
@@ -31,11 +57,12 @@ export const login = async (req: Request, res: Response) => {
   }
   const valid = await bcrypt.compare(String(password ?? ""), hash);
   if (!valid) {
-    logger.warn("Auth", `Failed login attempt from ${req.ip}`);
+    logger.warn("Auth", `Failed login attempt from ${ip}`);
     return res.status(401).json({ error: "Invalid password." });
   }
+  clearRateLimit(ip);
   const token = jwt.sign({ app: "centralfolio" }, getJwtSecret(), { expiresIn: "7d" });
-  logger.info("Auth", `Successful login from ${req.ip}`);
+  logger.info("Auth", `Successful login from ${ip}`);
   res.json({ token });
 };
 

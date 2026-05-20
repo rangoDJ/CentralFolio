@@ -45,6 +45,28 @@ export interface DividendEvent {
   accountId?: string;
 }
 
+/**
+ * Infer dividend frequency from the average gap between historical ex-dates.
+ * Expects records sorted descending by ex_dividend_date.
+ */
+function inferFrequencyFromHistory(records: { ex_dividend_date: string }[]): number {
+  if (records.length < 2) return 4;
+  const dates = records
+    .map(r => new Date(r.ex_dividend_date).getTime())
+    .filter(t => !isNaN(t))
+    .sort((a, b) => b - a);
+  if (dates.length < 2) return 4;
+  const gaps: number[] = [];
+  for (let i = 0; i < Math.min(dates.length - 1, 6); i++) {
+    gaps.push(dates[i] - dates[i + 1]);
+  }
+  const avgDays = gaps.reduce((s, g) => s + g, 0) / gaps.length / (1000 * 60 * 60 * 24);
+  if (avgDays <= 45)       return 12; // monthly
+  if (avgDays <= 120)      return 4;  // quarterly
+  if (avgDays <= 240)      return 2;  // semi-annual
+  return 1;                           // annual
+}
+
 async function fetchFromYahooFinance(symbol: string): Promise<any> {
   const now = Date.now();
 
@@ -66,14 +88,19 @@ async function fetchFromYahooFinance(symbol: string): Promise<any> {
       const quoteSummary = await yahooFinance.quoteSummary(symbol, { modules: ['fundProfile', 'summaryDetail'] });
       const summaryData = quoteSummary.summaryDetail;
 
-      const amountPerShare = summaryData?.trailingAnnualDividendRate ||
-                            summaryData?.dividendRate ||
-                            quote.trailingAnnualDividendRate ||
-                            0;
+      const annualRate = summaryData?.trailingAnnualDividendRate || quote.trailingAnnualDividendRate || 0;
+      const perPayment = summaryData?.dividendRate || 0;
 
-      let frequency = 1;
-      if (amountPerShare > 0) {
-        frequency = 4;
+      const amountPerShare = annualRate || perPayment || 0;
+
+      // Derive frequency from annual ÷ per-payment ratio
+      let frequency = 4; // default quarterly
+      if (perPayment > 0 && annualRate > 0) {
+        const ratio = annualRate / perPayment;
+        if (ratio <= 1.5)      frequency = 1;   // annual
+        else if (ratio <= 3)   frequency = 2;   // semi-annual
+        else if (ratio <= 6)   frequency = 4;   // quarterly
+        else                   frequency = 12;  // monthly
       }
 
       const lastExDate = quote.dividendDate
@@ -114,7 +141,11 @@ async function fetchFromPolygon(symbol: string): Promise<any> {
     }
     lastProviderRequestTime = Date.now();
 
-    const res = await fetch(`https://api.polygon.io/v2/reference/dividends?symbol=${symbol}&apiKey=${apiKey}`);
+    // v3 API returns frequency field and uses Authorization header (key not in URL)
+    const res = await fetch(
+      `https://api.polygon.io/v3/reference/dividends?ticker=${encodeURIComponent(symbol)}&limit=12&sort=ex_dividend_date&order=desc`,
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
 
     if (!res.ok) {
       logger.warn('Polygon', `${symbol} — HTTP ${res.status}`);
@@ -127,17 +158,16 @@ async function fetchFromPolygon(symbol: string): Promise<any> {
       return null;
     }
 
-    const sorted = data.results.sort((a: any, b: any) =>
-      new Date(b.record_date).getTime() - new Date(a.record_date).getTime()
-    );
-    const latest = sorted[0];
+    const latest = data.results[0];
 
-    const frequency = 4; // Default to quarterly
+    // v3 frequency: 0=unspecified, 1=annual, 2=bi-annual, 4=quarterly, 12=monthly
+    const freqMap: Record<number, number> = { 1: 1, 2: 2, 4: 4, 12: 12 };
+    const frequency = freqMap[latest.frequency] ?? inferFrequencyFromHistory(data.results);
 
     return {
       frequency,
-      lastExDate: latest.record_date || new Date().toISOString().split('T')[0],
-      amountPerShare: parseFloat(latest.dividend_per_share) || 0,
+      lastExDate: latest.ex_dividend_date || new Date().toISOString().split('T')[0],
+      amountPerShare: parseFloat(latest.cash_amount) || 0,
       name: symbol,
       timestamp: Date.now()
     };
@@ -163,8 +193,9 @@ async function fetchFromAlphaVantage(symbol: string): Promise<any> {
     }
     lastProviderRequestTime = Date.now();
 
+    // OVERVIEW endpoint provides ExDividendDate, DividendDate, DividendPerShare, and frequency hints
     const res = await fetch(
-      `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`
+      `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
     );
 
     if (!res.ok) {
@@ -173,27 +204,41 @@ async function fetchFromAlphaVantage(symbol: string): Promise<any> {
     }
 
     const data = await res.json();
-    if (!data['Global Quote'] || !data['Global Quote']['01. symbol']) {
-      logger.info('AlphaVantage', `${symbol} — no data found`);
+    if (!data['Symbol'] || data['Symbol'] !== symbol) {
+      logger.info('AlphaVantage', `${symbol} — no overview data found`);
       return null;
     }
 
-    const quote = data['Global Quote'];
-    const dividendYield = parseFloat(quote['06. dividend yield'] || '0');
-
-    if (!dividendYield || dividendYield === 0) {
-      logger.info('AlphaVantage', `${symbol} — no dividend yield found`);
+    const dividendPerShare = parseFloat(data['DividendPerShare'] || '0');
+    if (!dividendPerShare || dividendPerShare === 0) {
+      logger.info('AlphaVantage', `${symbol} — no dividend per share found`);
       return null;
     }
 
-    const price = parseFloat(quote['05. price'] || '0');
-    const amountPerShare = (dividendYield / 100) * price;
+    const exDateRaw = data['ExDividendDate'];
+    const annualDivYield = parseFloat(data['DividendYield'] || '0');
+    const price = parseFloat(data['AnalystTargetPrice'] || '0');
+    const annualRate = annualDivYield > 0 && price > 0 ? annualDivYield * price : 0;
+
+    // Detect frequency from annual ÷ per-payment
+    let frequency = 4;
+    if (annualRate > 0 && dividendPerShare > 0) {
+      const ratio = annualRate / dividendPerShare;
+      if (ratio <= 1.5)      frequency = 1;
+      else if (ratio <= 3)   frequency = 2;
+      else if (ratio <= 6)   frequency = 4;
+      else                   frequency = 12;
+    }
+
+    const lastExDate = (exDateRaw && exDateRaw !== 'None' && exDateRaw !== '0000-00-00')
+      ? exDateRaw
+      : new Date().toISOString().split('T')[0];
 
     return {
-      frequency: 4,
-      lastExDate: new Date().toISOString().split('T')[0],
-      amountPerShare: amountPerShare,
-      name: symbol,
+      frequency,
+      lastExDate,
+      amountPerShare: dividendPerShare,
+      name: data['Name'] || symbol,
       timestamp: Date.now()
     };
   } catch (err: any) {
@@ -218,8 +263,12 @@ async function fetchFromFinnhub(symbol: string): Promise<any> {
     }
     lastProviderRequestTime = Date.now();
 
+    // Use X-Finnhub-Token header to keep key out of URL
+    const fromDate = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const toDate = new Date().toISOString().split('T')[0];
     const res = await fetch(
-      `https://finnhub.io/api/v1/stock/dividend?symbol=${symbol}&token=${apiKey}`
+      `https://finnhub.io/api/v1/stock/dividend?symbol=${encodeURIComponent(symbol)}&from=${fromDate}&to=${toDate}`,
+      { headers: { 'X-Finnhub-Token': apiKey } }
     );
 
     if (!res.ok) {
@@ -239,7 +288,7 @@ async function fetchFromFinnhub(symbol: string): Promise<any> {
     const latest = sorted[0];
 
     return {
-      frequency: 4,
+      frequency: inferFrequencyFromHistory(sorted.map((d: any) => ({ ex_dividend_date: d.exDate }))),
       lastExDate: latest.exDate,
       amountPerShare: latest.amount ?? 0,
       name: symbol,

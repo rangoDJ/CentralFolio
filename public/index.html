@@ -73,7 +73,14 @@
     <div class="app-main">
 
       <header class="topbar">
-        <span class="page-title" id="pageTitle">Dashboard</span>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <button class="sidebar-toggle" id="sidebarToggle" title="Toggle navigation" onclick="App.toggleSidebar()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <span class="page-title" id="pageTitle">Dashboard</span>
+        </div>
         <div class="topbar-actions">
           <span id="connectionStatus" class="status-badge status-active">Connected</span>
         </div>
@@ -242,6 +249,29 @@
 
         <!-- Portfolios pane -->
         <div id="settings-portfolios-pane" class="pane active">
+          <!-- Security -->
+          <div class="card mb-3">
+            <div class="card-header" style="margin-bottom:0.75rem;">
+              <span class="card-title">Security</span>
+            </div>
+            <p class="text-muted text-sm mb-3">Change your CentralFolio login password.</p>
+            <div class="form-group">
+              <label for="currentPassword">Current Password</label>
+              <input type="password" id="currentPassword" placeholder="Enter current password">
+            </div>
+            <div class="form-group">
+              <label for="newPassword">New Password</label>
+              <input type="password" id="newPassword" placeholder="At least 8 characters">
+            </div>
+            <div class="form-group">
+              <label for="confirmNewPassword">Confirm New Password</label>
+              <input type="password" id="confirmNewPassword" placeholder="Repeat new password">
+            </div>
+            <button id="changePasswordBtn" class="btn btn-primary btn-sm" onclick="App.handleChangePassword()">
+              <span class="loader"></span><span class="btn-text">Change Password</span>
+            </button>
+          </div>
+
           <!-- Refresh schedule -->
           <div class="card mb-3">
             <div class="card-header" style="margin-bottom:0.75rem;">
@@ -478,6 +508,7 @@
     </div>
   </div>
 
+  <div id="sidebarOverlay" class="sidebar-overlay" onclick="App.toggleSidebar()"></div>
   <div id="toast" class="toast"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

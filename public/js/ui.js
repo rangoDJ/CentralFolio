@@ -25,6 +25,9 @@ const UI = {
 
     accountsChartInstance: null,
     dividendChartInstance: null,
+    holdingsStore: new Map(),
+    txStore: new Map(),
+    TX_PAGE_SIZE: 25,
 
     showToast(msg, type = 'success') {
         this.toast.textContent = msg;
@@ -110,7 +113,7 @@ const UI = {
         `).join('');
 
         // Load connection type badge for each registered portfolio
-        portfolios.filter(p => p.userSecret).forEach(p => App.loadConnectionBadge(p.id));
+        portfolios.filter(p => p.userSecret).forEach(p => App.loadConnectionBadge(p.id, !!p.tradingEnabled));
     },
 
     renderAccountSection(currentGroups, activePortfolioId, inactiveAccountIds) {
@@ -198,15 +201,17 @@ const UI = {
             return;
         }
 
+        this.holdingsStore.clear();
         let tabsHtml = '', tablesHtml = '';
 
         data.forEach((account, index) => {
             const isActive = index === 0;
             const tabId = `holdings-pane-${account.accountId}`;
+            const aid = sanitize(account.accountId);
 
             tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                 onclick="App.switchHoldingsPageTab('${sanitize(account.accountId)}')"
-                                 id="holdings-tabbtn-${sanitize(account.accountId)}">
+                                 onclick="App.switchHoldingsPageTab('${aid}')"
+                                 id="holdings-tabbtn-${aid}">
                              ${sanitize(account.accountName || 'Unnamed')}
                          </button>`;
 
@@ -228,96 +233,39 @@ const UI = {
                 return;
             }
 
-            const tradeCol = account.tradingEnabled;
-            tablesHtml += '<table class="data-table"><thead><tr>' +
-                '<th>Position</th>' +
-                '<th class="right">Shares</th>' +
-                '<th class="right">Price</th>' +
-                '<th class="right">Total Value</th>' +
-                '<th class="right">Today</th>' +
-                '<th class="right">All&#8209;Time Return</th>' +
-                (tradeCol ? '<th></th><th class="right">Quick Buy</th>' : '') +
-                '</tr></thead><tbody>';
-
-            account.holdings.forEach(h => {
-                const symbol      = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '—';
-                const description = h.symbol?.symbol?.description || h.description || symbol;
-                const symbolId    = h.symbolId || h.instrument?.id || h.symbol?.id || '';
-                const units       = h.units  || 0;
-                const price       = h.price  || 0;
-                const totalValue  = units * price;
-
-                const dailyPct    = (Math.random() * 6 - 3);
-                const dailyAmt    = (totalValue * dailyPct) / 100;
-                const dailySign   = dailyAmt >= 0 ? '+' : '';
-                const dailyCls    = dailyAmt >= 0 ? 'val-pos' : 'val-neg';
-
-                const atPct       = (Math.random() * 50 - 10);
-                const atAmt       = (totalValue * atPct) / 100;
-                const atSign      = atAmt >= 0 ? '+' : '';
-                const atCls       = atAmt >= 0 ? 'val-pos' : 'val-neg';
-
-                const tradeBtns   = tradeCol ? `
-                    <td style="white-space:nowrap;">
-                        <div style="display:flex;gap:0.3rem;justify-content:flex-end;">
-                            <button class="trade-btn-buy"
-                                    data-account-id="${sanitize(account.accountId)}"
-                                    data-portfolio-id="${sanitize(account.portfolioId)}"
-                                    data-symbol="${sanitize(symbol)}"
-                                    data-symbol-id="${sanitize(symbolId)}"
-                                    data-description="${sanitize(description)}"
-                                    data-price="${price}"
-                                    data-action="BUY">Buy</button>
-                            <button class="trade-btn-sell"
-                                    data-account-id="${sanitize(account.accountId)}"
-                                    data-portfolio-id="${sanitize(account.portfolioId)}"
-                                    data-symbol="${sanitize(symbol)}"
-                                    data-symbol-id="${sanitize(symbolId)}"
-                                    data-description="${sanitize(description)}"
-                                    data-price="${price}"
-                                    data-action="SELL">Sell</button>
-                        </div>
-                    </td>` : '';
-
-                const presetBtns  = tradeCol ? `
-                    <td style="white-space:nowrap;">
-                        <div style="display:flex;gap:0.25rem;justify-content:flex-end;">
-                            ${[100, 250, 500].map(bucket => `
-                            <button class="trade-btn-preset"
-                                    data-account-id="${sanitize(account.accountId)}"
-                                    data-portfolio-id="${sanitize(account.portfolioId)}"
-                                    data-symbol="${sanitize(symbol)}"
-                                    data-symbol-id="${sanitize(symbolId)}"
-                                    data-description="${sanitize(description)}"
-                                    data-price="${price}"
-                                    data-bucket="${bucket}"
-                                    ${!price ? 'disabled' : ''}>$${bucket}</button>`).join('')}
-                        </div>
-                    </td>` : '';
-
-                tablesHtml += `
-                    <tr>
-                        <td>
-                            <div class="ticker-cell">${sanitize(symbol)}</div>
-                            <div class="ticker-desc">${sanitize(description)}</div>
-                        </td>
-                        <td class="right">${units.toLocaleString(undefined,{maximumFractionDigits:4})}</td>
-                        <td class="right">$${price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                        <td class="right" style="font-weight:600;">$${totalValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                        <td class="right">
-                            <span class="${dailyCls}">${dailySign}$${Math.abs(dailyAmt).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                            <div class="text-sm ${dailyCls}">${dailyPct >= 0 ? '+' : ''}${dailyPct.toFixed(2)}%</div>
-                        </td>
-                        <td class="right">
-                            <span class="${atCls}">${atSign}$${Math.abs(atAmt).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                            <div class="text-sm ${atCls}">${atPct >= 0 ? '+' : ''}${atPct.toFixed(2)}%</div>
-                        </td>
-                        ${tradeBtns}
-                        ${presetBtns}
-                    </tr>`;
+            this.holdingsStore.set(account.accountId, {
+                holdings: account.holdings,
+                tradingEnabled: account.tradingEnabled,
+                portfolioId: account.portfolioId,
+                accountName: account.accountName
             });
 
-            tablesHtml += '</tbody></table></div>';
+            const tradeCol = account.tradingEnabled;
+            const colCount = tradeCol ? 6 : 4;
+
+            tablesHtml += `
+                <div style="padding:0.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                    <input type="text" class="holdings-filter" data-account="${aid}" placeholder="Filter positions…"
+                           style="flex:1;min-width:140px;max-width:220px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;">
+                    <select class="holdings-sort" data-account="${aid}"
+                            style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;cursor:pointer;">
+                        <option value="value-desc">Value ↓</option>
+                        <option value="value-asc">Value ↑</option>
+                        <option value="symbol">Symbol A→Z</option>
+                        <option value="symbol-desc">Symbol Z→A</option>
+                        <option value="shares-desc">Shares ↓</option>
+                        <option value="price-desc">Price ↓</option>
+                    </select>
+                </div>
+                <table class="data-table"><thead><tr>
+                    <th>Position</th>
+                    <th class="right">Shares</th>
+                    <th class="right">Price</th>
+                    <th class="right">Total Value</th>
+                    ${tradeCol ? '<th></th><th class="right">Quick Buy</th>' : ''}
+                </tr></thead><tbody id="holdings-tbody-${aid}"></tbody></table>`;
+
+            tablesHtml += '</div>';
         });
 
         if (tabsContainer) {
@@ -325,6 +273,113 @@ const UI = {
             tabsContainer.style.display = 'flex';
         }
         tablesContainer.innerHTML = tablesHtml;
+
+        // Wire up filter/sort listeners and render each table body
+        this.holdingsStore.forEach((_, accountId) => {
+            this.renderHoldingsTableBody(accountId);
+            const filterEl = document.querySelector(`.holdings-filter[data-account="${sanitize(accountId)}"]`);
+            const sortEl   = document.querySelector(`.holdings-sort[data-account="${sanitize(accountId)}"]`);
+            filterEl?.addEventListener('input',  () => this.renderHoldingsTableBody(accountId));
+            sortEl?.addEventListener('change',   () => this.renderHoldingsTableBody(accountId));
+        });
+    },
+
+    renderHoldingsTableBody(accountId) {
+        const store = this.holdingsStore.get(accountId);
+        if (!store) return;
+        const tbody = document.getElementById(`holdings-tbody-${sanitize(accountId)}`);
+        if (!tbody) return;
+
+        const filterEl = document.querySelector(`.holdings-filter[data-account="${sanitize(accountId)}"]`);
+        const sortEl   = document.querySelector(`.holdings-sort[data-account="${sanitize(accountId)}"]`);
+        const filter   = (filterEl?.value || '').toLowerCase();
+        const sort     = sortEl?.value || 'value-desc';
+
+        let holdings = [...store.holdings];
+
+        if (filter) {
+            holdings = holdings.filter(h => {
+                const sym  = (h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '').toLowerCase();
+                const desc = (h.symbol?.symbol?.description || h.description || '').toLowerCase();
+                return sym.includes(filter) || desc.includes(filter);
+            });
+        }
+
+        holdings.sort((a, b) => {
+            const symA = a.symbol?.symbol?.symbol || a.symbol?.symbol || a.symbol || '';
+            const symB = b.symbol?.symbol?.symbol || b.symbol?.symbol || b.symbol || '';
+            const valA = (a.units || 0) * (a.price || 0);
+            const valB = (b.units || 0) * (b.price || 0);
+            switch (sort) {
+                case 'symbol':      return symA.localeCompare(symB);
+                case 'symbol-desc': return symB.localeCompare(symA);
+                case 'value-desc':  return valB - valA;
+                case 'value-asc':   return valA - valB;
+                case 'shares-desc': return (b.units || 0) - (a.units || 0);
+                case 'price-desc':  return (b.price || 0) - (a.price || 0);
+                default:            return 0;
+            }
+        });
+
+        const { tradingEnabled, portfolioId } = store;
+        const tradeCol = tradingEnabled;
+        const colCount = tradeCol ? 6 : 4;
+
+        if (holdings.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;color:var(--text-muted);padding:1.5rem;">No positions match the filter.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = holdings.map(h => {
+            const symbol      = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '—';
+            const description = h.symbol?.symbol?.description || h.description || symbol;
+            const symbolId    = h.symbolId || h.instrument?.id || h.symbol?.id || '';
+            const units       = h.units  || 0;
+            const price       = h.price  || 0;
+            const totalValue  = units * price;
+            const aid         = sanitize(accountId);
+            const pid         = sanitize(portfolioId);
+
+            const tradeBtns = tradeCol ? `
+                <td style="white-space:nowrap;">
+                    <div style="display:flex;gap:0.3rem;justify-content:flex-end;">
+                        <button class="trade-btn-buy"
+                                data-account-id="${aid}" data-portfolio-id="${pid}"
+                                data-symbol="${sanitize(symbol)}" data-symbol-id="${sanitize(symbolId)}"
+                                data-description="${sanitize(description)}" data-price="${price}"
+                                data-action="BUY">Buy</button>
+                        <button class="trade-btn-sell"
+                                data-account-id="${aid}" data-portfolio-id="${pid}"
+                                data-symbol="${sanitize(symbol)}" data-symbol-id="${sanitize(symbolId)}"
+                                data-description="${sanitize(description)}" data-price="${price}"
+                                data-action="SELL">Sell</button>
+                    </div>
+                </td>` : '';
+
+            const presetBtns = tradeCol ? `
+                <td style="white-space:nowrap;">
+                    <div style="display:flex;gap:0.25rem;justify-content:flex-end;">
+                        ${[100, 250, 500].map(bucket => `
+                        <button class="trade-btn-preset"
+                                data-account-id="${aid}" data-portfolio-id="${pid}"
+                                data-symbol="${sanitize(symbol)}" data-symbol-id="${sanitize(symbolId)}"
+                                data-description="${sanitize(description)}" data-price="${price}"
+                                data-bucket="${bucket}"
+                                ${!price ? 'disabled' : ''}>$${bucket}</button>`).join('')}
+                    </div>
+                </td>` : '';
+
+            return `<tr>
+                <td>
+                    <div class="ticker-cell">${sanitize(symbol)}</div>
+                    <div class="ticker-desc">${sanitize(description)}</div>
+                </td>
+                <td class="right">${units.toLocaleString(undefined,{maximumFractionDigits:4})}</td>
+                <td class="right">$${price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                <td class="right" style="font-weight:600;">$${totalValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                ${tradeBtns}${presetBtns}
+            </tr>`;
+        }).join('');
     },
 
     renderAllTransactions(data) {
@@ -337,25 +392,17 @@ const UI = {
             return;
         }
 
-        const typeBadge = type => {
-            const t = (type || '').toUpperCase();
-            if (t === 'BUY')             return `<span class="type-badge badge-buy">Buy</span>`;
-            if (t === 'SELL')            return `<span class="type-badge badge-sell">Sell</span>`;
-            if (t === 'DIVIDEND')        return `<span class="type-badge badge-dividend">Dividend</span>`;
-            if (t === 'DEPOSIT' || t === 'TRANSFER_IN')  return `<span class="type-badge badge-dep">Deposit</span>`;
-            if (t === 'WITHDRAWAL' || t === 'TRANSFER_OUT') return `<span class="type-badge badge-with">Withdrawal</span>`;
-            return `<span class="type-badge badge-other">${type || '—'}</span>`;
-        };
-
+        this.txStore.clear();
         let tabsHtml = '', tablesHtml = '';
 
         data.forEach((account, index) => {
             const isActive = index === 0;
             const tabId = `transactions-pane-${account.accountId}`;
+            const aid = sanitize(account.accountId);
 
             tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                 onclick="App.switchTransactionsPageTab('${sanitize(account.accountId)}')"
-                                 id="transactions-tabbtn-${sanitize(account.accountId)}">
+                                 onclick="App.switchTransactionsPageTab('${aid}')"
+                                 id="transactions-tabbtn-${aid}">
                              ${sanitize(account.accountName || 'Unnamed')}
                          </button>`;
 
@@ -366,40 +413,22 @@ const UI = {
                 return;
             }
 
-            tablesHtml += '<table class="data-table"><thead><tr>' +
-                '<th>Security</th>' +
-                '<th>Date</th>' +
-                '<th>Type</th>' +
-                '<th class="right">Quantity</th>' +
-                '<th class="right">Amount</th>' +
-                '</tr></thead><tbody>';
+            this.txStore.set(account.accountId, { transactions: account.transactions, page: 0 });
 
-            account.transactions.forEach(txn => {
-                const symbol      = txn.symbol || '—';
-                const description = txn.description || symbol;
-                const date        = txn.date ? new Date(txn.date).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}) : '—';
-                const units       = txn.units != null ? Number(txn.units).toLocaleString(undefined,{maximumFractionDigits:4}) : '—';
-                const amount      = txn.amount ?? 0;
-                const amtCls      = amount >= 0 ? 'val-pos' : 'val-neg';
-                const amtSign     = amount >= 0 ? '+' : '';
+            tablesHtml += `
+                <table class="data-table"><thead><tr>
+                    <th>Security</th><th>Date</th><th>Type</th>
+                    <th class="right">Quantity</th><th class="right">Amount</th>
+                </tr></thead><tbody id="tx-tbody-${aid}"></tbody></table>
+                <div class="tx-pagination" id="tx-pagination-${aid}" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;border-top:1px solid var(--border);font-size:0.78rem;color:var(--text-muted);">
+                    <span id="tx-page-info-${aid}"></span>
+                    <div style="display:flex;gap:0.4rem;">
+                        <button class="btn btn-outline btn-sm" id="tx-prev-${aid}" onclick="UI.txPageChange('${aid}',-1)">← Prev</button>
+                        <button class="btn btn-outline btn-sm" id="tx-next-${aid}" onclick="UI.txPageChange('${aid}',1)">Next →</button>
+                    </div>
+                </div>`;
 
-                tablesHtml += `
-                    <tr>
-                        <td>
-                            <div class="ticker-cell">${sanitize(symbol !== '—' ? symbol : description)}</div>
-                            ${symbol !== '—' && description !== symbol ? `<div class="ticker-desc">${sanitize(description)}</div>` : ''}
-                        </td>
-                        <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${sanitize(date)}</td>
-                        <td>${typeBadge(txn.type)}</td>
-                        <td class="right" style="color:var(--text-muted);">${sanitize(units)}</td>
-                        <td class="right" style="font-weight:600;">
-                            <span class="${amtCls}">${amtSign}$${Math.abs(amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                            <div class="text-sm text-muted">${sanitize(txn.currencyCode || '')}</div>
-                        </td>
-                    </tr>`;
-            });
-
-            tablesHtml += '</tbody></table></div>';
+            tablesHtml += '</div>';
         });
 
         if (tabsContainer) {
@@ -407,6 +436,75 @@ const UI = {
             tabsContainer.style.display = 'flex';
         }
         tablesContainer.innerHTML = tablesHtml;
+
+        this.txStore.forEach((_, accountId) => this.renderTransactionPage(accountId));
+    },
+
+    txPageChange(accountId, delta) {
+        const entry = this.txStore.get(accountId);
+        if (!entry) return;
+        const total = entry.transactions.length;
+        const maxPage = Math.ceil(total / this.TX_PAGE_SIZE) - 1;
+        entry.page = Math.max(0, Math.min(maxPage, entry.page + delta));
+        this.renderTransactionPage(accountId);
+    },
+
+    renderTransactionPage(accountId) {
+        const entry = this.txStore.get(accountId);
+        if (!entry) return;
+        const aid = sanitize(accountId);
+        const tbody = document.getElementById(`tx-tbody-${aid}`);
+        const infoEl = document.getElementById(`tx-page-info-${aid}`);
+        const prevBtn = document.getElementById(`tx-prev-${aid}`);
+        const nextBtn = document.getElementById(`tx-next-${aid}`);
+        if (!tbody) return;
+
+        const { transactions, page } = entry;
+        const total    = transactions.length;
+        const maxPage  = Math.ceil(total / this.TX_PAGE_SIZE) - 1;
+        const start    = page * this.TX_PAGE_SIZE;
+        const end      = Math.min(start + this.TX_PAGE_SIZE, total);
+        const slice    = transactions.slice(start, end);
+
+        const typeBadge = type => {
+            const t = (type || '').toUpperCase();
+            if (t === 'BUY')                               return `<span class="type-badge badge-buy">Buy</span>`;
+            if (t === 'SELL')                              return `<span class="type-badge badge-sell">Sell</span>`;
+            if (t === 'DIVIDEND')                          return `<span class="type-badge badge-dividend">Dividend</span>`;
+            if (t === 'DEPOSIT' || t === 'TRANSFER_IN')   return `<span class="type-badge badge-dep">Deposit</span>`;
+            if (t === 'WITHDRAWAL' || t === 'TRANSFER_OUT') return `<span class="type-badge badge-with">Withdrawal</span>`;
+            return `<span class="type-badge badge-other">${sanitize(type) || '—'}</span>`;
+        };
+
+        tbody.innerHTML = slice.map(txn => {
+            const symbol      = txn.symbol || '—';
+            const description = txn.description || symbol;
+            const date        = txn.date ? new Date(txn.date).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}) : '—';
+            const units       = txn.units != null ? Number(txn.units).toLocaleString(undefined,{maximumFractionDigits:4}) : '—';
+            const amount      = txn.amount ?? 0;
+            const amtCls      = amount >= 0 ? 'val-pos' : 'val-neg';
+            const amtSign     = amount >= 0 ? '+' : '';
+            return `<tr>
+                <td>
+                    <div class="ticker-cell">${sanitize(symbol !== '—' ? symbol : description)}</div>
+                    ${symbol !== '—' && description !== symbol ? `<div class="ticker-desc">${sanitize(description)}</div>` : ''}
+                </td>
+                <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${sanitize(date)}</td>
+                <td>${typeBadge(txn.type)}</td>
+                <td class="right" style="color:var(--text-muted);">${sanitize(units)}</td>
+                <td class="right" style="font-weight:600;">
+                    <span class="${amtCls}">${amtSign}$${Math.abs(amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                    <div class="text-sm text-muted">${sanitize(txn.currencyCode || '')}</div>
+                </td>
+            </tr>`;
+        }).join('');
+
+        if (infoEl) infoEl.textContent = `${start + 1}–${end} of ${total}`;
+        if (prevBtn) prevBtn.disabled = page === 0;
+        if (nextBtn) nextBtn.disabled = page >= maxPage;
+
+        const paginationEl = document.getElementById(`tx-pagination-${aid}`);
+        if (paginationEl) paginationEl.style.display = total <= this.TX_PAGE_SIZE ? 'none' : 'flex';
     },
 
     renderAdminUsers(users) {

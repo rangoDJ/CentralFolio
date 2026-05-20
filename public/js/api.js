@@ -117,6 +117,7 @@ const API = {
         const res = await this._fetch(url);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch all dividends');
+        // Returns { fetching: bool, data: [] }
         return data;
     },
 
@@ -124,6 +125,19 @@ const API = {
         const res = await this._fetch('/api/portfolios/clear-dividend-cache', { method: 'POST' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to clear dividend cache');
+        return data;
+    },
+
+    async getJobs() {
+        const res = await this._fetch('/api/jobs');
+        if (!res.ok) throw new Error('Failed to fetch jobs');
+        return await res.json();
+    },
+
+    async triggerJob(name) {
+        const res = await this._fetch(`/api/jobs/${encodeURIComponent(name)}/trigger`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Failed to trigger job ${name}`);
         return data;
     },
 

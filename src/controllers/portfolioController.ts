@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio } from "../models/db.js";
 import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches } from "../services/dividendService.js";
+import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
@@ -11,34 +12,26 @@ export const getPortfolios = (req: Request, res: Response) => {
   res.json(portfolios);
 };
 
-export const getAllDividends = async (req: Request, res: Response) => {
+export const getAllDividends = (req: Request, res: Response) => {
   const forceRefresh = req.query.forceRefresh === 'true';
   logger.info('Portfolio', `GET /api/portfolios/all-dividends — forceRefresh=${forceRefresh}`);
-  const start = Date.now();
-  try {
-    let allDividends;
 
-    if (forceRefresh) {
-      logger.info('Portfolio', 'all-dividends: force refresh requested');
-      allDividends = await getAllDividendsForAllPortfolios();
-    } else {
-      const cached = getCachedAllDividends();
-      if (cached) {
-        logger.info('Portfolio', 'all-dividends: serving from 24h cache');
-        allDividends = cached;
-      } else {
-        logger.info('Portfolio', 'all-dividends: cache empty/expired, fetching fresh data');
-        allDividends = await getAllDividendsForAllPortfolios();
-      }
-    }
-
-    const total = allDividends.reduce((sum, a) => sum + (a.dividends?.length ?? 0), 0);
-    logger.info('Portfolio', `all-dividends complete in ${Date.now() - start}ms — ${allDividends.length} account(s), ${total} event(s) total`);
-    res.json(allDividends);
-  } catch (err: any) {
-    logger.error('Portfolio', `all-dividends failed after ${Date.now() - start}ms: ${err.message}`);
-    res.status(500).json({ error: "Failed to fetch dividends", detail: err.message });
+  if (forceRefresh) {
+    triggerJob('dividend-fetch', 'manual');
   }
+
+  const cached = getCachedAllDividends();
+  const fetching = isJobRunning('dividend-fetch');
+
+  if (!cached && !fetching) {
+    // No cache and nothing running — kick off background fetch
+    triggerJob('dividend-fetch', 'on-demand');
+  }
+
+  const total = (cached ?? []).reduce((sum: number, a: any) => sum + (a.dividends?.length ?? 0), 0);
+  logger.info('Portfolio', `all-dividends — serving ${cached?.length ?? 0} account(s), ${total} event(s) (fetching=${fetching})`);
+
+  res.json({ fetching, data: cached ?? [] });
 };
 
 export const createOrUpdatePortfolio = (req: Request, res: Response) => {

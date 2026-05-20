@@ -743,6 +743,52 @@ const UI = {
         if (paginationEl) paginationEl.style.display = total <= this.TX_PAGE_SIZE ? 'none' : 'flex';
     },
 
+    renderJobsPanel(jobs) {
+        const el = document.getElementById('jobsPanel');
+        if (!el) return;
+        if (!jobs || jobs.length === 0) {
+            el.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No jobs registered.</p></div>';
+            return;
+        }
+        el.innerHTML = jobs.map(job => {
+            const isRunning = job.status === 'running';
+            const isFailed  = job.status === 'failed';
+            const statusColor = isRunning ? 'var(--primary)' : isFailed ? 'var(--danger)' : 'var(--success)';
+            const statusLabel = isRunning ? 'Running…' : isFailed ? 'Failed' : job.lastRunAt ? 'Completed' : 'Never run';
+            const lastRun = job.lastRunAt
+                ? new Date(job.lastRunAt).toLocaleString()
+                : '—';
+            const nextRun = job.nextRunAt
+                ? new Date(job.nextRunAt).toLocaleString()
+                : '—';
+            const duration = job.lastDurationMs != null
+                ? job.lastDurationMs < 1000 ? `${job.lastDurationMs}ms` : `${(job.lastDurationMs / 1000).toFixed(1)}s`
+                : '';
+            return `
+            <div class="settings-row" style="align-items:flex-start;gap:1rem;padding:0.75rem 0;border-bottom:1px solid var(--border);">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:0.9rem;">${sanitize(job.label)}</div>
+                    <div class="text-muted text-sm" style="margin-top:0.2rem;">
+                        Last run: ${sanitize(lastRun)}${duration ? ` · ${sanitize(duration)}` : ''}
+                        ${job.lastError ? `<br><span style="color:var(--danger);">${sanitize(job.lastError)}</span>` : ''}
+                    </div>
+                    <div class="text-muted text-sm">Next: ${sanitize(nextRun)}</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.4rem;flex-shrink:0;">
+                    <span style="font-size:0.75rem;font-weight:600;color:${statusColor};">
+                        ${isRunning ? '<span class="loader" style="display:inline-block;width:10px;height:10px;border-width:2px;vertical-align:middle;margin-right:4px;"></span>' : ''}
+                        ${sanitize(statusLabel)}
+                    </span>
+                    <button class="btn btn-outline" style="padding:0.25rem 0.75rem;font-size:0.8rem;"
+                        onclick="App.handleTriggerJob('${sanitize(job.name)}')"
+                        ${isRunning ? 'disabled' : ''}>
+                        ${isRunning ? 'Running…' : 'Run now'}
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
     renderAdminUsers(users) {
         if (!users || users.length === 0) {
             this.adminUserList.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No users found.</p></div>';

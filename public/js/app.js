@@ -687,40 +687,89 @@ const App = {
         const container = document.getElementById('dividends-page-content');
         if (!container) return;
 
-        const refreshBtn = document.getElementById('refreshDividendsBtn');
-
         if (!forceRefresh && this.cachedDividendsData && this.dividendsLastUpdated) {
             UI.renderDividends(this.cachedDividendsData);
             this.updateDividendsTimestamp();
             return;
         }
 
-        if (refreshBtn) {
-            refreshBtn.classList.add('loading');
-            refreshBtn.disabled = true;
-        }
-
-        container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block; border-top-color:var(--primary);"></span><br>' + (forceRefresh ? 'Fetching fresh dividend data...' : 'Loading dividends...') + '</div>';
-
         try {
-            const start = Date.now();
-            this.cachedDividendsData = await API.getAllDividends(forceRefresh);
-            const elapsed = Date.now() - start;
-            this.dividendsLastUpdated = new Date();
-            this.updateDividendsTimestamp();
-
-            UI.renderDividends(this.cachedDividendsData);
-            if (forceRefresh) {
-                UI.showToast(`Dividend data refreshed (${elapsed}ms)`);
+            const response = await API.getAllDividends(forceRefresh);
+            if (response.data && response.data.length > 0) {
+                this.cachedDividendsData = response.data;
+                this.dividendsLastUpdated = new Date();
+                this.updateDividendsTimestamp();
+                UI.renderDividends(this.cachedDividendsData);
+            } else if (response.fetching) {
+                // Background job is running — show empty state with status and start polling
+                container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block;border-top-color:var(--primary);"></span><p style="margin-top:0.75rem;">Fetching dividend data in the background…</p><p class="text-muted text-sm">This page will update automatically when ready.</p></div>';
+                this.startJobPolling();
+            } else {
+                container.innerHTML = '<div class="empty-state"><p>No dividend data available. Trigger a fetch from Settings → Background Jobs.</p></div>';
             }
         } catch (err) {
-            container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
-            UI.showToast(`Failed to refresh dividends: ${err.message}`, 'error');
-        } finally {
-            if (refreshBtn) {
-                refreshBtn.classList.remove('loading');
-                refreshBtn.disabled = false;
+            container.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    startJobPolling() {
+        if (this._jobPollTimer) return; // already polling
+        this._jobPollTimer = setInterval(() => this.pollJobs(), 4000);
+    },
+
+    stopJobPolling() {
+        if (this._jobPollTimer) {
+            clearInterval(this._jobPollTimer);
+            this._jobPollTimer = null;
+        }
+    },
+
+    async pollJobs() {
+        try {
+            const jobs = await API.getJobs();
+            const anyRunning = jobs.some(j => j.status === 'running');
+            UI.renderJobsPanel(jobs);
+
+            if (!anyRunning) {
+                this.stopJobPolling();
+                // Reload dividend data if the fetch job just finished
+                const divJob = jobs.find(j => j.name === 'dividend-fetch');
+                if (divJob && divJob.status === 'completed' && !this.cachedDividendsData) {
+                    const response = await API.getAllDividends(false);
+                    if (response.data && response.data.length > 0) {
+                        this.cachedDividendsData = response.data;
+                        this.dividendsLastUpdated = new Date();
+                        const container = document.getElementById('dividends-page-content');
+                        if (container) UI.renderDividends(this.cachedDividendsData);
+                        this.updateDividendsTimestamp();
+                        UI.showToast('Dividend data ready');
+                        // Also update dashboard if visible
+                        UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+                    }
+                }
             }
+        } catch (_) {}
+    },
+
+    async loadJobsPanel() {
+        try {
+            const jobs = await API.getJobs();
+            UI.renderJobsPanel(jobs);
+            if (jobs.some(j => j.status === 'running')) this.startJobPolling();
+        } catch (err) {
+            const el = document.getElementById('jobsPanel');
+            if (el) el.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    async handleTriggerJob(name) {
+        try {
+            await API.triggerJob(name);
+            UI.showToast(`Job started`);
+            this.startJobPolling();
+            await this.loadJobsPanel();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
         }
     },
 
@@ -894,15 +943,20 @@ const App = {
             UI.renderDashboardHoldingsTable(this.currentGroups, this.inactiveAccountIds);
         }
 
-        // Use cached dividend data if available, else load in background
+        // Use cached dividend data if available, else trigger background job
         if (this.cachedDividendsData) {
             UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
         } else {
             UI.setDashboardDividendLoading(true);
             try {
-                this.cachedDividendsData = await API.getAllDividends(false);
-                this.dividendsLastUpdated = new Date();
-                UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+                const response = await API.getAllDividends(false);
+                if (response.data && response.data.length > 0) {
+                    this.cachedDividendsData = response.data;
+                    this.dividendsLastUpdated = new Date();
+                    UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+                } else if (response.fetching) {
+                    this.startJobPolling();
+                }
             } catch (_) {}
             finally { UI.setDashboardDividendLoading(false); }
         }
@@ -969,6 +1023,8 @@ const App = {
             } else {
                 this.loadDividendCalendar();
             }
+        } else if (tabId === 'settings') {
+            this.loadJobsPanel();
         }
     },
 

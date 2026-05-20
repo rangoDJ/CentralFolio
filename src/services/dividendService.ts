@@ -1,4 +1,4 @@
-import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, getActiveAccountIds, getDividendProviders, clearDividendMetadataCache } from "../models/db.js";
+import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, setSetting, getActiveAccountIds, getDividendProviders, clearDividendMetadataCache } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import YahooFinance from "yahoo-finance2";
@@ -10,6 +10,7 @@ const lastRequestTime: Record<string, number> = {};
 const PROVIDER_INTERVAL_MS: Record<string, number> = {
   yahoo:        1500,
   tiingo:        300,
+  eodhd:        3500, // 20 req/min → one every 3s, using 3.5s to be safe
   polygon:       300,
   alphavantage:  300,
   finnhub:       300,
@@ -197,6 +198,92 @@ async function fetchFromTiingo(symbol: string): Promise<any> {
     };
   } catch (err: any) {
     logger.error('Tiingo', `${ticker} — error: ${err.message}`);
+    return null;
+  }
+}
+
+// ── EODHD daily quota tracker ─────────────────────────────────────────────────
+const EODHD_DAILY_LIMIT = 18; // leave 2 buffer from the 20/day free plan
+
+function eodhdQuotaAvailable(): boolean {
+  const today = new Date().toISOString().split('T')[0];
+  const storedDate = getSetting('eodhd_daily_date');
+  if (storedDate !== today) {
+    setSetting('eodhd_daily_date', today);
+    setSetting('eodhd_daily_count', '0');
+    return true;
+  }
+  const count = parseInt(getSetting('eodhd_daily_count') ?? '0', 10);
+  return count < EODHD_DAILY_LIMIT;
+}
+
+function eodhdIncrementQuota() {
+  const count = parseInt(getSetting('eodhd_daily_count') ?? '0', 10);
+  setSetting('eodhd_daily_count', String(count + 1));
+}
+
+async function fetchFromEODHD(symbol: string): Promise<any> {
+  const apiKey = getSetting('eodhd_api_key');
+  if (!apiKey) {
+    logger.debug('EODHD', `${symbol} — API key not configured`);
+    return null;
+  }
+
+  if (!eodhdQuotaAvailable()) {
+    const used = getSetting('eodhd_daily_count') ?? '0';
+    logger.warn('EODHD', `${symbol} — daily quota reached (${used}/${EODHD_DAILY_LIMIT}), skipping`);
+    return null;
+  }
+
+  // EODHD ticker format: RY.TO stays as-is; plain US tickers need .US suffix
+  const ticker = symbol.includes('.') ? symbol.toUpperCase() : `${symbol.toUpperCase()}.US`;
+
+  try {
+    logger.info('EODHD', `Fetching dividend data for ${ticker} (quota: ${getSetting('eodhd_daily_count') ?? '0'}/${EODHD_DAILY_LIMIT})...`);
+    await rateLimit('eodhd');
+
+    const fromDate = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const res = await fetch(
+      `https://eodhistoricaldata.com/api/div/${encodeURIComponent(ticker)}?api_token=${apiKey}&fmt=json&from=${fromDate}`
+    );
+
+    eodhdIncrementQuota();
+
+    if (res.status === 404) {
+      logger.info('EODHD', `${ticker} — not found`);
+      return null;
+    }
+    if (!res.ok) {
+      logger.warn('EODHD', `${ticker} — HTTP ${res.status}`);
+      return null;
+    }
+
+    const dividends: any[] = await res.json();
+    if (!Array.isArray(dividends) || dividends.length === 0) {
+      logger.info('EODHD', `${ticker} — no dividend history found`);
+      return null;
+    }
+
+    // EODHD returns [{ date, dividends, currency }] sorted ascending — reverse it
+    const sorted = dividends
+      .filter(d => d.date && d.dividends > 0)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    if (sorted.length === 0) return null;
+
+    const latest = sorted[0];
+    const frequency = inferFrequencyFromHistory(sorted.map(d => ({ ex_dividend_date: d.date })));
+
+    logger.info('EODHD', `${ticker} → freq=${frequency}, lastEx=${latest.date}, amount=${latest.dividends}`);
+    return {
+      frequency,
+      lastExDate: latest.date,
+      amountPerShare: latest.dividends,
+      name: ticker,
+      timestamp: Date.now()
+    };
+  } catch (err: any) {
+    logger.error('EODHD', `${ticker} — error: ${err.message}`);
     return null;
   }
 }
@@ -403,20 +490,32 @@ async function fetchDividendMetadata(symbol: string): Promise<any> {
   // When Tiingo is enabled:
   //   Canadian symbols → Yahoo first (Tiingo has no TSX data), others as fallback
   //   US symbols       → Tiingo first, Yahoo last (avoids hitting Yahoo rate limit for US)
-  const providerOrder = providers.tiingo && !isCanadian
+  // Routing strategy:
+  //   Canadian (.TO/.TSX/.V/.CN/.NEO):
+  //     EODHD (good CA coverage, limited daily quota) →
+  //     Yahoo (best CA coverage, rate-limited) →
+  //     others as last resort
+  //   US / unknown:
+  //     Tiingo (paid, reliable US) →
+  //     EODHD →
+  //     Polygon / AlphaVantage / Finnhub →
+  //     Yahoo last (avoid burning Yahoo quota on US symbols)
+  const providerOrder = isCanadian
     ? [
-        { name: 'tiingo',       enabled: true,                   fn: fetchFromTiingo },
-        { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
-        { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
-        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
-        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
-      ]
-    : [
+        { name: 'eodhd',        enabled: providers.eodhd,        fn: fetchFromEODHD },
         { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
         { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
         { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
         { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
-        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub }
+        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
+      ]
+    : [
+        { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
+        { name: 'eodhd',        enabled: providers.eodhd,        fn: fetchFromEODHD },
+        { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
+        { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
+        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
+        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
       ];
 
   logger.debug('Dividend', `${symbol} — routing: ${isCanadian ? 'Canadian' : 'US'} → [${providerOrder.filter(p => p.enabled).map(p => p.name).join(', ')}]`);

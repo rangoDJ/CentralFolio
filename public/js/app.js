@@ -84,6 +84,7 @@ const App = {
 
         // Add listeners for provider toggles
         document.getElementById('provider-tiingo').addEventListener('change', () => this.updateProviderKeyVisibility());
+        document.getElementById('provider-eodhd').addEventListener('change', () => this.updateProviderKeyVisibility());
         document.getElementById('provider-polygon').addEventListener('change', () => this.updateProviderKeyVisibility());
         document.getElementById('provider-alphavantage').addEventListener('change', () => this.updateProviderKeyVisibility());
         document.getElementById('provider-finnhub').addEventListener('change', () => this.updateProviderKeyVisibility());
@@ -524,6 +525,7 @@ const App = {
                 const providers = JSON.parse(settings.dividend_providers);
                 document.getElementById('provider-yahoo').checked = providers.yahoo !== false;
                 document.getElementById('provider-tiingo').checked = providers.tiingo || false;
+                document.getElementById('provider-eodhd').checked = providers.eodhd || false;
                 document.getElementById('provider-polygon').checked = providers.polygon || false;
                 document.getElementById('provider-alphavantage').checked = providers.alphavantage || false;
                 document.getElementById('provider-finnhub').checked = providers.finnhub || false;
@@ -532,6 +534,16 @@ const App = {
             // Load API keys
             if (settings.tiingo_api_key) {
                 document.getElementById('tiingoApiKey').value = settings.tiingo_api_key;
+            }
+            if (settings.eodhd_api_key) {
+                document.getElementById('eodhdApiKey').value = settings.eodhd_api_key;
+            }
+            // Show EODHD daily quota usage
+            const quotaEl = document.getElementById('eodhdQuotaDisplay');
+            if (quotaEl && settings.eodhd_daily_count !== undefined) {
+                const date = settings.eodhd_daily_date || 'today';
+                const used = parseInt(settings.eodhd_daily_count || '0', 10);
+                quotaEl.textContent = `Daily usage: ${used}/20 calls used (resets daily)`;
             }
             if (settings.polygon_api_key) {
                 document.getElementById('polygonApiKey').value = settings.polygon_api_key;
@@ -553,6 +565,8 @@ const App = {
     updateProviderKeyVisibility() {
         document.getElementById('tiingo-key-group').style.display =
             document.getElementById('provider-tiingo').checked ? 'block' : 'none';
+        document.getElementById('eodhd-key-group').style.display =
+            document.getElementById('provider-eodhd').checked ? 'block' : 'none';
         document.getElementById('polygon-key-group').style.display =
             document.getElementById('provider-polygon').checked ? 'block' : 'none';
         document.getElementById('alphavantage-key-group').style.display =
@@ -568,8 +582,9 @@ const App = {
 
         try {
             const providers = {
-                yahoo: true, // Always enabled
+                yahoo: true,
                 tiingo: document.getElementById('provider-tiingo').checked,
+                eodhd: document.getElementById('provider-eodhd').checked,
                 polygon: document.getElementById('provider-polygon').checked,
                 alphavantage: document.getElementById('provider-alphavantage').checked,
                 finnhub: document.getElementById('provider-finnhub').checked
@@ -578,6 +593,7 @@ const App = {
             const settings = {
                 dividend_providers: JSON.stringify(providers),
                 tiingo_api_key: document.getElementById('tiingoApiKey').value.trim() || null,
+                eodhd_api_key: document.getElementById('eodhdApiKey').value.trim() || null,
                 polygon_api_key: document.getElementById('polygonApiKey').value.trim() || null,
                 alphavantage_api_key: document.getElementById('alphavantageApiKey').value.trim() || null,
                 finnhub_api_key: document.getElementById('finnhubApiKey').value.trim() || null

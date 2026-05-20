@@ -401,9 +401,17 @@
                 <div class="settings-row">
                   <div class="settings-row-info">
                     <div class="settings-row-label">Tiingo</div>
-                    <div class="settings-row-desc">US &amp; Canadian stocks &middot; Paid &middot; Requires API key</div>
+                    <div class="settings-row-desc">US stocks &middot; Paid &middot; Requires API key</div>
                   </div>
                   <label class="switch"><input type="checkbox" id="provider-tiingo"><span class="slider"></span></label>
+                </div>
+
+                <div class="settings-row">
+                  <div class="settings-row-info">
+                    <div class="settings-row-label">EODHD</div>
+                    <div class="settings-row-desc">US &amp; Canadian stocks &middot; Free 20 calls/day &middot; Requires API key</div>
+                  </div>
+                  <label class="switch"><input type="checkbox" id="provider-eodhd"><span class="slider"></span></label>
                 </div>
 
                 <div class="settings-row">
@@ -432,6 +440,11 @@
 
                 <div style="border-top:1px solid var(--border);padding-top:1.25rem;">
                   <p class="text-sm mb-2" style="font-weight:600;">API Keys</p>
+                  <div class="form-group" style="display:none;" id="eodhd-key-group">
+                    <label for="eodhdApiKey">EODHD API Key</label>
+                    <input type="password" id="eodhdApiKey" placeholder="Enter EODHD API key">
+                    <p class="text-muted text-sm" id="eodhdQuotaDisplay" style="margin-top:0.35rem;"></p>
+                  </div>
                   <div class="form-group" style="display:none;" id="tiingo-key-group">
                     <label for="tiingoApiKey">Tiingo API Key</label>
                     <input type="password" id="tiingoApiKey" placeholder="Enter Tiingo API key">

@@ -156,8 +156,10 @@ async function fetchFromTiingo(symbol: string): Promise<any> {
     logger.info('Tiingo', `Fetching dividend data for ${ticker}...`);
     await rateLimit('tiingo');
 
+    const startDate = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const res = await fetch(
-      `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(ticker)}/dividends?token=${apiKey}`
+      `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(ticker)}/dividends?startDate=${startDate}`,
+      { headers: { 'Authorization': `Token ${apiKey}`, 'Content-Type': 'application/json' } }
     );
 
     if (res.status === 404) {
@@ -175,9 +177,9 @@ async function fetchFromTiingo(symbol: string): Promise<any> {
       return null;
     }
 
-    // Sort descending by ex-date
+    // Tiingo returns { exDate, date, value } — filter out zero/missing entries
     const sorted = dividends
-      .filter(d => d.exDate && d.divCash > 0)
+      .filter(d => d.exDate && d.value > 0)
       .sort((a, b) => new Date(b.exDate).getTime() - new Date(a.exDate).getTime());
 
     if (sorted.length === 0) return null;
@@ -185,11 +187,11 @@ async function fetchFromTiingo(symbol: string): Promise<any> {
     const latest = sorted[0];
     const frequency = inferFrequencyFromHistory(sorted.map(d => ({ ex_dividend_date: d.exDate })));
 
-    logger.info('Tiingo', `${ticker} → freq=${frequency}, lastEx=${latest.exDate}, amount=${latest.divCash}`);
+    logger.info('Tiingo', `${ticker} → freq=${frequency}, lastEx=${latest.exDate}, amount=${latest.value}`);
     return {
       frequency,
       lastExDate: latest.exDate.split('T')[0],
-      amountPerShare: latest.divCash,
+      amountPerShare: latest.value,
       name: ticker,
       timestamp: Date.now()
     };

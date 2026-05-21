@@ -593,7 +593,7 @@ const App = {
 
         try {
             const providers = {
-                yahoo: true,
+                yahoo: document.getElementById('provider-yahoo').checked,
                 tiingo: document.getElementById('provider-tiingo').checked,
                 eodhd: document.getElementById('provider-eodhd').checked,
                 polygon: document.getElementById('provider-polygon').checked,

@@ -1307,18 +1307,22 @@ const UI = {
         } else {
             checkboxContainer.innerHTML = allAccounts
                 .filter(g => g.accounts && g.accounts.length > 0)
-                .map(g => `
+                .map(g => {
+                    const activeAccounts = g.accounts.filter(a => a.isActive !== 0 && a.isActive !== false);
+                    if (activeAccounts.length === 0) return '';
+                    return `
                   <div style="margin-bottom:0.6rem;">
                     <div style="font-size:0.73rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem;">${sanitize(g.portfolioName || 'Unknown Connection')}</div>
-                    ${g.accounts.map(a => `
+                    ${activeAccounts.map(a => `
                       <label style="display:flex;align-items:center;gap:0.65rem;cursor:pointer;padding:0.3rem 0.25rem;border-radius:5px;transition:background 0.1s;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                         <input type="checkbox" value="${sanitize(a.id)}" ${selectedIds.has(a.id) ? 'checked' : ''} style="width:15px;height:15px;flex-shrink:0;margin-top:1px;">
                         <div style="min-width:0;">
                           <div style="font-size:0.875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(a.customName || a.name || a.id)}</div>
-                          ${(a.number || a.type) ? `<div style="font-size:0.73rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${[a.number, a.type].filter(Boolean).map(sanitize).join(' · ')}</div>` : ''}
+                          ${a.type ? `<div style="font-size:0.73rem;color:var(--text-secondary);">${sanitize(a.type)}</div>` : ''}
                         </div>
                       </label>`).join('')}
-                  </div>`).join('');
+                  </div>`;
+                }).join('');
         }
 
         modal.classList.add('open');

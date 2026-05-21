@@ -121,6 +121,12 @@ const API = {
         return data;
     },
 
+    async getDividendMetadata() {
+        const res = await this._fetch('/api/portfolios/dividend-metadata');
+        if (!res.ok) throw new Error('Failed to fetch dividend metadata');
+        return await res.json();
+    },
+
     async clearDividendCache() {
         const res = await this._fetch('/api/portfolios/clear-dividend-cache', { method: 'POST' });
         const data = await res.json();

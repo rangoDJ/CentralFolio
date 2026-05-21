@@ -33,6 +33,7 @@ export {
 export {
   getCachedDividendMetadata,
   saveCachedDividendMetadata,
+  getAllCachedDividendMetadata,
   clearDividendMetadataCache,
   getDividendProviders,
   setDividendProviders,

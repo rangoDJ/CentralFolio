@@ -8,18 +8,23 @@ export function getCachedDividendMetadata(symbol: string): any | null {
   return row;
 }
 
-export function saveCachedDividendMetadata(symbol: string, data: any) {
-  logger.debug('DB', `saveCachedDividendMetadata(${symbol}) frequency=${data.frequency} amount=${data.amountPerShare}`);
+export function saveCachedDividendMetadata(symbol: string, data: any, provider?: string) {
+  logger.debug('DB', `saveCachedDividendMetadata(${symbol}) provider=${provider} frequency=${data.frequency} amount=${data.amountPerShare}`);
   db.prepare(`
-    INSERT OR REPLACE INTO dividend_metadata (symbol, frequency, lastExDate, amountPerShare, name, cachedAt)
-    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT OR REPLACE INTO dividend_metadata (symbol, frequency, lastExDate, amountPerShare, name, provider, cachedAt)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   `).run(
     symbol,
     data.frequency ?? null,
     data.lastExDate ?? null,
     data.amountPerShare ?? null,
-    data.name ?? null
+    data.name ?? null,
+    provider ?? null
   );
+}
+
+export function getAllCachedDividendMetadata(): any[] {
+  return db.prepare("SELECT * FROM dividend_metadata ORDER BY cachedAt DESC").all();
 }
 
 export function clearDividendMetadataCache() {

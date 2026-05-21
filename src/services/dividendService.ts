@@ -250,11 +250,12 @@ async function fetchFromEODHD(symbol: string): Promise<any> {
     eodhdIncrementQuota();
 
     if (res.status === 404) {
-      logger.info('EODHD', `${ticker} — not found`);
+      logger.info('EODHD', `${ticker} — not found (404)`);
       return null;
     }
     if (!res.ok) {
-      logger.warn('EODHD', `${ticker} — HTTP ${res.status}`);
+      const body = await res.text().catch(() => '');
+      logger.warn('EODHD', `${ticker} — HTTP ${res.status}: ${body.slice(0, 200)}`);
       return null;
     }
 
@@ -527,7 +528,7 @@ async function fetchDividendMetadata(symbol: string): Promise<any> {
     const data = await provider.fn(symbol);
     if (data) {
       divMetadataCache.set(symbol, data);
-      saveCachedDividendMetadata(symbol, data);
+      saveCachedDividendMetadata(symbol, data, provider.name);
       logger.info('Dividend', `${symbol} → saved to cache via ${provider.name}`);
       return data;
     }

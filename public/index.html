@@ -197,6 +197,7 @@
             <div id="dividend-sub-tabs" class="pill-tabs">
               <button class="pill-tab active" data-subtab="forecast" onclick="App.switchDividendSubTab('forecast', this)">Forecast</button>
               <button class="pill-tab" data-subtab="calendar" onclick="App.switchDividendSubTab('calendar', this)">Calendar</button>
+              <button class="pill-tab" data-subtab="database" onclick="App.switchDividendSubTab('database', this)">Database</button>
             </div>
           </div>
         </div>
@@ -273,6 +274,23 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Database pane -->
+        <div id="dividend-database-pane" class="pane">
+          <div class="flex-center justify-between mb-3">
+            <span class="text-muted text-sm">Cached dividend metadata from all providers · <span id="divDbCount">—</span> symbols</span>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <span id="eodhdQuotaBadge" style="display:none;font-size:0.75rem;padding:0.2rem 0.6rem;border-radius:999px;background:var(--surface-2);color:var(--text-secondary);"></span>
+              <input type="text" id="divDbSearch" placeholder="Filter symbols…" style="padding:0.3rem 0.65rem;font-size:0.85rem;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-primary);width:160px;">
+              <button class="btn btn-outline btn-sm" onclick="App.loadDividendDatabase()">
+                <span class="btn-text">Refresh</span>
+              </button>
+            </div>
+          </div>
+          <div id="dividend-database-content">
+            <div class="empty-state">Loading…</div>
           </div>
         </div>
       </div>

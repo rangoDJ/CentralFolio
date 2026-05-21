@@ -96,6 +96,7 @@ const migrations: Array<{ name: string; sql: string }> = [
   { name: 'accounts.customName',     sql: `ALTER TABLE accounts ADD COLUMN customName TEXT` },
   { name: 'positions.symbolId',      sql: `ALTER TABLE positions ADD COLUMN symbolId TEXT` },
   { name: 'portfolios.tradingEnabled', sql: `ALTER TABLE portfolios ADD COLUMN tradingEnabled INTEGER NOT NULL DEFAULT 0` },
+  { name: 'dividend_metadata.provider', sql: `ALTER TABLE dividend_metadata ADD COLUMN provider TEXT` },
 ];
 
 for (const m of migrations) {

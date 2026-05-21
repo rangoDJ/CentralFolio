@@ -1094,10 +1094,75 @@ const App = {
 
         if (subTabId === 'forecast') {
             this.loadAllDividends();
-        } else {
+        } else if (subTabId === 'calendar') {
             this.loadDividendCalendar();
+        } else if (subTabId === 'database') {
+            this.loadDividendDatabase();
         }
-    }
+    },
+
+    async loadDividendDatabase() {
+        const container = document.getElementById('dividend-database-content');
+        const countEl   = document.getElementById('divDbCount');
+        const searchEl  = document.getElementById('divDbSearch');
+        const badgeEl   = document.getElementById('eodhdQuotaBadge');
+        if (!container) return;
+
+        try {
+            const { rows, eodhd } = await API.getDividendMetadata();
+
+            if (countEl) countEl.textContent = `${rows.length} symbol${rows.length !== 1 ? 's' : ''}`;
+
+            if (badgeEl) {
+                badgeEl.style.display = 'inline';
+                badgeEl.textContent = `EODHD: ${eodhd.used}/20 calls today`;
+                badgeEl.style.color = eodhd.used >= 18 ? 'var(--danger)' : 'var(--text-secondary)';
+            }
+
+            const render = (filter) => {
+                const filtered = filter
+                    ? rows.filter(r => r.symbol.toLowerCase().includes(filter) || (r.name || '').toLowerCase().includes(filter))
+                    : rows;
+
+                if (filtered.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><p>No cached dividend data found. Run a dividend fetch from Background Jobs.</p></div>';
+                    return;
+                }
+
+                const freqLabel = f => ({ 1: 'Annual', 2: 'Semi-annual', 4: 'Quarterly', 12: 'Monthly' }[f] || f || '—');
+                const providerBadgeColor = p => ({ yahoo: '#7e57c2', tiingo: '#42a5f5', eodhd: '#26a69a', polygon: '#ff7043', alphavantage: '#66bb6a', finnhub: '#ffa726' }[p] || '#888');
+
+                container.innerHTML = `
+                <div style="overflow-x:auto;">
+                <table class="data-table" style="width:100%;font-size:0.85rem;">
+                  <thead><tr>
+                    <th>Symbol</th><th>Name</th><th>Provider</th>
+                    <th style="text-align:right;">Amount/Share</th>
+                    <th>Frequency</th><th>Last Ex-Date</th><th>Cached</th>
+                  </tr></thead>
+                  <tbody>
+                  ${filtered.map(r => `
+                    <tr>
+                      <td style="font-weight:600;font-family:monospace;">${sanitize(r.symbol)}</td>
+                      <td style="color:var(--text-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sanitize(r.name || '—')}</td>
+                      <td><span style="font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:4px;background:${providerBadgeColor(r.provider)};color:#fff;font-weight:600;">${sanitize(r.provider || '?')}</span></td>
+                      <td style="text-align:right;font-variant-numeric:tabular-nums;">$${r.amountPerShare != null ? Number(r.amountPerShare).toFixed(4) : '—'}</td>
+                      <td>${freqLabel(r.frequency)}</td>
+                      <td style="font-family:monospace;font-size:0.8rem;">${sanitize(r.lastExDate || '—')}</td>
+                      <td style="color:var(--text-secondary);font-size:0.78rem;">${r.cachedAt ? new Date(r.cachedAt).toLocaleDateString() : '—'}</td>
+                    </tr>`).join('')}
+                  </tbody>
+                </table></div>`;
+            };
+
+            render('');
+            if (searchEl) {
+                searchEl.oninput = () => render(searchEl.value.trim().toLowerCase());
+            }
+        } catch (err) {
+            container.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
 };
 
 // Initialize app

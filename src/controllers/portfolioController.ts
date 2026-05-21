@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio } from "../models/db.js";
+import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio, getAllCachedDividendMetadata, listSettings } from "../models/db.js";
 import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches } from "../services/dividendService.js";
 import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
@@ -80,6 +80,15 @@ export const togglePortfolioTrading = (req: Request, res: Response) => {
     logger.error('Portfolio', `togglePortfolioTrading(${id}) failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
+};
+
+export const getDividendMetadata = (req: Request, res: Response) => {
+  logger.info('Portfolio', 'GET /api/portfolios/dividend-metadata');
+  const rows = getAllCachedDividendMetadata();
+  const settings = listSettings();
+  const eodhdUsed  = parseInt(settings['eodhd_daily_count']  ?? '0', 10);
+  const eodhdDate  = settings['eodhd_daily_date'] ?? null;
+  res.json({ rows, eodhd: { used: eodhdUsed, limit: 18, date: eodhdDate } });
 };
 
 export const clearDividendCache = (req: Request, res: Response) => {

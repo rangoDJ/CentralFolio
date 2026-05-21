@@ -147,6 +147,16 @@ const API = {
         return data;
     },
 
+    async updateJobSchedule(name, intervalHours) {
+        const res = await this._fetch(`/api/jobs/${encodeURIComponent(name)}/schedule`, {
+            method: 'PATCH',
+            body: JSON.stringify({ intervalHours })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Failed to update schedule for ${name}`);
+        return data;
+    },
+
     async getAdminUsers() {
         const res = await this._fetch('/api/admin/users');
         if (!res.ok) throw new Error('Failed to list users');

@@ -9,7 +9,7 @@ import { getAllDividendsForAllPortfolios } from "./services/dividendService.js";
 import { refreshAllHoldings } from "./services/holdingsService.js";
 import { refreshAllTransactions } from "./services/transactionService.js";
 import { getSetting } from "./models/db.js";
-import { registerJob } from "./services/schedulerService.js";
+import { registerJob, updateJobInterval } from "./services/schedulerService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -43,10 +43,20 @@ app.listen(port, () => {
 
   const hourMs = 60 * 60 * 1000;
 
+  // Helper: read stored custom interval from DB, fall back to default
+  function storedInterval(jobName: string, defaultMs: number): number {
+    const stored = getSetting(`job_${jobName}_interval_hours`);
+    if (stored) {
+      const h = parseFloat(stored);
+      if (!isNaN(h) && h > 0) return Math.round(h * hourMs);
+    }
+    return defaultMs;
+  }
+
   registerJob(
     'dividend-fetch',
     'Dividend Data Fetch',
-    7 * 24 * hourMs,
+    storedInterval('dividend-fetch', 7 * 24 * hourMs),
     () => getAllDividendsForAllPortfolios(),
     false
   );
@@ -54,7 +64,7 @@ app.listen(port, () => {
   registerJob(
     'holdings-refresh',
     'Holdings Refresh',
-    hourMs,
+    storedInterval('holdings-refresh', hourMs),
     async () => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
       await refreshAllHoldings(hours * hourMs);
@@ -66,7 +76,7 @@ app.listen(port, () => {
   registerJob(
     'transactions-refresh',
     'Transactions Refresh',
-    hourMs,
+    storedInterval('transactions-refresh', hourMs),
     async () => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
       await refreshAllTransactions(false, hours * hourMs);

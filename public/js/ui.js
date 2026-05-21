@@ -750,41 +750,63 @@ const UI = {
             el.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No jobs registered.</p></div>';
             return;
         }
+
+        const fmtInterval = ms => {
+            if (!ms) return 'Manual only';
+            const h = ms / 3_600_000;
+            if (h < 1)  return `Every ${Math.round(h * 60)}m`;
+            if (h < 24) return `Every ${h % 1 === 0 ? h : h.toFixed(1)}h`;
+            const d = h / 24;
+            return `Every ${d % 1 === 0 ? d : d.toFixed(1)}d`;
+        };
+
         el.innerHTML = jobs.map(job => {
-            const isRunning = job.status === 'running';
-            const isFailed  = job.status === 'failed';
-            const statusColor = isRunning ? 'var(--primary)' : isFailed ? 'var(--danger)' : 'var(--success)';
+            const isRunning   = job.status === 'running';
+            const isFailed    = job.status === 'failed';
+            const statusColor = isRunning ? 'var(--primary)' : isFailed ? 'var(--danger)' : job.lastRunAt ? 'var(--success)' : 'var(--text-secondary)';
             const statusLabel = isRunning ? 'Running…' : isFailed ? 'Failed' : job.lastRunAt ? 'Completed' : 'Never run';
-            const lastRun = job.lastRunAt
-                ? new Date(job.lastRunAt).toLocaleString()
-                : '—';
-            const nextRun = job.nextRunAt
-                ? new Date(job.nextRunAt).toLocaleString()
-                : '—';
+            const lastRun  = job.lastRunAt   ? new Date(job.lastRunAt).toLocaleString()  : '—';
+            const nextRun  = job.nextRunAt   ? new Date(job.nextRunAt).toLocaleString()  : '—';
             const duration = job.lastDurationMs != null
                 ? job.lastDurationMs < 1000 ? `${job.lastDurationMs}ms` : `${(job.lastDurationMs / 1000).toFixed(1)}s`
                 : '';
+            const currentHours = job.intervalMs ? job.intervalMs / 3_600_000 : 0;
+
             return `
-            <div class="settings-row" style="align-items:flex-start;gap:1rem;padding:0.75rem 0;border-bottom:1px solid var(--border);">
+            <div style="padding:0.9rem 0;border-bottom:1px solid var(--border);">
+              <div style="display:flex;align-items:flex-start;gap:1rem;">
                 <div style="flex:1;min-width:0;">
-                    <div style="font-weight:600;font-size:0.9rem;">${sanitize(job.label)}</div>
-                    <div class="text-muted text-sm" style="margin-top:0.2rem;">
-                        Last run: ${sanitize(lastRun)}${duration ? ` · ${sanitize(duration)}` : ''}
-                        ${job.lastError ? `<br><span style="color:var(--danger);">${sanitize(job.lastError)}</span>` : ''}
-                    </div>
-                    <div class="text-muted text-sm">Next: ${sanitize(nextRun)}</div>
+                  <div style="font-weight:600;font-size:0.9rem;">${sanitize(job.label)}</div>
+                  <div class="text-muted text-sm" style="margin-top:0.15rem;">
+                    Last run: ${sanitize(lastRun)}${duration ? ` · ${sanitize(duration)}` : ''}
+                    ${job.lastError ? `<br><span style="color:var(--danger);">${sanitize(job.lastError)}</span>` : ''}
+                  </div>
+                  <div class="text-muted text-sm">Next: ${sanitize(nextRun)} &middot; ${sanitize(fmtInterval(job.intervalMs))}</div>
                 </div>
                 <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.4rem;flex-shrink:0;">
-                    <span style="font-size:0.75rem;font-weight:600;color:${statusColor};">
-                        ${isRunning ? '<span class="loader" style="display:inline-block;width:10px;height:10px;border-width:2px;vertical-align:middle;margin-right:4px;"></span>' : ''}
-                        ${sanitize(statusLabel)}
-                    </span>
-                    <button class="btn btn-outline" style="padding:0.25rem 0.75rem;font-size:0.8rem;"
-                        onclick="App.handleTriggerJob('${sanitize(job.name)}')"
-                        ${isRunning ? 'disabled' : ''}>
-                        ${isRunning ? 'Running…' : 'Run now'}
-                    </button>
+                  <span style="font-size:0.75rem;font-weight:600;color:${statusColor};">
+                    ${isRunning ? '<span class="loader" style="display:inline-block;width:10px;height:10px;border-width:2px;vertical-align:middle;margin-right:4px;"></span>' : ''}
+                    ${sanitize(statusLabel)}
+                  </span>
+                  <button class="btn btn-outline" style="padding:0.25rem 0.75rem;font-size:0.8rem;"
+                      onclick="App.handleTriggerJob('${sanitize(job.name)}')"
+                      ${isRunning ? 'disabled' : ''}>
+                    ${isRunning ? 'Running…' : 'Run now'}
+                  </button>
                 </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.65rem;">
+                <label style="font-size:0.8rem;color:var(--text-secondary);white-space:nowrap;">Run every</label>
+                <input id="job-interval-${sanitize(job.name)}"
+                  type="number" min="0" step="0.5"
+                  value="${currentHours}"
+                  style="width:80px;padding:0.25rem 0.5rem;font-size:0.85rem;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-primary);">
+                <label style="font-size:0.8rem;color:var(--text-secondary);">hours &nbsp;(0 = manual only)</label>
+                <button class="btn btn-outline" style="padding:0.25rem 0.65rem;font-size:0.8rem;"
+                    onclick="App.handleUpdateJobSchedule('${sanitize(job.name)}')">
+                  Save
+                </button>
+              </div>
             </div>`;
         }).join('');
     },

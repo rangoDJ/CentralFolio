@@ -781,8 +781,25 @@ const App = {
     async handleTriggerJob(name) {
         try {
             await API.triggerJob(name);
-            UI.showToast(`Job started`);
+            UI.showToast('Job started');
             this.startJobPolling();
+            await this.loadJobsPanel();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async handleUpdateJobSchedule(name) {
+        const input = document.getElementById(`job-interval-${name}`);
+        if (!input) return;
+        const hours = parseFloat(input.value);
+        if (isNaN(hours) || hours < 0) {
+            UI.showToast('Enter a valid number of hours (0 = manual only)', 'error');
+            return;
+        }
+        try {
+            await API.updateJobSchedule(name, hours);
+            UI.showToast(`Schedule saved — ${hours === 0 ? 'manual only' : 'every ' + hours + 'h'}`);
             await this.loadJobsPanel();
         } catch (err) {
             UI.showToast(err.message, 'error');

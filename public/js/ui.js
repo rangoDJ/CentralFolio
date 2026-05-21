@@ -1272,6 +1272,8 @@ const UI = {
     },
 
     openUserPortfolioModal(portfolio, allAccounts) {
+        const errEl = document.getElementById('upErrorMsg');
+        if (errEl) errEl.style.display = 'none';
         const modal = document.getElementById('userPortfolioModal');
         const title = document.getElementById('userPortfolioModalTitle');
         const form  = document.getElementById('userPortfolioForm');

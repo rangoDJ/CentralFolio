@@ -1239,13 +1239,21 @@ const App = {
     async handleUserPortfolioSubmit(e) {
         e.preventDefault();
         const saveBtn = document.getElementById('saveUserPortBtn');
+        const errEl   = document.getElementById('upErrorMsg');
+
+        const showErr = (msg) => {
+            if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+            console.error('[UserPortfolio] Save error:', msg);
+        };
+
+        if (errEl) errEl.style.display = 'none';
         saveBtn.classList.add('loading');
         saveBtn.disabled = true;
 
         const id = document.getElementById('upId').value;
         const name = document.getElementById('upName').value.trim();
         const description = document.getElementById('upDescription').value.trim() || null;
-        const color = document.getElementById('upColor').value;
+        const color = document.getElementById('upColor').value || '#7c3aed';
 
         // Collect selected account IDs
         const accountIds = Array.from(
@@ -1264,7 +1272,7 @@ const App = {
             await this.loadUserPortfolios();
             UI.showToast(id ? 'Portfolio updated' : 'Portfolio created');
         } catch (err) {
-            UI.showToast(err.message, 'error');
+            showErr(err.message || 'Something went wrong. Check browser console.');
         } finally {
             saveBtn.classList.remove('loading');
             saveBtn.disabled = false;

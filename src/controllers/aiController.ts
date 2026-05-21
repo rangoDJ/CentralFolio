@@ -18,7 +18,13 @@ export const chatHandler = async (req: Request, res: Response) => {
     const trimmed = messages.slice(-20);
 
     logger.info("AI", `Chat request — ${trimmed.length} message(s)`);
-    const reply = await provider.chat(systemPrompt, trimmed, AI_TOOLS, executeTool);
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Request timed out after 90 seconds. The dividend lookup may be taking too long — try again.")), 90_000)
+    );
+    const reply = await Promise.race([
+      provider.chat(systemPrompt, trimmed, AI_TOOLS, executeTool),
+      timeout,
+    ]);
     res.json({ reply });
   } catch (err: any) {
     logger.error("AI", `Chat error: ${err.message}`);

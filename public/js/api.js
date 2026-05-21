@@ -290,13 +290,23 @@ const API = {
     },
 
     async chatWithAI(messages) {
-        const res = await this._fetch('/api/ai/chat', {
-            method: 'POST',
-            body: JSON.stringify({ messages })
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'AI request failed');
-        return json.reply;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 95_000);
+        try {
+            const res = await this._fetch('/api/ai/chat', {
+                method: 'POST',
+                body: JSON.stringify({ messages }),
+                signal: controller.signal,
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'AI request failed');
+            return json.reply;
+        } catch (err) {
+            if (err.name === 'AbortError') throw new Error('Request timed out. Try again — dividend data for new symbols can take a moment to fetch.');
+            throw err;
+        } finally {
+            clearTimeout(timer);
+        }
     },
 
     async testAIConnection() {

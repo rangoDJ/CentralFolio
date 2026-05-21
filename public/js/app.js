@@ -532,15 +532,13 @@ const App = {
             this.updateRefreshHint(intervalHours);
 
             // Load dividend provider settings
-            if (settings.dividend_providers) {
-                const providers = JSON.parse(settings.dividend_providers);
-                document.getElementById('provider-yahoo').checked = providers.yahoo !== false;
-                document.getElementById('provider-tiingo').checked = providers.tiingo || false;
-                document.getElementById('provider-eodhd').checked = providers.eodhd || false;
-                document.getElementById('provider-polygon').checked = providers.polygon || false;
-                document.getElementById('provider-alphavantage').checked = providers.alphavantage || false;
-                document.getElementById('provider-finnhub').checked = providers.finnhub || false;
-            }
+            const providers = settings.dividend_providers ? JSON.parse(settings.dividend_providers) : {};
+            document.getElementById('provider-yahoo').checked = providers.yahoo || false;
+            document.getElementById('provider-tiingo').checked = providers.tiingo || false;
+            document.getElementById('provider-eodhd').checked = providers.eodhd || false;
+            document.getElementById('provider-polygon').checked = providers.polygon || false;
+            document.getElementById('provider-alphavantage').checked = providers.alphavantage || false;
+            document.getElementById('provider-finnhub').checked = providers.finnhub || false;
 
             // Load API keys
             if (settings.tiingo_api_key) {

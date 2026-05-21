@@ -33,11 +33,12 @@ export function clearDividendMetadataCache() {
 
 export function getDividendProviders(): Record<string, any> {
   const raw = getSetting("dividend_providers");
-  if (!raw) return { yahoo: true, tiingo: false, eodhd: false, polygon: false, alphavantage: false, finnhub: false };
+  const allDisabled = { yahoo: false, tiingo: false, eodhd: false, polygon: false, alphavantage: false, finnhub: false };
+  if (!raw) return allDisabled;
   try {
-    return JSON.parse(raw);
+    return { ...allDisabled, ...JSON.parse(raw) };
   } catch {
-    return { yahoo: true, tiingo: false, eodhd: false, polygon: false, alphavantage: false, finnhub: false };
+    return allDisabled;
   }
 }
 

@@ -39,6 +39,7 @@ interface AIProvider {
     tools: ToolDefinition[],
     executeTool: ExecuteToolFn
   ): Promise<string>;
+  queryKnowledge(question: string): Promise<string>;
   testConnection(): Promise<void>;
 }
 
@@ -128,10 +129,23 @@ export function buildExecuteTool(): ExecuteToolFn {
         case "get_dividend_metadata": {
           const { symbol } = args;
           const data = await fetchDividendMetadata(symbol);
-          if (!data) {
-            return { success: false, error: `No dividend data found for ${symbol}` };
+          if (data) {
+            return { success: true, source: "financial_provider", symbol, ...data };
           }
-          return { success: true, symbol, ...data };
+          // No financial provider returned data — ask the AI model directly
+          logger.debug("AI", `No provider data for ${symbol}, querying AI knowledge`);
+          try {
+            const provider = createAIProvider();
+            const answer = await provider.queryKnowledge(
+              `Give me the current dividend information for the stock ticker ${symbol}. ` +
+              `Include: annual dividend yield (%), payment frequency (monthly/quarterly/semi-annual/annual), ` +
+              `amount per share per payment, and the most recent ex-dividend date if known. ` +
+              `Be concise and factual. Note if any values are estimates or uncertain.`
+            );
+            return { success: true, source: "ai_knowledge", symbol, summary: answer };
+          } catch (aiErr: any) {
+            return { success: false, error: `No dividend data found for ${symbol} and AI fallback failed: ${aiErr.message}` };
+          }
         }
 
         case "get_all_dividends": {
@@ -260,6 +274,16 @@ class ClaudeProvider implements AIProvider {
     return "Sorry, I reached the maximum number of steps. Please try again.";
   }
 
+  async queryKnowledge(question: string): Promise<string> {
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 512,
+      messages: [{ role: "user", content: question }],
+    });
+    const block = response.content.find((b) => b.type === "text") as Anthropic.TextBlock | undefined;
+    return block?.text ?? "";
+  }
+
   async testConnection(): Promise<void> {
     await this.client.messages.create({
       model: this.model,
@@ -338,6 +362,15 @@ class OpenAIProvider implements AIProvider {
     return "Sorry, I reached the maximum number of steps. Please try again.";
   }
 
+  async queryKnowledge(question: string): Promise<string> {
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [{ role: "user", content: question }],
+      max_tokens: 512,
+    });
+    return response.choices[0]?.message.content ?? "";
+  }
+
   async testConnection(): Promise<void> {
     await this.client.chat.completions.create({
       model: this.model,
@@ -409,6 +442,14 @@ class GeminiProvider implements AIProvider {
     }
 
     return "Sorry, I reached the maximum number of steps. Please try again.";
+  }
+
+  async queryKnowledge(question: string): Promise<string> {
+    const response = await this.ai.models.generateContent({
+      model: this.model,
+      contents: [{ role: "user", parts: [{ text: question }] }],
+    });
+    return response.candidates?.[0]?.content?.parts?.find((p: any) => p.text)?.text ?? "";
   }
 
   async testConnection(): Promise<void> {

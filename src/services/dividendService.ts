@@ -452,7 +452,7 @@ async function fetchFromFinnhub(symbol: string): Promise<any> {
 /**
  * Helper to fetch dividend metadata with multiple provider fallback
  */
-async function fetchDividendMetadata(symbol: string): Promise<any> {
+export async function fetchDividendMetadata(symbol: string): Promise<any> {
   const now = Date.now();
 
   // 1. Check in-memory Cache

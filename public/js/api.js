@@ -287,5 +287,22 @@ const API = {
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Failed to update accounts');
         return json;
-    }
+    },
+
+    async chatWithAI(messages) {
+        const res = await this._fetch('/api/ai/chat', {
+            method: 'POST',
+            body: JSON.stringify({ messages })
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'AI request failed');
+        return json.reply;
+    },
+
+    async testAIConnection() {
+        const res = await this._fetch('/api/ai/test', { method: 'POST' });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Connection test failed');
+        return json;
+    },
 };

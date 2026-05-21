@@ -795,17 +795,18 @@ const UI = {
                   </button>
                 </div>
               </div>
-              <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.65rem;">
-                <label style="font-size:0.8rem;color:var(--text-secondary);white-space:nowrap;">Run every</label>
+              <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.65rem;flex-wrap:nowrap;">
+                <span style="font-size:0.8rem;color:var(--text-secondary);white-space:nowrap;">Run every</span>
                 <input id="job-interval-${sanitize(job.name)}"
                   type="number" min="0" step="0.5"
                   value="${currentHours}"
-                  style="width:80px;padding:0.25rem 0.5rem;font-size:0.85rem;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-primary);">
-                <label style="font-size:0.8rem;color:var(--text-secondary);">hours &nbsp;(0 = manual only)</label>
-                <button class="btn btn-outline" style="padding:0.25rem 0.65rem;font-size:0.8rem;"
+                  style="width:72px;padding:0.25rem 0.4rem;font-size:0.85rem;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-primary);">
+                <span style="font-size:0.8rem;color:var(--text-secondary);white-space:nowrap;">hrs</span>
+                <button class="btn btn-outline" style="padding:0.25rem 0.65rem;font-size:0.8rem;white-space:nowrap;"
                     onclick="App.handleUpdateJobSchedule('${sanitize(job.name)}')">
                   Save
                 </button>
+                <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">0 = manual only</span>
               </div>
             </div>`;
         }).join('');

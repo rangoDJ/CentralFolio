@@ -1224,5 +1224,121 @@ const UI = {
         });
 
         container.innerHTML = html;
-    }
+    },
+
+    // ── User Portfolio UI ──────────────────────────────────────────────────────
+
+    _UP_COLORS: [
+        '#7c3aed', '#2563eb', '#0891b2', '#059669', '#d97706',
+        '#dc2626', '#db2777', '#7c3aed', '#4f46e5', '#0284c7'
+    ],
+
+    renderUserPortfolios(portfolios, accountMap = {}) {
+        const list = document.getElementById('userPortfolioList');
+        if (!list) return;
+
+        if (!portfolios || portfolios.length === 0) {
+            list.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No portfolios yet. Click <strong>+ New Portfolio</strong> to create one.</p></div>';
+            return;
+        }
+
+        list.innerHTML = portfolios.map(p => {
+            const acctCount = (p.accountIds || []).length;
+            return `
+            <div class="portfolio-item" style="border-left:3px solid ${sanitize(p.color)};padding-left:0.85rem;">
+              <div class="portfolio-item-top">
+                <div style="display:flex;align-items:center;gap:0.65rem;min-width:0;">
+                  <div style="width:12px;height:12px;border-radius:50%;background:${sanitize(p.color)};flex-shrink:0;"></div>
+                  <div style="min-width:0;">
+                    <div class="portfolio-item-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(p.name)}</div>
+                    ${p.description ? `<div style="font-size:0.78rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(p.description)}</div>` : ''}
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0;">
+                  <span class="text-muted" style="font-size:0.78rem;white-space:nowrap;">${acctCount} account${acctCount !== 1 ? 's' : ''}</span>
+                  <button class="btn btn-outline btn-sm" onclick="App.openUserPortfolioModal(${p.id})">Edit</button>
+                  <button class="btn btn-danger btn-sm" onclick="App.deleteUserPortfolio(${p.id})">Delete</button>
+                </div>
+              </div>
+              ${acctCount > 0 ? `
+              <div style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.35rem;">
+                ${(p.accountIds || []).map(aid => {
+                    const name = accountMap[aid] || aid;
+                    return `<span style="font-size:0.73rem;padding:0.15rem 0.55rem;border-radius:4px;background:var(--surface-2);color:var(--text-secondary);border:1px solid var(--border);">${sanitize(name)}</span>`;
+                }).join('')}
+              </div>` : `<div style="margin-top:0.4rem;font-size:0.78rem;color:var(--text-secondary);font-style:italic;">No accounts assigned</div>`}
+            </div>`;
+        }).join('');
+    },
+
+    openUserPortfolioModal(portfolio, allAccounts) {
+        const modal = document.getElementById('userPortfolioModal');
+        const title = document.getElementById('userPortfolioModalTitle');
+        const form  = document.getElementById('userPortfolioForm');
+
+        form.reset();
+        document.getElementById('upId').value = portfolio ? portfolio.id : '';
+        document.getElementById('upName').value = portfolio ? portfolio.name : '';
+        document.getElementById('upDescription').value = portfolio ? (portfolio.description || '') : '';
+
+        const currentColor = (portfolio && portfolio.color) ? portfolio.color : '#7c3aed';
+        document.getElementById('upColor').value = currentColor;
+        title.textContent = portfolio ? 'Edit Portfolio' : 'New Portfolio';
+
+        // Render color swatches
+        const swatchContainer = document.getElementById('upColorSwatches');
+        const colors = this._UP_COLORS;
+        swatchContainer.innerHTML = colors.map(c => `
+          <div class="color-swatch${c === currentColor ? ' selected' : ''}"
+               style="width:24px;height:24px;border-radius:50%;background:${c};cursor:pointer;border:2px solid ${c === currentColor ? '#fff' : 'transparent'};box-shadow:${c === currentColor ? '0 0 0 2px ' + c : 'none'};"
+               onclick="UI._selectColor('${c}', this)">
+          </div>`).join('') + `<input type="color" id="upColorPicker" value="${currentColor}"
+            style="width:26px;height:26px;border:none;background:none;cursor:pointer;padding:0;"
+            oninput="UI._selectColor(this.value, null)" title="Custom color">`;
+
+        // Render account checkboxes grouped by brokerage connection
+        const checkboxContainer = document.getElementById('upAccountCheckboxes');
+        const selectedIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+
+        // allAccounts is an array of { portfolioId, portfolioName, accounts: [...] }
+        const hasAny = Array.isArray(allAccounts) && allAccounts.some(g => g.accounts && g.accounts.length > 0);
+        if (!hasAny) {
+            checkboxContainer.innerHTML = '<span class="text-muted text-sm">No accounts found. Add a brokerage connection first.</span>';
+        } else {
+            checkboxContainer.innerHTML = allAccounts
+                .filter(g => g.accounts && g.accounts.length > 0)
+                .map(g => `
+                  <div style="margin-bottom:0.6rem;">
+                    <div style="font-size:0.73rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem;">${sanitize(g.portfolioName || 'Unknown Connection')}</div>
+                    ${g.accounts.map(a => `
+                      <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;padding:0.2rem 0;font-size:0.875rem;">
+                        <input type="checkbox" value="${sanitize(a.id)}" ${selectedIds.has(a.id) ? 'checked' : ''} style="width:14px;height:14px;">
+                        <span>${sanitize(a.customName || a.name || a.id)}</span>
+                        ${a.number ? `<span class="text-muted" style="font-size:0.75rem;">&middot; ${sanitize(a.number)}</span>` : ''}
+                        ${a.type ? `<span class="text-muted" style="font-size:0.73rem;">${sanitize(a.type)}</span>` : ''}
+                      </label>`).join('')}
+                  </div>`).join('');
+        }
+
+        modal.classList.add('open');
+    },
+
+    _selectColor(color, swatchEl) {
+        document.getElementById('upColor').value = color;
+        document.querySelectorAll('#upColorSwatches .color-swatch').forEach(s => {
+            s.style.border = '2px solid transparent';
+            s.style.boxShadow = 'none';
+        });
+        if (swatchEl && swatchEl.classList) {
+            swatchEl.style.border = '2px solid #fff';
+            swatchEl.style.boxShadow = `0 0 0 2px ${color}`;
+        }
+        const picker = document.getElementById('upColorPicker');
+        if (picker) picker.value = color;
+    },
+
+    closeUserPortfolioModal() {
+        const modal = document.getElementById('userPortfolioModal');
+        if (modal) modal.classList.remove('open');
+    },
 };

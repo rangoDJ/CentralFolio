@@ -321,11 +321,28 @@
 
         <div class="underline-tabs">
           <button class="underline-tab active" data-tab="portfolios" onclick="App.switchSettingsTab('portfolios', this)">Portfolios</button>
-          <button class="underline-tab" data-tab="keys" onclick="App.switchSettingsTab('keys', this)">Key Management</button>
+          <button class="underline-tab" data-tab="connections" onclick="App.switchSettingsTab('connections', this)">Brokerage Connections</button>
+          <button class="underline-tab" data-tab="keys" onclick="App.switchSettingsTab('keys', this)">Keys &amp; Providers</button>
         </div>
 
-        <!-- Portfolios pane -->
+        <!-- Portfolios pane (custom grouping) -->
         <div id="settings-portfolios-pane" class="pane active">
+          <div class="card mb-3">
+            <div class="card-header">
+              <span class="card-title">My Portfolios</span>
+              <button id="addUserPortfolioBtn" class="btn btn-primary btn-sm" onclick="App.openUserPortfolioModal()">
+                + New Portfolio
+              </button>
+            </div>
+            <p class="text-muted text-sm mb-3">Create custom portfolios to group your brokerage accounts. Each portfolio can contain accounts from multiple brokerage connections.</p>
+            <div id="userPortfolioList">
+              <div class="empty-state"><p>No portfolios yet. Create one to get started.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Brokerage Connections pane -->
+        <div id="settings-connections-pane" class="pane">
           <!-- Security -->
           <div class="card mb-3">
             <div class="card-header" style="margin-bottom:0.75rem;">
@@ -374,10 +391,10 @@
             </div>
           </div>
 
-          <!-- Accounts -->
+          <!-- Accounts by brokerage connection -->
           <div class="card">
             <div class="card-header">
-              <span class="card-title">Accounts by Portfolio</span>
+              <span class="card-title">Accounts by Connection</span>
               <button id="refreshBtn" class="btn btn-outline btn-sm">Refresh All</button>
             </div>
             <div id="accountContainer">
@@ -386,18 +403,18 @@
           </div>
         </div>
 
-        <!-- Keys pane -->
+        <!-- Keys & Providers pane -->
         <div id="settings-keys-pane" class="pane">
           <div style="display:grid;grid-template-columns:1fr 340px;gap:1.5rem;align-items:start;">
 
             <div>
-              <!-- Portfolio list -->
+              <!-- Brokerage Connections list -->
               <div class="card mb-3">
                 <div class="card-header">
-                  <span class="card-title">Portfolios / Local Keys</span>
-                  <button id="addPortfolioBtn" class="btn btn-primary btn-sm">Add New</button>
+                  <span class="card-title">Brokerage Connections</span>
+                  <button id="addPortfolioBtn" class="btn btn-primary btn-sm">Add Connection</button>
                 </div>
-                <p class="text-muted text-sm mb-2">Manage locally configured portfolios and SnapTrade API credentials.</p>
+                <p class="text-muted text-sm mb-2">Manage SnapTrade brokerage connections and API credentials.</p>
                 <div id="portfolioList"></div>
               </div>
 
@@ -554,6 +571,42 @@
           <input type="password" id="userSecret" placeholder="Existing SnapTrade User Secret">
         </div>
         <button type="submit" id="savePortBtn" class="btn btn-primary w-full">
+          <span class="loader"></span>
+          <span class="btn-text">Save Portfolio</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- User Portfolio Modal -->
+  <div id="userPortfolioModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:500px;">
+      <button class="modal-close" id="userPortfolioModalClose">&times;</button>
+      <h2 class="modal-title" id="userPortfolioModalTitle">New Portfolio</h2>
+      <form id="userPortfolioForm">
+        <input type="hidden" id="upId">
+        <div class="form-group">
+          <label for="upName">Portfolio Name</label>
+          <input type="text" id="upName" placeholder="e.g. Retirement, Growth, TFSA" required>
+        </div>
+        <div class="form-group">
+          <label for="upDescription">Description <span class="text-muted">(optional)</span></label>
+          <input type="text" id="upDescription" placeholder="Short description">
+        </div>
+        <div class="form-group">
+          <label>Color</label>
+          <div id="upColorSwatches" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.25rem;">
+            <input type="hidden" id="upColor" value="#7c3aed">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Assign Accounts</label>
+          <p class="text-muted text-sm" style="margin-bottom:0.5rem;">Select which brokerage accounts belong to this portfolio.</p>
+          <div id="upAccountCheckboxes" style="display:flex;flex-direction:column;gap:0.4rem;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.6rem;">
+            <span class="text-muted text-sm">Loading accounts…</span>
+          </div>
+        </div>
+        <button type="submit" id="saveUserPortBtn" class="btn btn-primary w-full">
           <span class="loader"></span>
           <span class="btn-text">Save Portfolio</span>
         </button>

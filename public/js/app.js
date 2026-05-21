@@ -42,11 +42,21 @@ const App = {
             this.loadPortfolios(),
             this.loadSettings()
         ]);
+
+        // Load data for whichever settings pane is active at startup
+        const activeSettingsTab = localStorage.getItem('activeSettingsTab') || 'portfolios';
+        if (activeSettingsTab === 'portfolios') {
+            this.loadUserPortfolios();
+        }
     },
 
     setupEventListeners() {
         document.getElementById('addPortfolioBtn').onclick = () => UI.openModal();
         document.querySelector('.modal-close').onclick = () => UI.closeModal();
+
+        // User portfolio modal
+        document.getElementById('userPortfolioModalClose').onclick = () => UI.closeUserPortfolioModal();
+        document.getElementById('userPortfolioForm').onsubmit = (e) => this.handleUserPortfolioSubmit(e);
 
         document.getElementById('tradeModalClose').onclick = () => this.closeTradeModal();
 
@@ -71,6 +81,7 @@ const App = {
         window.onclick = (e) => {
             if (e.target === UI.portfolioModal) UI.closeModal();
             if (e.target === document.getElementById('tradeModal')) this.closeTradeModal();
+            if (e.target === document.getElementById('userPortfolioModal')) UI.closeUserPortfolioModal();
         };
 
         UI.portfolioForm.onsubmit = (e) => this.handlePortfolioSubmit(e);
@@ -1079,7 +1090,7 @@ const App = {
         const activePane = document.getElementById('settings-' + paneId + '-pane');
         if (activePane) activePane.classList.add('active');
 
-        // If switching to Keys tab, fetch and render portfolios from database
+        // Load data based on which pane was activated
         if (paneId === 'keys') {
             try {
                 this.activePortfolios = await API.getPortfolios();
@@ -1087,6 +1098,10 @@ const App = {
             } catch (err) {
                 console.error('Failed to load portfolios:', err);
             }
+        } else if (paneId === 'portfolios') {
+            this.loadUserPortfolios();
+        } else if (paneId === 'connections') {
+            this.fetchAccounts();
         }
     },
 
@@ -1178,6 +1193,92 @@ const App = {
             }
         } catch (err) {
             container.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    // ── User Portfolio Management ─────────────────────────────────────────────
+
+    userPortfolios: [],
+
+    async loadUserPortfolios() {
+        const list = document.getElementById('userPortfolioList');
+        if (!list) return;
+        list.innerHTML = '<div class="empty-state"><p>Loading…</p></div>';
+        try {
+            const [portfolios, accountGroups] = await Promise.all([
+                API.getUserPortfolios(),
+                API.getAccounts().catch(() => [])
+            ]);
+            this.userPortfolios = portfolios;
+
+            // Build flat account map: id → displayName
+            const accountMap = {};
+            (accountGroups || []).forEach(g => {
+                (g.accounts || []).forEach(a => {
+                    accountMap[a.id] = a.customName || a.name || a.id;
+                });
+            });
+
+            UI.renderUserPortfolios(portfolios, accountMap);
+        } catch (err) {
+            list.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    async openUserPortfolioModal(id = null) {
+        // Fetch latest accounts to populate checkboxes
+        let accounts = [];
+        try {
+            accounts = await API.getAccounts();
+        } catch (e) { /* ignore */ }
+
+        const portfolio = id != null ? this.userPortfolios.find(p => p.id === id) : null;
+        UI.openUserPortfolioModal(portfolio, accounts);
+    },
+
+    async handleUserPortfolioSubmit(e) {
+        e.preventDefault();
+        const saveBtn = document.getElementById('saveUserPortBtn');
+        saveBtn.classList.add('loading');
+        saveBtn.disabled = true;
+
+        const id = document.getElementById('upId').value;
+        const name = document.getElementById('upName').value.trim();
+        const description = document.getElementById('upDescription').value.trim() || null;
+        const color = document.getElementById('upColor').value;
+
+        // Collect selected account IDs
+        const accountIds = Array.from(
+            document.querySelectorAll('#upAccountCheckboxes input[type="checkbox"]:checked')
+        ).map(cb => cb.value);
+
+        try {
+            let portfolio;
+            if (id) {
+                portfolio = await API.updateUserPortfolio(parseInt(id), { name, description, color });
+            } else {
+                portfolio = await API.createUserPortfolio({ name, description, color });
+            }
+            await API.setUserPortfolioAccounts(portfolio.id, accountIds);
+            UI.closeUserPortfolioModal();
+            await this.loadUserPortfolios();
+            UI.showToast(id ? 'Portfolio updated' : 'Portfolio created');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            saveBtn.classList.remove('loading');
+            saveBtn.disabled = false;
+        }
+    },
+
+    async deleteUserPortfolio(id) {
+        if (!confirm('Delete this portfolio? The brokerage accounts will not be affected.')) return;
+        try {
+            await API.deleteUserPortfolio(id);
+            await this.loadUserPortfolios();
+            UI.showToast('Portfolio deleted');
+        } catch (err) {
+            UI.showToast('Delete failed: ' + err.message, 'error');
         }
     },
 };

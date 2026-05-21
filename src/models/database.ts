@@ -88,6 +88,25 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_portfolios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    color TEXT NOT NULL DEFAULT '#7c3aed',
+    createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_portfolio_accounts (
+    portfolio_id INTEGER NOT NULL,
+    account_id TEXT NOT NULL,
+    PRIMARY KEY (portfolio_id, account_id),
+    FOREIGN KEY (portfolio_id) REFERENCES user_portfolios (id) ON DELETE CASCADE
+  )
+`);
+
 // ── Migrations ────────────────────────────────────────────────────────────────
 
 const migrations: Array<{ name: string; sql: string }> = [

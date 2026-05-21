@@ -245,5 +245,47 @@ const API = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Cache invalidation failed');
         return data;
+    },
+
+    async getUserPortfolios() {
+        const res = await this._fetch('/api/user-portfolios');
+        if (!res.ok) throw new Error('Failed to load portfolios');
+        return await res.json();
+    },
+
+    async createUserPortfolio(data) {
+        const res = await this._fetch('/api/user-portfolios', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to create portfolio');
+        return json;
+    },
+
+    async updateUserPortfolio(id, data) {
+        const res = await this._fetch(`/api/user-portfolios/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to update portfolio');
+        return json;
+    },
+
+    async deleteUserPortfolio(id) {
+        const res = await this._fetch(`/api/user-portfolios/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Failed to delete portfolio');
+        return true;
+    },
+
+    async setUserPortfolioAccounts(id, accountIds) {
+        const res = await this._fetch(`/api/user-portfolios/${id}/accounts`, {
+            method: 'PUT',
+            body: JSON.stringify({ accountIds })
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to update accounts');
+        return json;
     }
 };

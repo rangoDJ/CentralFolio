@@ -449,6 +449,38 @@ async function fetchFromFinnhub(symbol: string): Promise<any> {
   }
 }
 
+async function fetchFromAI(symbol: string): Promise<any> {
+  const { createAIProvider } = await import("./aiService.js");
+  const provider = createAIProvider();
+
+  const question =
+    `For the stock ticker "${symbol}", provide dividend information as a single JSON object with these fields:\n` +
+    `  frequency (string: "monthly", "quarterly", "semi-annual", "annual", or "none"),\n` +
+    `  amountPerShare (number, most recent dividend amount, or 0 if none),\n` +
+    `  lastExDate (string in YYYY-MM-DD format, or null if unknown),\n` +
+    `  name (string, company name).\n` +
+    `If this stock does not pay dividends, set frequency to "none" and amountPerShare to 0.\n` +
+    `Respond with ONLY the JSON object, no explanation.`;
+
+  try {
+    const raw = await provider.queryKnowledge(question);
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const parsed = JSON.parse(match[0]);
+    if (!parsed.frequency || parsed.frequency === "none") return null;
+    return {
+      frequency: parsed.frequency ?? null,
+      lastExDate: parsed.lastExDate ?? null,
+      amountPerShare: typeof parsed.amountPerShare === "number" ? parsed.amountPerShare : null,
+      name: parsed.name ?? symbol,
+      timestamp: Date.now(),
+    };
+  } catch (err: any) {
+    logger.warn("AI", `fetchFromAI(${symbol}) failed: ${err.message}`);
+    return null;
+  }
+}
+
 /**
  * Helper to fetch dividend metadata with multiple provider fallback
  */
@@ -501,6 +533,7 @@ export async function fetchDividendMetadata(symbol: string): Promise<any> {
   //     EODHD →
   //     Polygon / AlphaVantage / Finnhub →
   //     Yahoo last (avoid burning Yahoo quota on US symbols)
+  const aiEnabled = !!getSetting("ai_provider");
   const providerOrder = isCanadian
     ? [
         { name: 'eodhd',        enabled: providers.eodhd,        fn: fetchFromEODHD },
@@ -509,6 +542,7 @@ export async function fetchDividendMetadata(symbol: string): Promise<any> {
         { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
         { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
         { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
+        { name: 'ai',           enabled: aiEnabled,              fn: fetchFromAI },
       ]
     : [
         { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
@@ -517,6 +551,7 @@ export async function fetchDividendMetadata(symbol: string): Promise<any> {
         { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
         { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
         { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
+        { name: 'ai',           enabled: aiEnabled,              fn: fetchFromAI },
       ];
 
   logger.debug('Dividend', `${symbol} — routing: ${isCanadian ? 'Canadian' : 'US'} → [${providerOrder.filter(p => p.enabled).map(p => p.name).join(', ')}]`);

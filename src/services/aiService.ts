@@ -4,7 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 import { getSetting } from "../repositories/settingsRepository.js";
 import { listPortfolios } from "../repositories/portfolioRepository.js";
 import { getCachedAccounts, getCachedPositions } from "../repositories/accountRepository.js";
-import { fetchDividendMetadata, getCachedAllDividends, getDividendForecastForAccount } from "./dividendService.js";
+import { getCachedAllDividends, getDividendForecastForAccount } from "./dividendService.js";
 import { logger } from "../utils/logger.js";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -65,21 +65,6 @@ export const AI_TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "get_dividend_metadata",
-    description:
-      "Get dividend information (yield, frequency, amount per share, ex-date) for a stock symbol",
-    parameters: {
-      type: "object",
-      properties: {
-        symbol: {
-          type: "string",
-          description: "Stock ticker symbol, e.g. AAPL or TD.TO",
-        },
-      },
-      required: ["symbol"],
-    },
-  },
-  {
     name: "get_all_dividends",
     description:
       "Get all upcoming dividend events across all portfolios and accounts",
@@ -124,28 +109,6 @@ export function buildExecuteTool(): ExecuteToolFn {
           const { accountId } = args;
           const positions = getCachedPositions(accountId);
           return { accountId, positions };
-        }
-
-        case "get_dividend_metadata": {
-          const { symbol } = args;
-          const data = await fetchDividendMetadata(symbol);
-          if (data) {
-            return { success: true, source: "financial_provider", symbol, ...data };
-          }
-          // No financial provider returned data — ask the AI model directly
-          logger.debug("AI", `No provider data for ${symbol}, querying AI knowledge`);
-          try {
-            const provider = createAIProvider();
-            const answer = await provider.queryKnowledge(
-              `Give me the current dividend information for the stock ticker ${symbol}. ` +
-              `Include: annual dividend yield (%), payment frequency (monthly/quarterly/semi-annual/annual), ` +
-              `amount per share per payment, and the most recent ex-dividend date if known. ` +
-              `Be concise and factual. Note if any values are estimates or uncertain.`
-            );
-            return { success: true, source: "ai_knowledge", symbol, summary: answer };
-          } catch (aiErr: any) {
-            return { success: false, error: `No dividend data found for ${symbol} and AI fallback failed: ${aiErr.message}` };
-          }
         }
 
         case "get_all_dividends": {

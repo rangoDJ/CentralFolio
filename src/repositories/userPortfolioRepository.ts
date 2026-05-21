@@ -1,4 +1,4 @@
-import { db } from "../models/db.js";
+import { db } from "../models/database.js";
 
 export interface UserPortfolio {
   id: number;

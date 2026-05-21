@@ -69,8 +69,7 @@ app.listen(port, () => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
       await refreshAllHoldings(hours * hourMs);
     },
-    true,
-    10_000
+    false
   );
 
   registerJob(
@@ -81,7 +80,6 @@ app.listen(port, () => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
       await refreshAllTransactions(false, hours * hourMs);
     },
-    true,
-    15_000
+    false
   );
 });

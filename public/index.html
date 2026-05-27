@@ -289,6 +289,45 @@
               </button>
             </div>
           </div>
+
+          <!-- AI / Manual lookup panel -->
+          <div id="divLookupPanel" style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;">
+            <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.75rem;">AI Dividend Lookup</div>
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+              <input type="text" id="divLookupSymbol" placeholder="Ticker (e.g. VFV.TO)" maxlength="20"
+                style="padding:0.35rem 0.7rem;font-size:0.9rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-primary);width:160px;font-family:monospace;text-transform:uppercase;"
+                onkeydown="if(event.key==='Enter')App.divLookupFetchAI()">
+              <button class="btn btn-primary btn-sm" id="divLookupFetchBtn" onclick="App.divLookupFetchAI()">Fetch with AI</button>
+              <span id="divLookupStatus" style="font-size:0.82rem;color:var(--text-secondary);"></span>
+            </div>
+            <!-- Result / edit form — hidden until AI returns data -->
+            <div id="divLookupResult" style="display:none;margin-top:1rem;padding-top:0.85rem;border-top:1px solid var(--border);">
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0.65rem 1rem;">
+                <label style="font-size:0.8rem;color:var(--text-secondary);">Name
+                  <input type="text" id="divLookupName" style="display:block;width:100%;margin-top:0.2rem;padding:0.3rem 0.5rem;font-size:0.85rem;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text-primary);">
+                </label>
+                <label style="font-size:0.8rem;color:var(--text-secondary);">Frequency
+                  <select id="divLookupFreq" style="display:block;width:100%;margin-top:0.2rem;padding:0.3rem 0.5rem;font-size:0.85rem;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text-primary);">
+                    <option value="12">Monthly (12×/yr)</option>
+                    <option value="4">Quarterly (4×/yr)</option>
+                    <option value="2">Semi-annual (2×/yr)</option>
+                    <option value="1">Annual (1×/yr)</option>
+                  </select>
+                </label>
+                <label style="font-size:0.8rem;color:var(--text-secondary);">Amount / Share ($)
+                  <input type="number" id="divLookupAmount" min="0" step="0.0001" style="display:block;width:100%;margin-top:0.2rem;padding:0.3rem 0.5rem;font-size:0.85rem;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text-primary);">
+                </label>
+                <label style="font-size:0.8rem;color:var(--text-secondary);">Last Ex-Date
+                  <input type="date" id="divLookupExDate" style="display:block;width:100%;margin-top:0.2rem;padding:0.3rem 0.5rem;font-size:0.85rem;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text-primary);">
+                </label>
+              </div>
+              <div style="display:flex;gap:0.5rem;margin-top:0.85rem;">
+                <button class="btn btn-primary btn-sm" onclick="App.divLookupSave()">Save to Database</button>
+                <button class="btn btn-outline btn-sm" onclick="App.divLookupClear()">Clear</button>
+              </div>
+            </div>
+          </div>
+
           <div id="dividend-database-content">
             <div class="empty-state">Loading…</div>
           </div>

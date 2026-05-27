@@ -453,6 +453,11 @@ const FREQ_STRING_TO_NUMBER: Record<string, number> = {
 
 const SAFE_SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
 
+// Strip exchange suffixes for ticker comparison (e.g. VFV.TO → VFV)
+function normalizeTickerForComparison(ticker: string): string {
+  return ticker.toUpperCase().replace(/\.(TO|TSX|V|CN|NEO|NYSE|NASDAQ|AMEX|L|PA|DE|HK)$/i, '');
+}
+
 async function fetchFromAI(symbol: string): Promise<any> {
   if (!SAFE_SYMBOL_RE.test(symbol)) {
     logger.warn("AI", `fetchFromAI — rejected unsafe symbol: "${symbol}"`);
@@ -464,19 +469,33 @@ async function fetchFromAI(symbol: string): Promise<any> {
   const provider = createAIProvider();
 
   const question =
-    `For the stock ticker "${symbol}", provide dividend information as a single JSON object with these fields:\n` +
-    `  frequency (string: "monthly", "quarterly", "semi-annual", "annual", or "none"),\n` +
-    `  amountPerShare (number, most recent dividend amount, or 0 if none),\n` +
-    `  lastExDate (string in YYYY-MM-DD format, or null if unknown),\n` +
-    `  name (string, company name).\n` +
-    `If this stock does not pay dividends, set frequency to "none" and amountPerShare to 0.\n` +
-    `Respond with ONLY the JSON object, no explanation.`;
+    `You are a financial data assistant. Provide dividend information for the stock ticker "${symbol}".\n\n` +
+    `IMPORTANT: Respond ONLY for the ticker "${symbol}". Do not substitute or confuse it with any other ticker.\n\n` +
+    `Return a single JSON object with exactly these fields:\n` +
+    `  "ticker": must be exactly "${symbol}",\n` +
+    `  "name": full company or fund name (string),\n` +
+    `  "frequency": one of "monthly", "quarterly", "semi-annual", "annual", or "none",\n` +
+    `  "amountPerShare": most recent dividend per share as a number (0 if none),\n` +
+    `  "lastExDate": most recent ex-dividend date in YYYY-MM-DD format, or null if unknown.\n\n` +
+    `If "${symbol}" does not pay dividends, set frequency to "none" and amountPerShare to 0.\n` +
+    `Respond with ONLY the JSON object. No explanation, no markdown fences.`;
 
   try {
     const raw = await provider.queryKnowledge(question);
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return null;
     const parsed = JSON.parse(match[0]);
+
+    // Validate the AI responded for the correct ticker
+    if (parsed.ticker) {
+      const got = normalizeTickerForComparison(String(parsed.ticker));
+      const want = normalizeTickerForComparison(symbol);
+      if (got !== want) {
+        logger.warn("AI", `fetchFromAI(${symbol}) — ticker mismatch in response: got "${parsed.ticker}", rejecting`);
+        return null;
+      }
+    }
+
     const freqNum = FREQ_STRING_TO_NUMBER[parsed.frequency];
     if (!freqNum) return null;
     return {
@@ -490,6 +509,11 @@ async function fetchFromAI(symbol: string): Promise<any> {
     logger.warn("AI", `fetchFromAI(${symbol}) failed: ${err.message}`);
     return null;
   }
+}
+
+// Exported so controllers can trigger a one-off AI lookup for a specific symbol
+export async function lookupDividendWithAI(symbol: string): Promise<any> {
+  return fetchFromAI(symbol);
 }
 
 /**

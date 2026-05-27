@@ -27,6 +27,11 @@ export function getAllCachedDividendMetadata(): any[] {
   return db.prepare("SELECT * FROM dividend_metadata ORDER BY cachedAt DESC").all();
 }
 
+export function deleteCachedDividendMetadata(symbol: string): boolean {
+  const result = db.prepare("DELETE FROM dividend_metadata WHERE symbol = ?").run(symbol);
+  return result.changes > 0;
+}
+
 export function clearDividendMetadataCache() {
   db.prepare("DELETE FROM dividend_metadata").run();
 }

@@ -134,6 +134,30 @@ const API = {
         return data;
     },
 
+    async aiFetchDividendMetadata(symbol) {
+        const res = await this._fetch(`/api/portfolios/dividend-metadata/${encodeURIComponent(symbol)}/ai-fetch`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `AI lookup failed for ${symbol}`);
+        return data;
+    },
+
+    async saveDividendMetadata(symbol, payload) {
+        const res = await this._fetch(`/api/portfolios/dividend-metadata/${encodeURIComponent(symbol)}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to save dividend metadata');
+        return data;
+    },
+
+    async deleteDividendMetadata(symbol) {
+        const res = await this._fetch(`/api/portfolios/dividend-metadata/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `Failed to delete ${symbol}`);
+        return data;
+    },
+
     async getJobs() {
         const res = await this._fetch('/api/jobs');
         if (!res.ok) throw new Error('Failed to fetch jobs');

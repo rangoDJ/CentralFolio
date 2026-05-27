@@ -1152,6 +1152,9 @@ const App = {
                 badgeEl.style.color = eodhd.used >= 18 ? 'var(--danger)' : 'var(--text-secondary)';
             }
 
+            const freqLabel = f => ({ 1: 'Annual', 2: 'Semi-annual', 4: 'Quarterly', 12: 'Monthly' }[f] || f || '—');
+            const providerBadgeColor = p => ({ yahoo: '#7e57c2', tiingo: '#42a5f5', eodhd: '#26a69a', polygon: '#ff7043', alphavantage: '#66bb6a', finnhub: '#ffa726', manual: '#555', ai: '#9c27b0' }[p] || '#888');
+
             const render = (filter) => {
                 const filtered = filter
                     ? rows.filter(r => r.symbol.toLowerCase().includes(filter) || (r.name || '').toLowerCase().includes(filter))
@@ -1162,9 +1165,6 @@ const App = {
                     return;
                 }
 
-                const freqLabel = f => ({ 1: 'Annual', 2: 'Semi-annual', 4: 'Quarterly', 12: 'Monthly' }[f] || f || '—');
-                const providerBadgeColor = p => ({ yahoo: '#7e57c2', tiingo: '#42a5f5', eodhd: '#26a69a', polygon: '#ff7043', alphavantage: '#66bb6a', finnhub: '#ffa726' }[p] || '#888');
-
                 container.innerHTML = `
                 <div style="overflow-x:auto;">
                 <table class="data-table" style="width:100%;font-size:0.85rem;">
@@ -1172,17 +1172,22 @@ const App = {
                     <th>Symbol</th><th>Name</th><th>Provider</th>
                     <th style="text-align:right;">Amount/Share</th>
                     <th>Frequency</th><th>Last Ex-Date</th><th>Cached</th>
+                    <th></th>
                   </tr></thead>
                   <tbody>
                   ${filtered.map(r => `
-                    <tr>
+                    <tr data-symbol="${sanitize(r.symbol)}">
                       <td style="font-weight:600;font-family:monospace;">${sanitize(r.symbol)}</td>
-                      <td style="color:var(--text-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${sanitize(r.name || '—')}</td>
+                      <td style="color:var(--text-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${sanitize(r.name || '')}">${sanitize(r.name || '—')}</td>
                       <td><span style="font-size:0.72rem;padding:0.15rem 0.5rem;border-radius:4px;background:${providerBadgeColor(r.provider)};color:#fff;font-weight:600;">${sanitize(r.provider || '?')}</span></td>
                       <td style="text-align:right;font-variant-numeric:tabular-nums;">$${r.amountPerShare != null ? Number(r.amountPerShare).toFixed(4) : '—'}</td>
                       <td>${freqLabel(r.frequency)}</td>
                       <td style="font-family:monospace;font-size:0.8rem;">${sanitize(r.lastExDate || '—')}</td>
                       <td style="color:var(--text-secondary);font-size:0.78rem;">${r.cachedAt ? new Date(r.cachedAt).toLocaleDateString() : '—'}</td>
+                      <td style="white-space:nowrap;">
+                        <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:0.15rem 0.5rem;" onclick="App.divRowRefetchAI('${sanitize(r.symbol)}')" title="Re-fetch with AI">AI</button>
+                        <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:0.15rem 0.5rem;color:var(--danger);border-color:var(--danger);" onclick="App.divRowDelete('${sanitize(r.symbol)}')" title="Delete entry">✕</button>
+                      </td>
                     </tr>`).join('')}
                   </tbody>
                 </table></div>`;
@@ -1194,6 +1199,94 @@ const App = {
             }
         } catch (err) {
             container.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    // ── Dividend lookup panel ─────────────────────────────────────────────────
+
+    _divLookupSymbol: null,
+
+    divLookupSetStatus(msg, isError = false) {
+        const el = document.getElementById('divLookupStatus');
+        if (el) { el.textContent = msg; el.style.color = isError ? 'var(--danger)' : 'var(--text-secondary)'; }
+    },
+
+    divLookupPopulate(data) {
+        const freqMap = { 12: '12', 4: '4', 2: '2', 1: '1' };
+        document.getElementById('divLookupName').value = data.name || '';
+        const freqSel = document.getElementById('divLookupFreq');
+        if (freqSel) freqSel.value = freqMap[data.frequency] || '4';
+        document.getElementById('divLookupAmount').value = data.amountPerShare != null ? data.amountPerShare : '';
+        document.getElementById('divLookupExDate').value = data.lastExDate || '';
+        document.getElementById('divLookupResult').style.display = 'block';
+    },
+
+    divLookupClear() {
+        this._divLookupSymbol = null;
+        document.getElementById('divLookupSymbol').value = '';
+        document.getElementById('divLookupResult').style.display = 'none';
+        this.divLookupSetStatus('');
+    },
+
+    async divLookupFetchAI() {
+        const symbolInput = document.getElementById('divLookupSymbol');
+        const symbol = symbolInput?.value.trim().toUpperCase();
+        if (!symbol) { this.divLookupSetStatus('Enter a ticker symbol first.', true); return; }
+
+        const btn = document.getElementById('divLookupFetchBtn');
+        if (btn) btn.disabled = true;
+        this.divLookupSetStatus('Asking AI…');
+        document.getElementById('divLookupResult').style.display = 'none';
+
+        try {
+            const data = await API.aiFetchDividendMetadata(symbol);
+            this._divLookupSymbol = symbol;
+            this.divLookupPopulate(data);
+            this.divLookupSetStatus(`AI result for ${symbol} — review and save below.`);
+        } catch (err) {
+            this.divLookupSetStatus(err.message, true);
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    },
+
+    async divLookupSave() {
+        const symbol = this._divLookupSymbol;
+        if (!symbol) { UI.showToast('No symbol loaded — fetch with AI first.', 'error'); return; }
+
+        const payload = {
+            frequency: parseInt(document.getElementById('divLookupFreq').value, 10),
+            amountPerShare: parseFloat(document.getElementById('divLookupAmount').value) || 0,
+            lastExDate: document.getElementById('divLookupExDate').value || null,
+            name: document.getElementById('divLookupName').value.trim() || symbol,
+        };
+
+        try {
+            await API.saveDividendMetadata(symbol, payload);
+            UI.showToast(`${symbol} saved to dividend database.`);
+            this.divLookupClear();
+            this.loadDividendDatabase();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async divRowRefetchAI(symbol) {
+        const symbolInput = document.getElementById('divLookupSymbol');
+        if (symbolInput) symbolInput.value = symbol;
+        this._divLookupSymbol = symbol;
+        await this.divLookupFetchAI();
+        document.getElementById('divLookupPanel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    },
+
+    async divRowDelete(symbol) {
+        if (!confirm(`Delete cached dividend data for ${symbol}?`)) return;
+        try {
+            await API.deleteDividendMetadata(symbol);
+            UI.showToast(`${symbol} removed from dividend database.`);
+            this.loadDividendDatabase();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
         }
     },
 

@@ -16,7 +16,10 @@ export const updateJobSchedule = (req: Request, res: Response) => {
 
   const h = parseFloat(intervalHours);
   if (isNaN(h) || h < 0) {
-    return res.status(400).json({ error: 'intervalHours must be a positive number (0 = manual only)' });
+    return res.status(400).json({ error: 'intervalHours must be a non-negative number (0 = manual only)' });
+  }
+  if (h > 0 && h < 0.1) {
+    return res.status(400).json({ error: 'intervalHours must be at least 0.1 (6 minutes) or 0 for manual-only' });
   }
 
   const newIntervalMs = h === 0 ? null : Math.round(h * 3_600_000);

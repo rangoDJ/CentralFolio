@@ -46,6 +46,7 @@ export {
   getPasswordHash,
   setPasswordHash,
   getJwtSecret,
+  clearJwtSecretCache,
 } from "../repositories/settingsRepository.js";
 
 export {
@@ -55,18 +56,3 @@ export {
   clearTransactionsForAccount,
 } from "../repositories/transactionRepository.js";
 
-// ── Backward compat ───────────────────────────────────────────────────────────
-
-export { listPortfolios as getSettings_deprecated } from "../repositories/portfolioRepository.js";
-
-/** @deprecated Use listPortfolios() instead */
-export function getSettings() {
-  const all = listPortfolios();
-  return all.length > 0 ? all[0] : null;
-}
-
-/** @deprecated Use clearAccountCache() + clearDividendMetadataCache() instead */
-export function clearCache() {
-  clearAccountCache();
-  clearDividendMetadataCache();
-}

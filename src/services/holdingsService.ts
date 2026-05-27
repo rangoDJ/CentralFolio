@@ -1,10 +1,7 @@
 import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
-
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+import { sleep } from "../utils/sleep.js";
 
 export async function refreshAllHoldings(intervalMs: number, forceRefresh: boolean = false): Promise<void> {
   logger.info('Holdings', 'Starting holdings refresh cycle...');

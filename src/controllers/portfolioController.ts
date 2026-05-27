@@ -5,11 +5,16 @@ import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
+// Strip server-side secrets before sending portfolios to the client
+function sanitizePortfolio({ consumerKey: _ck, userSecret: _us, ...safe }: Portfolio) {
+  return safe;
+}
+
 export const getPortfolios = (req: Request, res: Response) => {
   logger.info('Portfolio', 'GET /api/portfolios — listing all portfolios');
   const portfolios = listPortfolios();
   logger.info('Portfolio', `→ Returning ${portfolios.length} portfolio(s)`);
-  res.json(portfolios);
+  res.json(portfolios.map(sanitizePortfolio));
 };
 
 export const getAllDividends = (req: Request, res: Response) => {
@@ -35,10 +40,11 @@ export const getAllDividends = (req: Request, res: Response) => {
 };
 
 export const createOrUpdatePortfolio = (req: Request, res: Response) => {
-  const { id, name, clientId, consumerKey, userId, userSecret } = req.body;
+  // userSecret is intentionally excluded — it is set only by the backend after SnapTrade registration
+  const { id, name, clientId, consumerKey, userId } = req.body;
   const action = id ? `UPDATE id=${id}` : 'CREATE';
   logger.info('Portfolio', `POST /api/portfolios — ${action} name="${name}"`);
-  
+
   if (!name || !clientId || !consumerKey || !userId) {
     logger.warn('Portfolio', 'createOrUpdatePortfolio — missing required fields');
     return res.status(400).json({ error: "Missing required fields: name, clientId, consumerKey, userId" });
@@ -50,7 +56,6 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
     clientId,
     consumerKey,
     userId,
-    userSecret: userSecret || undefined
   };
 
   try {
@@ -71,6 +76,9 @@ export const togglePortfolioTrading = (req: Request, res: Response) => {
     logger.warn('Portfolio', `togglePortfolioTrading — invalid body for portfolio ${id}`);
     return res.status(400).json({ error: "Body must contain { tradingEnabled: boolean }" });
   }
+
+  const existing = getPortfolio(String(id));
+  if (!existing) return res.status(404).json({ error: 'Portfolio not found' });
 
   try {
     setPortfolioTradingEnabled(String(id), tradingEnabled);
@@ -100,6 +108,10 @@ export const clearDividendCache = (req: Request, res: Response) => {
 export const removePortfolio = (req: Request, res: Response) => {
   const { id } = req.params;
   logger.info('Portfolio', `DELETE /api/portfolios/${id}`);
+
+  const existing = getPortfolio(String(id));
+  if (!existing) return res.status(404).json({ error: 'Portfolio not found' });
+
   try {
     onPortfolioDeleted(id);
     deletePortfolio(String(id));

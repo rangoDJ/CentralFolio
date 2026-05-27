@@ -1,6 +1,7 @@
 import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { sleep } from "../utils/sleep.js";
 import { randomUUID } from "crypto";
 
 export interface Transaction {
@@ -17,10 +18,6 @@ export interface Transaction {
   accountId?: string;
   portfolioName?: string;
   accountName?: string;
-}
-
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export async function fetchTransactionsForAccount(accountId: string, portfolioId: number | string, userId: string, userSecret: string): Promise<Transaction[]> {
@@ -124,10 +121,8 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
               portfolio.userSecret
             );
 
-            if (transactions.length > 0) {
-              saveCachedTransactions(account.id, transactions);
-              processedCount++;
-            }
+            saveCachedTransactions(account.id, transactions);
+            processedCount++;
 
             // Rate limiting - avoid hammering SnapTrade API
             await sleep(100);

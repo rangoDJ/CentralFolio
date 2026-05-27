@@ -34,10 +34,21 @@ export function setPasswordHash(hash: string): void {
   db.prepare("INSERT OR REPLACE INTO global_settings (key, value) VALUES ('auth_password_hash', ?)").run(hash);
 }
 
+let _jwtSecret: string | null = null;
+
+export function clearJwtSecretCache(): void {
+  _jwtSecret = null;
+}
+
 export function getJwtSecret(): string {
+  if (_jwtSecret) return _jwtSecret;
   const row = db.prepare("SELECT value FROM global_settings WHERE key = 'jwt_secret'").get() as any;
-  if (row?.value) return row.value;
+  if (row?.value) {
+    _jwtSecret = row.value;
+    return _jwtSecret;
+  }
   const secret = randomBytes(64).toString('hex');
   db.prepare("INSERT OR REPLACE INTO global_settings (key, value) VALUES ('jwt_secret', ?)").run(secret);
-  return secret;
+  _jwtSecret = secret;
+  return _jwtSecret;
 }

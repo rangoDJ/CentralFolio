@@ -115,8 +115,8 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
   db.transaction((data: any[]) => {
     deleteStmt.run(accountId);
     if (data.length > 0) {
-      logger.info('DB', `saveCachedPositions — first pos keys: ${Object.keys(data[0]).join(', ')}`);
-      logger.info('DB', `saveCachedPositions — first pos raw: ${JSON.stringify(data[0]).slice(0, 400)}`);
+      logger.debug('DB', `saveCachedPositions — first pos keys: ${Object.keys(data[0]).join(', ')}`);
+      logger.debug('DB', `saveCachedPositions — first pos raw: ${JSON.stringify(data[0]).slice(0, 400)}`);
     }
     for (const pos of data) {
       const symbol = pos.instrument?.symbol || pos.instrument?.raw_symbol

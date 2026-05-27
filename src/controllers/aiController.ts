@@ -1,8 +1,35 @@
 import { Request, Response } from "express";
-import { createAIProvider, buildExecuteTool, buildSystemPrompt, AI_TOOLS, Message } from "../services/aiService.js";
+import { createAIProvider, clearAIProviderCache, buildExecuteTool, buildSystemPrompt, AI_TOOLS, Message } from "../services/aiService.js";
 import { logger } from "../utils/logger.js";
 
+// Simple sliding-window rate limiter: max 10 chat requests per IP per minute
+const chatAttempts = new Map<string, { count: number; windowStart: number }>();
+const CHAT_RATE_WINDOW_MS = 60_000;
+const CHAT_RATE_MAX = 10;
+
+function isChatRateLimited(ip: string): boolean {
+  const now = Date.now();
+  // Prune expired windows
+  for (const [k, r] of chatAttempts) {
+    if (now - r.windowStart > CHAT_RATE_WINDOW_MS) chatAttempts.delete(k);
+  }
+  const record = chatAttempts.get(ip);
+  if (!record) {
+    chatAttempts.set(ip, { count: 1, windowStart: now });
+    return false;
+  }
+  if (record.count >= CHAT_RATE_MAX) return true;
+  record.count++;
+  return false;
+}
+
 export const chatHandler = async (req: Request, res: Response) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  if (isChatRateLimited(ip)) {
+    logger.warn("AI", `Chat rate limit exceeded for ${ip}`);
+    return res.status(429).json({ error: "Too many requests. Please wait a moment before sending another message." });
+  }
+
   const { messages } = req.body as { messages: Message[] };
 
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -40,6 +67,8 @@ export const testConnectionHandler = async (req: Request, res: Response) => {
     res.json({ success: true, message: "Connection successful" });
   } catch (err: any) {
     logger.error("AI", `Test connection failed: ${err.message}`);
+    // Clear the cached provider so a corrected API key takes effect immediately
+    clearAIProviderCache();
     res.status(400).json({ error: err.message });
   }
 };

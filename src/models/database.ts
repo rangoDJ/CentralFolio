@@ -9,6 +9,8 @@ const dbPath = path.join(dataDir, "snaptrade.db");
 
 logger.info('DB', `Opening database at: ${dbPath}`);
 export const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -107,6 +109,12 @@ db.exec(`
   )
 `);
 
+// ── Indexes ───────────────────────────────────────────────────────────────────
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_positions_accountId   ON positions(accountId)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_accounts_portfolioId  ON accounts(portfolioId)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_transactions_accountId ON transactions(accountId)`);
+
 // ── Migrations ────────────────────────────────────────────────────────────────
 
 const migrations: Array<{ name: string; sql: string }> = [
@@ -122,8 +130,9 @@ for (const m of migrations) {
   try {
     db.exec(m.sql);
     logger.info('Migration', `Applied: ${m.name}`);
-  } catch {
-    // Column already exists — expected on every run after first
+  } catch (e: any) {
+    if (/duplicate column name/i.test(e.message ?? '')) continue;
+    logger.error('Migration', `Failed to apply "${m.name}": ${e.message}`);
   }
 }
 

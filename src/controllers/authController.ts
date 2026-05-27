@@ -9,10 +9,17 @@ const loginAttempts = new Map<string, { count: number; firstAt: number }>();
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_MAX = 10;
 
+function pruneExpiredAttempts(now: number) {
+  for (const [ip, record] of loginAttempts) {
+    if (now - record.firstAt > RATE_WINDOW_MS) loginAttempts.delete(ip);
+  }
+}
+
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
+  pruneExpiredAttempts(now);
   const record = loginAttempts.get(ip);
-  if (!record || now - record.firstAt > RATE_WINDOW_MS) {
+  if (!record) {
     loginAttempts.set(ip, { count: 1, firstAt: now });
     return false;
   }
@@ -31,6 +38,11 @@ export const getAuthStatus = (req: Request, res: Response) => {
 };
 
 export const setup = async (req: Request, res: Response) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  if (isRateLimited(ip)) {
+    logger.warn("Auth", `Setup rate limit exceeded for ${ip}`);
+    return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
+  }
   const { password } = req.body;
   if (getPasswordHash()) {
     return res.status(400).json({ error: "Password already configured. Use change-password instead." });

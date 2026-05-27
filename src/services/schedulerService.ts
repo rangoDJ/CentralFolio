@@ -21,6 +21,7 @@ interface RegisteredJob {
   fn: JobFn;
   intervalTimer: ReturnType<typeof setInterval> | null;
   startupTimer: ReturnType<typeof setTimeout> | null;
+  armTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const registry = new Map<string, RegisteredJob>();
@@ -88,7 +89,7 @@ export function registerJob(
     defaultIntervalMs: intervalMs,
   };
 
-  const job: RegisteredJob = { state, fn, intervalTimer: null, startupTimer: null };
+  const job: RegisteredJob = { state, fn, intervalTimer: null, startupTimer: null, armTimer: null };
   registry.set(name, job);
 
   if (runOnStartup) {
@@ -99,12 +100,11 @@ export function registerJob(
   }
 
   if (intervalMs) {
-    // First scheduled run fires after one full interval (startup handled separately above)
-    const firstFireMs = runOnStartup ? intervalMs : intervalMs;
-    job.startupTimer = setTimeout(() => {
-      job.startupTimer = null;
+    // Arm the recurring interval after one full interval has elapsed
+    job.armTimer = setTimeout(() => {
+      job.armTimer = null;
       armInterval(job);
-    }, firstFireMs);
+    }, intervalMs);
   }
 
   const intervalLabel = intervalMs ? `${Math.round(intervalMs / 3_600_000 * 10) / 10}h` : 'manual';
@@ -123,10 +123,14 @@ export function updateJobInterval(name: string, newIntervalMs: number | null): b
     return false;
   }
 
-  // Cancel pending startup/first-fire timer
+  // Cancel pending startup and arm timers
   if (job.startupTimer) {
     clearTimeout(job.startupTimer);
     job.startupTimer = null;
+  }
+  if (job.armTimer) {
+    clearTimeout(job.armTimer);
+    job.armTimer = null;
   }
 
   // Clear existing interval

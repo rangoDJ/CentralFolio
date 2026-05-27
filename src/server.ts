@@ -14,7 +14,18 @@ import { registerJob, updateJobInterval } from "./services/schedulerService.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 3000;
+const hourMs = 60 * 60 * 1000;
 
+function storedInterval(jobName: string, defaultMs: number): number {
+  const stored = getSetting(`job_${jobName}_interval_hours`);
+  if (stored) {
+    const h = parseFloat(stored);
+    if (!isNaN(h) && h > 0) return Math.round(h * hourMs);
+  }
+  return defaultMs;
+}
+
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(requestLogger);
 app.use(express.static(path.resolve(__dirname, "../public")));
@@ -34,24 +45,12 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   next(err);
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   logger.info('Server', `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   logger.info('Server', `  CentralFolio backend started`);
   logger.info('Server', `  Listening at http://localhost:${port}`);
   logger.info('Server', `  LOG_LEVEL=${process.env.LOG_LEVEL ?? 'info'}`);
   logger.info('Server', `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-
-  const hourMs = 60 * 60 * 1000;
-
-  // Helper: read stored custom interval from DB, fall back to default
-  function storedInterval(jobName: string, defaultMs: number): number {
-    const stored = getSetting(`job_${jobName}_interval_hours`);
-    if (stored) {
-      const h = parseFloat(stored);
-      if (!isNaN(h) && h > 0) return Math.round(h * hourMs);
-    }
-    return defaultMs;
-  }
 
   registerJob(
     'dividend-fetch',
@@ -83,3 +82,18 @@ app.listen(port, () => {
     false
   );
 });
+
+function shutdown(signal: string) {
+  logger.info('Server', `${signal} received — closing HTTP server`);
+  server.close(() => {
+    logger.info('Server', 'HTTP server closed, exiting');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    logger.warn('Server', 'Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

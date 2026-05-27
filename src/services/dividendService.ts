@@ -1,6 +1,8 @@
 import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, setSetting, getActiveAccountIds, getDividendProviders, clearDividendMetadataCache } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { sleep } from "../utils/sleep.js";
+import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import YahooFinance from "yahoo-finance2";
 
 const yahooFinance = new YahooFinance();
@@ -34,10 +36,6 @@ const divMetadataCache = new Map<string, {
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — dividend schedules rarely change
 
-async function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return Promise.race([
     promise,
@@ -60,10 +58,6 @@ export interface DividendEvent {
   accountId?: string;
 }
 
-/**
- * Infer dividend frequency from the average gap between historical ex-dates.
- * Expects records sorted descending by ex_dividend_date.
- */
 function inferFrequencyFromHistory(records: { ex_dividend_date: string }[]): number {
   if (records.length < 2) return 4;
   const dates = records
@@ -371,7 +365,8 @@ async function fetchFromAlphaVantage(symbol: string): Promise<any> {
 
     const exDateRaw = data['ExDividendDate'];
     const annualDivYield = parseFloat(data['DividendYield'] || '0');
-    const price = parseFloat(data['AnalystTargetPrice'] || '0');
+    // 50DayMovingAverage is a reasonable proxy for current price; AnalystTargetPrice is a forecast
+    const price = parseFloat(data['50DayMovingAverage'] || '0');
     const annualRate = annualDivYield > 0 && price > 0 ? annualDivYield * price : 0;
 
     // Detect frequency from annual ÷ per-payment
@@ -449,7 +444,22 @@ async function fetchFromFinnhub(symbol: string): Promise<any> {
   }
 }
 
+const FREQ_STRING_TO_NUMBER: Record<string, number> = {
+  monthly: 12,
+  quarterly: 4,
+  "semi-annual": 2,
+  annual: 1,
+};
+
+const SAFE_SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
+
 async function fetchFromAI(symbol: string): Promise<any> {
+  if (!SAFE_SYMBOL_RE.test(symbol)) {
+    logger.warn("AI", `fetchFromAI — rejected unsafe symbol: "${symbol}"`);
+    return null;
+  }
+
+  // Dynamic import breaks the circular dependency: aiService → dividendService → aiService
   const { createAIProvider } = await import("./aiService.js");
   const provider = createAIProvider();
 
@@ -467,9 +477,10 @@ async function fetchFromAI(symbol: string): Promise<any> {
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return null;
     const parsed = JSON.parse(match[0]);
-    if (!parsed.frequency || parsed.frequency === "none") return null;
+    const freqNum = FREQ_STRING_TO_NUMBER[parsed.frequency];
+    if (!freqNum) return null;
     return {
-      frequency: parsed.frequency ?? null,
+      frequency: freqNum,
       lastExDate: parsed.lastExDate ?? null,
       amountPerShare: typeof parsed.amountPerShare === "number" ? parsed.amountPerShare : null,
       name: parsed.name ?? symbol,
@@ -574,14 +585,14 @@ export async function fetchDividendMetadata(symbol: string): Promise<any> {
 }
 
 export async function getDividendForecastForAccount(portfolio: Portfolio, accountId: string, forceRefresh: boolean = false): Promise<DividendEvent[]> {
-  const TTL_MS = 24 * 60 * 60 * 1000;
+  if (!portfolio.userSecret) throw new Error(`Portfolio "${portfolio.name}" is not registered with SnapTrade`);
   logger.info('Forecast', `getDividendForecastForAccount — portfolio="${portfolio.name}" account=${accountId} forceRefresh=${forceRefresh}`);
 
   try {
     let positions: any[] = [];
-    
+
     const cached = getCachedPositions(accountId);
-    const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
+    const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
 
     if (isFresh && !forceRefresh) {
       logger.info('Cache', `getDividendForecastForAccount — positions cache HIT for account ${accountId} (${cached.length} position(s))`);
@@ -613,13 +624,15 @@ export async function getDividendForecastForAccount(portfolio: Portfolio, accoun
 
     logger.info('Forecast', `Processing ${validPositions.length} valid position(s) for account ${accountId}...`);
 
+    let positionIdx = 0;
     for (const position of validPositions) {
+      positionIdx++;
       const symbolInfo = (position.symbol as any)?.symbol;
       const symbol = symbolInfo?.symbol;
       const units = position.units || 0;
 
       try {
-        const idx = validPositions.indexOf(position) + 1;
+        const idx = positionIdx;
         const total = validPositions.length;
         logger.info('Forecast', `  [${idx}/${total}] Processing ${symbol} (${units} units)...`);
 
@@ -661,6 +674,9 @@ export async function getDividendForecastForAccount(portfolio: Portfolio, accoun
           currentProjDate.setMonth(currentProjDate.getMonth() + monthsToAdd);
           loopCount++;
         }
+        if (loopCount >= 100) {
+          logger.warn('Forecast', `  ${symbol} — hit 100-iteration safety cap; lastExDate=${lastExDate} may be stale`);
+        }
         logger.info('Forecast', `  ${symbol} — caught up to present in ${loopCount} iterations`);
 
         for (let i = 0; i < frequency; i++) {
@@ -697,7 +713,6 @@ const CACHE_DIVIDENDS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
   const portfolios = listPortfolios();
   const results = [];
-  const TTL_MS = 24 * 60 * 60 * 1000;
 
   // Fetch active account IDs once — accounts toggled off in the UI are excluded from dividend forecasting
   const activeAccountIds = getActiveAccountIds();
@@ -717,7 +732,7 @@ export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
     try {
       let accounts: any[] = [];
       const cached = getCachedAccounts(portfolio.id!);
-      const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
+      const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
 
       if (isFresh) {
         logger.info('Cache', `  "${portfolio.name}" — accounts cache HIT (${cached.length} account(s))`);
@@ -735,11 +750,10 @@ export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
         saveCachedAccounts(portfolio.id!, accounts);
       }
 
-      const allAccounts: any[] = accounts;
-      const activeAccounts = allAccounts.filter(acc => activeAccountIds.has(acc.id));
-      const skipped = allAccounts.length - activeAccounts.length;
+      const activeAccounts = accounts.filter(acc => activeAccountIds.has(acc.id));
+      const skipped = accounts.length - activeAccounts.length;
 
-      logger.info('DividendSvc', `  "${portfolio.name}" — ${activeAccounts.length} active account(s) of ${allAccounts.length} total (${skipped} inactive, skipped)`);
+      logger.info('DividendSvc', `  "${portfolio.name}" — ${activeAccounts.length} active account(s) of ${accounts.length} total (${skipped} inactive, skipped)`);
 
       for (const acc of activeAccounts) {
         logger.info('DividendSvc', `    Account: "${acc.name ?? acc.id}" (${acc.id})`);

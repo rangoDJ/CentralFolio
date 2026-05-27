@@ -43,6 +43,9 @@ interface AIProvider {
   testConnection(): Promise<void>;
 }
 
+const MAX_TOOL_ROUNDS = 10;
+const SYSTEM_PROMPT_TTL_MS = 60_000;
+
 // ── Tool definitions (provider-agnostic) ──────────────────────────────────────
 
 export const AI_TOOLS: ToolDefinition[] = [
@@ -145,7 +148,15 @@ export function buildExecuteTool(): ExecuteToolFn {
 
 // ── System prompt ──────────────────────────────────────────────────────────────
 
+let _cachedSystemPrompt: string | null = null;
+let _cachedSystemPromptAt = 0;
+
 export function buildSystemPrompt(): string {
+  const now = Date.now();
+  if (_cachedSystemPrompt && now - _cachedSystemPromptAt < SYSTEM_PROMPT_TTL_MS) {
+    return _cachedSystemPrompt;
+  }
+
   const portfolios = listPortfolios();
   const portfolioContext =
     portfolios.length === 0
@@ -160,7 +171,7 @@ export function buildSystemPrompt(): string {
           })
           .join("\n")}`;
 
-  return `You are an AI assistant embedded in CentralFolio, a personal portfolio and dividend tracking application.
+  _cachedSystemPrompt = `You are an AI assistant embedded in CentralFolio, a personal portfolio and dividend tracking application.
 
 You help the user understand their investment holdings, dividend income, and portfolio performance. You have access to live portfolio data through the tools available to you.
 
@@ -172,6 +183,8 @@ Guidelines:
 - Format monetary values with 2 decimal places and appropriate currency context
 - Keep responses concise and focused on investment-relevant information
 - If asked about something unrelated to finance or this portfolio, politely stay on topic`;
+  _cachedSystemPromptAt = now;
+  return _cachedSystemPrompt;
 }
 
 // ── Claude provider ────────────────────────────────────────────────────────────
@@ -202,7 +215,7 @@ class ClaudeProvider implements AIProvider {
       content: m.content,
     }));
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 4096,
@@ -290,7 +303,7 @@ class OpenAIProvider implements AIProvider {
       ...messages.map((m) => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
     ];
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       const response = await this.client.chat.completions.create({
         model: this.model,
         messages: currentMessages,
@@ -372,7 +385,7 @@ class GeminiProvider implements AIProvider {
       parts: [{ text: m.content }],
     }));
 
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
       const response = await this.ai.models.generateContent({
         model: this.model,
         contents,
@@ -425,7 +438,21 @@ class GeminiProvider implements AIProvider {
 
 // ── Factory ────────────────────────────────────────────────────────────────────
 
+let _cachedProvider: AIProvider | null = null;
+let _cachedProviderAt = 0;
+const PROVIDER_CACHE_TTL_MS = 30_000;
+
+export function clearAIProviderCache(): void {
+  _cachedProvider = null;
+  _cachedProviderAt = 0;
+}
+
 export function createAIProvider(): AIProvider {
+  const now = Date.now();
+  if (_cachedProvider && now - _cachedProviderAt < PROVIDER_CACHE_TTL_MS) {
+    return _cachedProvider;
+  }
+
   const provider = getSetting("ai_provider");
   const apiKey = getSetting("ai_api_key") ?? "";
   const model = getSetting("ai_model") ?? "";
@@ -435,17 +462,22 @@ export function createAIProvider(): AIProvider {
     throw new Error("No AI provider configured. Please set one up in Settings → Keys & Providers.");
   }
 
+  let instance: AIProvider;
   switch (provider) {
     case "claude":
-      return new ClaudeProvider(apiKey, model);
+      instance = new ClaudeProvider(apiKey, model); break;
     case "openai":
-      return new OpenAIProvider(apiKey, model);
+      instance = new OpenAIProvider(apiKey, model); break;
     case "gemini":
-      return new GeminiProvider(apiKey, model);
+      instance = new GeminiProvider(apiKey, model); break;
     case "self-hosted":
       if (!baseURL) throw new Error("Base URL is required for self-hosted providers.");
-      return new OpenAIProvider(apiKey, model, baseURL);
+      instance = new OpenAIProvider(apiKey, model, baseURL); break;
     default:
       throw new Error(`Unknown AI provider: ${provider}`);
   }
+
+  _cachedProvider = instance;
+  _cachedProviderAt = now;
+  return _cachedProvider;
 }

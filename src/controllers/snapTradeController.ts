@@ -5,6 +5,7 @@ import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
 import { onAccountDeactivated, onBrokerageReconnected } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
+import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 
 /**
  * Extracts a safe client-facing message from a SnapTrade SDK error.
@@ -65,7 +66,6 @@ export const registerUser = async (req: Request, res: Response) => {
 
 export const listAccounts = async (req: Request, res: Response) => {
   const forceRefresh = req.query.forceRefresh === 'true';
-  const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
   logger.info('SnapTrade', `GET /snapTrade/listAccounts — forceRefresh=${forceRefresh}`);
 
   try {
@@ -89,7 +89,7 @@ export const listAccounts = async (req: Request, res: Response) => {
         // Check cache — also treat as miss if balance data is missing (old cache pre-balance migration)
         const cached = getCachedAccounts(portfolio.id!);
         const hasBalance = cached.some((r: any) => r.balance != null);
-        const isFresh = cached.length > 0 && hasBalance && (Date.now() - new Date(cached[0].cachedAt).getTime() < TTL_MS);
+        const isFresh = cached.length > 0 && hasBalance && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
 
         if (isFresh && !forceRefresh) {
           logger.info('SnapTrade', `  "${portfolio.name}" — cache HIT (${cached.length} accounts)`);
@@ -288,7 +288,8 @@ export const getLoginLink = async (req: Request, res: Response) => {
     });
     
     const data = loginResponse.data as any;
-    const loginUrl = `${data.redirectURI || data.redirectUri}&broker=WEALTHSIMPLETRADE`;
+    const loginUrl = data.redirectURI || data.redirectUri;
+    if (!loginUrl) throw new Error('SnapTrade did not return a redirect URL');
     logger.info('SnapTrade', `getLoginLink — generated URL for "${portfolio.name}"`);
     res.json({ loginUrl });
   } catch (err: any) {
@@ -336,7 +337,8 @@ export const getTradeLoginLink = async (req: Request, res: Response) => {
     });
 
     const data = loginResponse.data as any;
-    const loginUrl = `${data.redirectURI || data.redirectUri}&broker=WEALTHSIMPLETRADE`;
+    const loginUrl = data.redirectURI || data.redirectUri;
+    if (!loginUrl) throw new Error('SnapTrade did not return a redirect URL');
     logger.info('SnapTrade', `getTradeLoginLink — generated trade URL for "${portfolio.name}"`);
     res.json({ loginUrl });
   } catch (err: any) {

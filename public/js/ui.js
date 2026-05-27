@@ -649,7 +649,7 @@ const UI = {
                 return;
             }
 
-            this.txStore.set(account.accountId, { transactions: account.transactions, page: 0 });
+            this.txStore.set(account.accountId, { transactions: account.transactions, positionsBySymbol: account.positionsBySymbol || {}, page: 0 });
 
             tablesHtml += `
                 <table class="data-table"><thead><tr>
@@ -695,7 +695,7 @@ const UI = {
         const nextBtn = document.getElementById(`tx-next-${aid}`);
         if (!tbody) return;
 
-        const { transactions, page } = entry;
+        const { transactions, positionsBySymbol, page } = entry;
         const total    = transactions.length;
         const maxPage  = Math.ceil(total / this.TX_PAGE_SIZE) - 1;
         const start    = page * this.TX_PAGE_SIZE;
@@ -716,10 +716,31 @@ const UI = {
             const symbol      = txn.symbol || '—';
             const description = txn.description || symbol;
             const date        = txn.date ? new Date(txn.date).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}) : '—';
-            const units       = txn.units != null ? Number(txn.units).toLocaleString(undefined,{maximumFractionDigits:4}) : '—';
             const amount      = txn.amount ?? 0;
             const amtCls      = amount >= 0 ? 'val-pos' : 'val-neg';
             const amtSign     = amount >= 0 ? '+' : '';
+
+            const isDividend  = (txn.type || '').toUpperCase() === 'DIVIDEND';
+            let unitsHtml     = '—';
+
+            if (txn.units != null) {
+                // Brokerage provided the share count directly
+                const sharesStr = Number(txn.units).toLocaleString(undefined, { maximumFractionDigits: 4 });
+                if (isDividend && txn.price != null) {
+                    const perShare = Number(txn.price).toFixed(4);
+                    unitsHtml = `${sanitize(sharesStr)}<div class="text-sm text-muted" title="Dividend per share">$${perShare}/sh</div>`;
+                } else {
+                    unitsHtml = sanitize(sharesStr);
+                }
+            } else if (isDividend && symbol !== '—' && positionsBySymbol[symbol] != null) {
+                // SnapTrade didn't send units — cross-reference with current holdings
+                const heldShares = positionsBySymbol[symbol];
+                const sharesStr  = Number(heldShares).toLocaleString(undefined, { maximumFractionDigits: 4 });
+                const perShare   = heldShares > 0 ? (amount / heldShares).toFixed(4) : null;
+                unitsHtml = `<span title="Share count not provided by brokerage — inferred from current holdings">~${sanitize(sharesStr)}</span>`
+                    + (perShare ? `<div class="text-sm text-muted" title="Implied dividend per share">~$${perShare}/sh</div>` : '');
+            }
+
             return `<tr>
                 <td>
                     <div class="ticker-cell">${sanitize(symbol !== '—' ? symbol : description)}</div>
@@ -727,7 +748,7 @@ const UI = {
                 </td>
                 <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${sanitize(date)}</td>
                 <td>${typeBadge(txn.type)}</td>
-                <td class="right" style="color:var(--text-muted);">${sanitize(units)}</td>
+                <td class="right" style="color:var(--text-muted);">${unitsHtml}</td>
                 <td class="right" style="font-weight:600;">
                     <span class="${amtCls}">${amtSign}$${Math.abs(amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
                     <div class="text-sm text-muted">${sanitize(txn.currencyCode || '')}</div>

@@ -869,6 +869,7 @@ const App = {
                     portfolioName: group.portfolioName,
                     accountName: group.accountName,
                     accountId: group.accountId,
+                    positionsBySymbol: group.positionsBySymbol || {},
                     transactions: group.transactions
                 }));
 

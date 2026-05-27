@@ -459,11 +459,21 @@ export const getTransactions = async (req: Request, res: Response) => {
         for (const account of cachedAccounts) {
           const transactions = getCachedTransactions(account.id);
           const displayName = account.customName || account.name;
+
+          // Build symbol → units map from cached positions so the frontend
+          // can infer share count for dividend rows where SnapTrade omits it
+          const positions = getCachedPositions(account.id);
+          const positionsBySymbol: Record<string, number> = {};
+          for (const p of positions) {
+            if (p.symbol && p.units != null) positionsBySymbol[p.symbol] = p.units;
+          }
+
           results.push({
             portfolioId: portfolio.id,
             portfolioName: portfolio.name,
             accountId: account.id,
             accountName: displayName,
+            positionsBySymbol,
             transactions: transactions.map((txn: any) => ({
               ...txn,
               portfolioName: portfolio.name,

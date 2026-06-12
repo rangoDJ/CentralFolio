@@ -12,6 +12,7 @@ const App = {
     cachedDividendsData: null,
     dividendsLastUpdated: null,
     currentCalendarDate: new Date(),
+    currentDividendAccountId: 'all',
     currentTrade: null,
     currentTradeAction: 'BUY',
     currentTradeNotional: null,
@@ -630,7 +631,7 @@ const App = {
                 this.cachedDividendsData = response.data;
                 this.dividendsLastUpdated = new Date();
                 this.updateDividendsTimestamp();
-                UI.renderDividends(this.cachedDividendsData);
+                UI.renderDividends(this.cachedDividendsData, this.currentDividendAccountId);
             } else if (!response.fetching) {
                 container.innerHTML = '<div class="empty-state"><p>No dividend data available. Trigger a fetch from Settings → Background Jobs.</p></div>';
             }
@@ -681,7 +682,7 @@ const App = {
                         this.cachedDividendsData = response.data;
                         this.dividendsLastUpdated = new Date();
                         const container = document.getElementById('dividends-page-content');
-                        if (container) UI.renderDividends(this.cachedDividendsData);
+                        if (container) UI.renderDividends(this.cachedDividendsData, this.currentDividendAccountId);
                         this.updateDividendsTimestamp();
                         // Also update dashboard widgets
                         UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
@@ -749,20 +750,20 @@ const App = {
         if (!container) return;
 
         if (!forceRefresh && this.cachedDividendsData && this.dividendsLastUpdated) {
-            UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate);
+            UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
             return;
         }
 
         // If no cache, we can trigger the loadAllDividends which populates the cache
         await this.loadAllDividends(forceRefresh);
-        UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate);
+        UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
     },
 
     changeCalendarMonth(delta) {
         const newDate = new Date(this.currentCalendarDate);
         newDate.setMonth(newDate.getMonth() + delta);
         this.currentCalendarDate = newDate;
-        UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate);
+        UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
     },
 
     async loadAllTransactions(forceRefresh = false) {
@@ -1045,12 +1046,39 @@ const App = {
         const activePane = document.getElementById('dividend-' + subTabId + '-pane');
         if (activePane) activePane.classList.add('active');
 
+        // Show/hide account selector tabs container
+        const tabsContainer = document.getElementById('dividend-account-tabs');
+        if (tabsContainer) {
+            tabsContainer.style.display = (subTabId === 'forecast' || subTabId === 'calendar') ? 'flex' : 'none';
+        }
+
         if (subTabId === 'forecast') {
             this.loadAllDividends();
         } else if (subTabId === 'calendar') {
             this.loadDividendCalendar();
         } else if (subTabId === 'database') {
             this.loadDividendDatabase();
+        }
+    },
+
+    switchDividendAccountTab(accountId) {
+        this.currentDividendAccountId = accountId;
+
+        // Re-render tabs to reflect active selection
+        if (this.cachedDividendsData) {
+            UI.renderDividendAccountTabs(this.cachedDividendsData, this.currentDividendAccountId);
+        }
+
+        // Check which subtab is active and re-render that subtab
+        const activeSubTab = document.querySelector('#dividend-sub-tabs .pill-tab.active')?.getAttribute('data-subtab');
+        if (activeSubTab === 'forecast' || !activeSubTab) {
+            if (this.cachedDividendsData) {
+                UI.renderDividends(this.cachedDividendsData, this.currentDividendAccountId);
+            }
+        } else if (activeSubTab === 'calendar') {
+            if (this.cachedDividendsData) {
+                UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
+            }
         }
     },
 

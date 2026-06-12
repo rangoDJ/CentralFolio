@@ -942,17 +942,61 @@ const UI = {
         });
     },
 
-    renderDividends(cachedDividendsData) {
+    renderDividendAccountTabs(cachedDividendsData, selectedAccountId) {
+        const tabsContainer = document.getElementById('dividend-account-tabs');
+        if (!tabsContainer) return;
+
+        const activeSubTab = document.querySelector('#dividend-sub-tabs .pill-tab.active')?.getAttribute('data-subtab');
+        if (activeSubTab === 'database') {
+            tabsContainer.style.display = 'none';
+            return;
+        }
+
+        let activeAccounts = cachedDividendsData.filter(acct => !acct.error);
+        if (activeAccounts.length > 1) {
+            tabsContainer.style.display = 'flex';
+            let tabsHtml = `<button class="pill-tab ${selectedAccountId === 'all' ? 'active' : ''}" onclick="App.switchDividendAccountTab('all')">All Accounts</button>`;
+            activeAccounts.forEach(acct => {
+                const isSelected = selectedAccountId === acct.accountId;
+                tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('${acct.accountId}')">${sanitize(acct.accountName || 'Unnamed')}</button>`;
+            });
+            tabsContainer.innerHTML = tabsHtml;
+        } else {
+            tabsContainer.style.display = 'none';
+            tabsContainer.innerHTML = '';
+        }
+    },
+
+    renderDividends(cachedDividendsData, selectedAccountId = 'all') {
         const container  = document.getElementById('dividends-page-content');
         const summaryRow = document.getElementById('dividendSummaryRow');
         if (!container) return;
 
+        this.renderDividendAccountTabs(cachedDividendsData, selectedAccountId);
+
         let allEvents = [];
+        let totalPortfolioValue = 0;
+
         cachedDividendsData.forEach(acct => {
             if (acct.error) return;
-            (acct.dividends || []).forEach(e => {
-                allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
-            });
+
+            if (App.currentGroups) {
+                App.currentGroups.forEach(g => {
+                    (g.accounts || []).forEach(acc => {
+                        if (acc.id === acct.accountId && !App.inactiveAccountIds?.has(acc.id)) {
+                            if (selectedAccountId === 'all' || selectedAccountId === acct.accountId) {
+                                totalPortfolioValue += acc.balance?.total?.amount || 0;
+                            }
+                        }
+                    });
+                });
+            }
+
+            if (selectedAccountId === 'all' || selectedAccountId === acct.accountId) {
+                (acct.dividends || []).forEach(e => {
+                    allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
+                });
+            }
         });
 
         if (allEvents.length === 0) {
@@ -972,21 +1016,11 @@ const UI = {
         document.getElementById('unified-monthly-average').textContent = fmt(annualTotal / 12);
         document.getElementById('unified-daily-income').textContent    = fmt(annualTotal / 365);
 
-        // Yield: annual income / total active portfolio value
+        // Yield: annual income / total active portfolio value (filtered by selected account)
         try {
-            let portfolioValue = 0;
-            if (App.currentGroups) {
-                App.currentGroups.forEach(g => {
-                    (g.accounts || []).forEach(acc => {
-                        if (!App.inactiveAccountIds?.has(acc.id)) {
-                            portfolioValue += acc.balance?.total?.amount || 0;
-                        }
-                    });
-                });
-            }
             const yieldEl = document.getElementById('unified-yield');
-            if (portfolioValue > 0) {
-                yieldEl.textContent = `${((annualTotal / portfolioValue) * 100).toFixed(2)}%`;
+            if (totalPortfolioValue > 0) {
+                yieldEl.textContent = `${((annualTotal / totalPortfolioValue) * 100).toFixed(2)}%`;
             } else {
                 yieldEl.textContent = '—';
             }
@@ -1123,22 +1157,26 @@ const UI = {
         });
     },
 
-    renderDividendCalendar(cachedDividendsData, targetDate) {
+    renderDividendCalendar(cachedDividendsData, targetDate, selectedAccountId = 'all') {
         const gridEl   = document.getElementById('dividend-calendar-grid');
         const monthEl  = document.getElementById('currentCalendarMonth');
         if (!gridEl || !monthEl) return;
 
         monthEl.textContent = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
 
+        this.renderDividendAccountTabs(cachedDividendsData, selectedAccountId);
+
         let allEvents  = [];
         let annualTotal = 0;
         if (cachedDividendsData) {
             cachedDividendsData.forEach(acct => {
                 if (acct.error) return;
-                (acct.dividends || []).forEach(e => {
-                    allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
-                    annualTotal += (e.amount || 0);
-                });
+                if (selectedAccountId === 'all' || selectedAccountId === acct.accountId) {
+                    (acct.dividends || []).forEach(e => {
+                        allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
+                        annualTotal += (e.amount || 0);
+                    });
+                }
             });
         }
 

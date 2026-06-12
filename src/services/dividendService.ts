@@ -147,7 +147,23 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
   // 2. Check DB Cache
   const dbCached = getCachedDividendMetadata(symbol);
   if (dbCached) {
-    const cachedAt = new Date(dbCached.cachedAt).getTime();
+    // SQLite CURRENT_TIMESTAMP is UTC. Convert it to standard ISO-8601 UTC timestamp and parse.
+    const cachedAt = new Date(dbCached.cachedAt.replace(' ', 'T') + 'Z').getTime();
+    
+    // Hard Rule: If pulled in the last 24 hours, skip pulling and return cached data
+    if (now - cachedAt < 24 * 60 * 60 * 1000) {
+      logger.info('Cache', `fetchDividendMetadata(${symbol}) → DB HIT (skip pulling: pulled within last 24h at ${dbCached.cachedAt} UTC)`);
+      const data = {
+        frequency: dbCached.frequency,
+        lastExDate: dbCached.lastExDate,
+        amountPerShare: dbCached.amountPerShare,
+        name: dbCached.name,
+        timestamp: cachedAt
+      };
+      divMetadataCache.set(symbol, data);
+      return data;
+    }
+
     if (now - cachedAt < CACHE_TTL_MS) {
       logger.debug('Cache', `fetchDividendMetadata(${symbol}) → DB HIT`);
       const data = {
@@ -175,10 +191,21 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
     saveCachedDividendMetadata(symbol, data, 'snowball');
     logger.info('Dividend', `${symbol} → saved to cache via snowball`);
     return data;
+  } else {
+    // Save a placeholder in the DB cache to indicate that we checked this symbol and no dividend data was found.
+    // This prevents re-pulling from Snowball for at least 24 hours.
+    const placeholder = {
+      frequency: 0,
+      lastExDate: null,
+      amountPerShare: 0,
+      name: 'No Dividend Data',
+      timestamp: Date.now()
+    };
+    divMetadataCache.set(symbol, placeholder);
+    saveCachedDividendMetadata(symbol, placeholder, 'snowball');
+    logger.info('Dividend', `${symbol} → saved 'No Dividend Data' placeholder to cache to avoid re-pulling for 24h`);
+    return null;
   }
-
-  logger.warn('Dividend', `${symbol} — no dividend data available from snowball`);
-  return null;
 }
 
 

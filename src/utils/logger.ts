@@ -33,7 +33,7 @@ const TAG_COLORS: Record<string, string> = {
 };
 
 function timestamp(): string {
-  return new Date().toISOString().replace('T', ' ').replace('Z', '');
+  return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }
 
 function formatTag(tag: string): string {

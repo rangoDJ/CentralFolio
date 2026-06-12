@@ -164,8 +164,9 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
       return data;
     }
 
-    if (now - cachedAt < CACHE_TTL_MS) {
-      logger.debug('Cache', `fetchDividendMetadata(${symbol}) → DB HIT`);
+    // If within standard TTL, or if we are in cache-only mode (external fetch disabled), return cached data
+    if (now - cachedAt < CACHE_TTL_MS || !allowExternalFetch) {
+      logger.debug('Cache', `fetchDividendMetadata(${symbol}) → DB HIT (allowExternalFetch=${allowExternalFetch})`);
       const data = {
         frequency: dbCached.frequency,
         lastExDate: dbCached.lastExDate,

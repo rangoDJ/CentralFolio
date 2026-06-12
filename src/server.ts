@@ -57,7 +57,7 @@ const server = app.listen(port, () => {
     'Dividend Data Fetch',
     storedInterval('dividend-fetch', 7 * 24 * hourMs),
     () => getAllDividendsForAllPortfolios(),
-    false
+    true
   );
 
   registerJob(

@@ -62,7 +62,10 @@ const server = app.listen(port, () => {
         logger.info('Scheduler', `Skipping ${trigger} dividend fetch because automatic background sync is disabled`);
         return;
       }
-      await getAllDividendsForAllPortfolios();
+      const allowExternal = (trigger !== 'startup');
+      const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
+      logger.info('Scheduler', `Running dividend fetch (trigger: ${trigger}, forceRefresh: ${forceRefresh}, allowExternal: ${allowExternal})`);
+      await getAllDividendsForAllPortfolios(forceRefresh, allowExternal);
     },
     true
   );
@@ -71,9 +74,15 @@ const server = app.listen(port, () => {
     'holdings-refresh',
     'Holdings Refresh',
     storedInterval('holdings-refresh', hourMs),
-    async () => {
+    async (trigger: string) => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
-      await refreshAllHoldings(hours * hourMs);
+      if (trigger === 'startup') {
+        logger.info('Scheduler', `Skipping holdings refresh on startup — loading cached data from database`);
+        return;
+      }
+      const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
+      logger.info('Scheduler', `Running holdings refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh})`);
+      await refreshAllHoldings(hours * hourMs, forceRefresh);
     },
     false
   );
@@ -82,9 +91,15 @@ const server = app.listen(port, () => {
     'transactions-refresh',
     'Transactions Refresh',
     storedInterval('transactions-refresh', hourMs),
-    async () => {
+    async (trigger: string) => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
-      await refreshAllTransactions(false, hours * hourMs);
+      if (trigger === 'startup') {
+        logger.info('Scheduler', `Skipping transactions refresh on startup — loading cached data from database`);
+        return;
+      }
+      const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
+      logger.info('Scheduler', `Running transactions refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh})`);
+      await refreshAllTransactions(forceRefresh, hours * hourMs);
     },
     false
   );

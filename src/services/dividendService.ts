@@ -238,12 +238,15 @@ export async function getDividendForecastForAccount(
     const cached = getCachedPositions(accountId);
     const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
 
-    if (isFresh && !forceRefresh) {
-      logger.info('Cache', `getDividendForecastForAccount — positions cache HIT for account ${accountId} (${cached.length} position(s))`);
+    if ((isFresh || !allowExternalFetch) && cached.length > 0) {
+      logger.info('Cache', `getDividendForecastForAccount — positions cache HIT (or loading from database only) for account ${accountId} (${cached.length} position(s))`);
       positions = cached.map(p => ({
         symbol: { symbol: { symbol: p.symbol }, description: p.description },
         units: p.units
       }));
+    } else if (!allowExternalFetch) {
+      logger.info('Cache', `getDividendForecastForAccount — positions cache MISS and allowExternalFetch=false for account ${accountId}, skipping positions fetch`);
+      positions = [];
     } else {
       logger.info('SnapTrade', `getDividendForecastForAccount — fetching fresh positions for account ${accountId}...`);
       const client = getSnapTradeClientForPortfolio(portfolio);
@@ -378,8 +381,8 @@ export async function getAllDividendsForAllPortfolios(
       const cached = getCachedAccounts(portfolio.id!);
       const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
 
-      if (isFresh) {
-        logger.info('Cache', `  "${portfolio.name}" — accounts cache HIT (${cached.length} account(s))`);
+      if (isFresh || !allowExternalFetch) {
+        logger.info('Cache', `  "${portfolio.name}" — accounts cache HIT (or loading from database only) (${cached.length} account(s))`);
         accounts = cached;
       } else {
         logger.info('SnapTrade', `  "${portfolio.name}" — accounts cache MISS, fetching from SnapTrade...`);

@@ -624,12 +624,6 @@ const App = {
         const container = document.getElementById('dividends-page-content');
         if (!container) return;
 
-        if (!forceRefresh && this.cachedDividendsData && this.dividendsLastUpdated) {
-            UI.renderDividends(this.cachedDividendsData);
-            this.updateDividendsTimestamp();
-            return;
-        }
-
         try {
             const response = await API.getAllDividends(forceRefresh);
             if (response.data && response.data.length > 0) {
@@ -637,12 +631,18 @@ const App = {
                 this.dividendsLastUpdated = new Date();
                 this.updateDividendsTimestamp();
                 UI.renderDividends(this.cachedDividendsData);
-            } else if (response.fetching) {
-                // Background job is running — show empty state with status and start polling
-                container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block;border-top-color:var(--primary);"></span><p style="margin-top:0.75rem;">Fetching dividend data in the background…</p><p class="text-muted text-sm">This page will update automatically when ready.</p></div>';
+            } else if (!response.fetching) {
+                container.innerHTML = '<div class="empty-state"><p>No dividend data available. Trigger a fetch from Settings → Background Jobs.</p></div>';
+            }
+
+            if (response.fetching) {
+                // If we don't have any cached data rendering yet, show a loader
+                if (!response.data || response.data.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block;border-top-color:var(--primary);"></span><p style="margin-top:0.75rem;">Fetching dividend data in the background…</p><p class="text-muted text-sm">This page will update automatically when ready.</p></div>';
+                }
                 this.startJobPolling();
             } else {
-                container.innerHTML = '<div class="empty-state"><p>No dividend data available. Trigger a fetch from Settings → Background Jobs.</p></div>';
+                this.stopJobPolling();
             }
         } catch (err) {
             container.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
@@ -667,23 +667,33 @@ const App = {
             const anyRunning = jobs.some(j => j.status === 'running');
             UI.renderJobsPanel(jobs);
 
-            if (!anyRunning) {
-                this.stopJobPolling();
-                // Reload dividend data if the fetch job just finished
-                const divJob = jobs.find(j => j.name === 'dividend-fetch');
-                if (divJob && divJob.status === 'completed' && !this.cachedDividendsData) {
-                    const response = await API.getAllDividends(false);
-                    if (response.data && response.data.length > 0) {
+            // Fetch the latest cache-only dividends periodically if the fetch job is running or just finished
+            const divJob = jobs.find(j => j.name === 'dividend-fetch');
+            const isDivJobRunning = divJob && divJob.status === 'running';
+
+            if (isDivJobRunning || !anyRunning) {
+                const response = await API.getAllDividends(false);
+                if (response.data && response.data.length > 0) {
+                    const oldTotal = (this.cachedDividendsData ?? []).reduce((sum, a) => sum + (a.dividends?.length ?? 0), 0);
+                    const newTotal = response.data.reduce((sum, a) => sum + (a.dividends?.length ?? 0), 0);
+
+                    if (newTotal !== oldTotal || !this.cachedDividendsData) {
                         this.cachedDividendsData = response.data;
                         this.dividendsLastUpdated = new Date();
                         const container = document.getElementById('dividends-page-content');
                         if (container) UI.renderDividends(this.cachedDividendsData);
                         this.updateDividendsTimestamp();
-                        UI.showToast('Dividend data ready');
-                        // Also update dashboard if visible
+                        // Also update dashboard widgets
                         UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+                        if (!isDivJobRunning && !anyRunning) {
+                            UI.showToast('Dividend data updated successfully');
+                        }
                     }
                 }
+            }
+
+            if (!anyRunning) {
+                this.stopJobPolling();
             }
         } catch (_) {}
     },

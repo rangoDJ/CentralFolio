@@ -14,7 +14,7 @@ export interface JobState {
   defaultIntervalMs: number | null;
 }
 
-type JobFn = () => Promise<void>;
+type JobFn = (trigger: string) => Promise<void> | void;
 
 interface RegisteredJob {
   state: JobState;
@@ -51,7 +51,7 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
   logger.info('Scheduler', `Job "${job.state.name}" started (${trigger})`);
 
   try {
-    await job.fn();
+    await job.fn(trigger);
     job.state.status = 'completed';
     job.state.lastDurationMs = Date.now() - start;
     job.state.lastRunAt = start;

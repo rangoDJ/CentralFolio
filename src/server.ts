@@ -56,7 +56,14 @@ const server = app.listen(port, () => {
     'dividend-fetch',
     'Dividend Data Fetch',
     storedInterval('dividend-fetch', 7 * 24 * hourMs),
-    () => getAllDividendsForAllPortfolios(),
+    async (trigger: string) => {
+      const bgFetchEnabled = getSetting('dividend_background_fetch_enabled') !== 'false';
+      if (!bgFetchEnabled && trigger !== 'manual') {
+        logger.info('Scheduler', `Skipping ${trigger} dividend fetch because automatic background sync is disabled`);
+        return;
+      }
+      await getAllDividendsForAllPortfolios();
+    },
     true
   );
 

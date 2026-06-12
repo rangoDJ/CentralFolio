@@ -134,10 +134,10 @@ const API = {
         return data;
     },
 
-    async aiFetchDividendMetadata(symbol) {
-        const res = await this._fetch(`/api/portfolios/dividend-metadata/${encodeURIComponent(symbol)}/ai-fetch`, { method: 'POST' });
+    async snowballFetchDividendMetadata(symbol) {
+        const res = await this._fetch(`/api/portfolios/dividend-metadata/${encodeURIComponent(symbol)}/snowball-fetch`, { method: 'POST' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `AI lookup failed for ${symbol}`);
+        if (!res.ok) throw new Error(data.error || `Snowball lookup failed for ${symbol}`);
         return data;
     },
 
@@ -313,30 +313,4 @@ const API = {
         return json;
     },
 
-    async chatWithAI(messages) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 95_000);
-        try {
-            const res = await this._fetch('/api/ai/chat', {
-                method: 'POST',
-                body: JSON.stringify({ messages }),
-                signal: controller.signal,
-            });
-            const json = await res.json();
-            if (!res.ok) throw new Error(json.error || 'AI request failed');
-            return json.reply;
-        } catch (err) {
-            if (err.name === 'AbortError') throw new Error('Request timed out. Try again — dividend data for new symbols can take a moment to fetch.');
-            throw err;
-        } finally {
-            clearTimeout(timer);
-        }
-    },
-
-    async testAIConnection() {
-        const res = await this._fetch('/api/ai/test', { method: 'POST' });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Connection test failed');
-        return json;
-    },
 };

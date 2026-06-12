@@ -470,8 +470,15 @@
                   <span class="card-title">Dividend Data Provider</span>
                 </div>
                 <p class="text-muted text-sm mb-3">Dividend data is fetched exclusively from <strong>Snowball Analytics</strong>.</p>
-                <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem 1rem;margin-bottom:1rem;">
-                  <p class="text-sm mb-0">To prevent rate limits or IP blocks, external calls are restricted to a maximum of <strong>3 requests per minute</strong> (20-second interval) in the background. The WebUI loads cached data instantly without blocking.</p>
+                <div class="settings-row mb-3">
+                  <div class="settings-row-info">
+                    <div class="settings-row-label">Automatic background sync</div>
+                    <div class="settings-row-desc">Fetch and update dividend metadata in the background (max 3/min)</div>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="dividendBgFetchToggle">
+                    <span class="slider"></span>
+                  </label>
                 </div>
                 <div style="border-top:1px solid var(--border);padding-top:1rem;display:flex;flex-direction:column;gap:0.5rem;">
                   <button id="clearDividendCacheBtn" class="btn btn-outline w-full">Clear Dividend Cache</button>
@@ -479,52 +486,7 @@
               </div>
             </div>
 
-            <!-- AI Assistant -->
-              <div class="card mt-3">
-                <div class="card-header" style="margin-bottom:0.75rem;">
-                  <span class="card-title">AI Assistant</span>
-                </div>
-                <p class="text-muted text-sm mb-3">Connect an AI provider to enable the portfolio assistant. Your API key is stored locally and never leaves your server.</p>
 
-                <div class="form-group">
-                  <label for="aiProvider">Provider</label>
-                  <select id="aiProvider" onchange="App.updateAIProviderFields()"
-                    style="width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.5rem 0.75rem;font-size:0.9rem;">
-                    <option value="">— Select a provider —</option>
-                    <option value="claude">Claude (Anthropic)</option>
-                    <option value="openai">OpenAI (ChatGPT)</option>
-                    <option value="gemini">Gemini (Google)</option>
-                    <option value="self-hosted">Self-hosted / Custom</option>
-                  </select>
-                </div>
-
-                <div class="form-group" id="ai-baseurl-group" style="display:none;">
-                  <label for="aiBaseUrl">Base URL</label>
-                  <input type="text" id="aiBaseUrl" placeholder="e.g. http://localhost:11434/v1">
-                </div>
-
-                <div class="form-group">
-                  <label for="aiModel" id="aiModelLabel">Model</label>
-                  <input type="text" id="aiModel" placeholder="e.g. claude-sonnet-4-6">
-                </div>
-
-                <div class="form-group" id="ai-apikey-group">
-                  <label for="aiApiKey" id="aiApiKeyLabel">API Key</label>
-                  <input type="password" id="aiApiKey" placeholder="Enter API key">
-                </div>
-
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.25rem;">
-                  <button id="saveAiSettingsBtn" class="btn btn-primary" onclick="App.handleSaveAISettings()">
-                    <span class="loader"></span>
-                    <span class="btn-text">Save AI Settings</span>
-                  </button>
-                  <button id="testAiConnectionBtn" class="btn btn-outline" onclick="App.handleTestAIConnection()">
-                    <span class="loader"></span>
-                    <span class="btn-text">Test Connection</span>
-                  </button>
-                </div>
-                <div id="aiSettingsMsg" style="display:none;font-size:0.85rem;margin-top:0.6rem;padding:0.4rem 0.75rem;border-radius:var(--radius-sm);"></div>
-              </div>
 
             <!-- Background Jobs -->
             <div>
@@ -702,59 +664,7 @@
   <div id="sidebarOverlay" class="sidebar-overlay" onclick="App.toggleSidebar()"></div>
   <div id="toast" class="toast"></div>
 
-  <!-- AI Chat floating button -->
-  <button id="aiChatFab" onclick="App.toggleAIChat()" title="AI Assistant"
-    style="position:fixed;bottom:1.5rem;right:1.5rem;width:52px;height:52px;border-radius:50%;background:var(--primary,#7c3aed);color:#fff;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,0.25);z-index:900;transition:transform 0.15s,box-shadow 0.15s;"
-    onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='scale(1)'">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-    </svg>
-  </button>
 
-  <!-- AI Chat panel -->
-  <div id="aiChatPanel"
-    style="position:fixed;bottom:0;right:0;width:380px;height:560px;max-height:90vh;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;box-shadow:0 -4px 24px rgba(0,0,0,0.18);z-index:901;display:none;flex-direction:column;overflow:hidden;">
-
-    <!-- Header -->
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0;">
-      <div style="display:flex;align-items:center;gap:0.5rem;">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary,#7c3aed)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <span style="font-weight:600;font-size:0.9rem;">Portfolio Assistant</span>
-      </div>
-      <div style="display:flex;gap:0.4rem;">
-        <button onclick="App.clearAIChat()" title="Clear chat"
-          style="background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:0.2rem 0.4rem;border-radius:4px;font-size:0.75rem;line-height:1;"
-          onmouseover="this.style.background='var(--surface-3,var(--border))'" onmouseout="this.style.background='none'">Clear</button>
-        <button onclick="App.toggleAIChat()" title="Close"
-          style="background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:0.2rem 0.4rem;border-radius:4px;font-size:1rem;line-height:1;"
-          onmouseover="this.style.background='var(--surface-3,var(--border))'" onmouseout="this.style.background='none'">&times;</button>
-      </div>
-    </div>
-
-    <!-- Messages -->
-    <div id="aiChatMessages"
-      style="flex:1;overflow-y:auto;padding:0.75rem;display:flex;flex-direction:column;gap:0.6rem;">
-      <div id="aiChatPlaceholder" style="margin:auto;text-align:center;color:var(--text-secondary);font-size:0.85rem;padding:1rem;">
-        Ask me about your holdings, dividends, or portfolio performance.
-      </div>
-    </div>
-
-    <!-- Thinking indicator -->
-    <div id="aiChatThinking" style="display:none;padding:0.4rem 0.75rem;font-size:0.78rem;color:var(--text-secondary);font-style:italic;flex-shrink:0;">
-      Thinking… (fetching live data may take a few seconds)
-    </div>
-
-    <!-- Input -->
-    <div style="padding:0.6rem;border-top:1px solid var(--border);display:flex;gap:0.5rem;flex-shrink:0;">
-      <input id="aiChatInput" type="text" placeholder="Ask a question…"
-        style="flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.45rem 0.7rem;font-size:0.875rem;color:var(--text);outline:none;"
-        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();App.sendAIMessage();}">
-      <button onclick="App.sendAIMessage()" id="aiChatSendBtn"
-        style="background:var(--primary,#7c3aed);color:#fff;border:none;border-radius:var(--radius-sm);padding:0.45rem 0.85rem;cursor:pointer;font-size:0.875rem;white-space:nowrap;">Send</button>
-    </div>
-  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="/js/api.js"></script>

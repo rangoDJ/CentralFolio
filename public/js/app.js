@@ -524,8 +524,23 @@ const App = {
             if (intervalInput) intervalInput.value = intervalHours;
             this.updateRefreshHint(intervalHours);
 
-            // Load AI assistant settings
-            this._loadAISettings(settings);
+            // Load background fetch setting
+            const bgFetchEnabled = settings.dividend_background_fetch_enabled !== 'false';
+            const bgFetchToggle = document.getElementById('dividendBgFetchToggle');
+            if (bgFetchToggle) {
+                bgFetchToggle.checked = bgFetchEnabled;
+                bgFetchToggle.onchange = async () => {
+                    try {
+                        await API.updateSettings({
+                            dividend_background_fetch_enabled: bgFetchToggle.checked ? 'true' : 'false'
+                        });
+                        UI.showToast('Background sync setting saved.');
+                    } catch (err) {
+                        UI.showToast('Failed to save background sync setting.', 'error');
+                        bgFetchToggle.checked = !bgFetchToggle.checked; // revert
+                    }
+                };
+            }
         } catch (err) {
             console.error('Failed to load settings:', err);
         }
@@ -1131,7 +1146,7 @@ const App = {
                       <td style="font-family:monospace;font-size:0.8rem;">${sanitize(r.lastExDate || '—')}</td>
                       <td style="color:var(--text-secondary);font-size:0.78rem;">${r.cachedAt ? new Date(r.cachedAt).toLocaleDateString() : '—'}</td>
                       <td style="white-space:nowrap;">
-                        <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:0.15rem 0.5rem;" onclick="App.divRowRefetchAI('${sanitize(r.symbol)}')" title="Re-fetch with AI">AI</button>
+                        <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:0.15rem 0.5rem;" onclick="App.divRowRefetchAI('${sanitize(r.symbol)}')" title="Re-fetch from Snowball">Fetch</button>
                         <button class="btn btn-outline btn-sm" style="font-size:0.72rem;padding:0.15rem 0.5rem;color:var(--danger);border-color:var(--danger);" onclick="App.divRowDelete('${sanitize(r.symbol)}')" title="Delete entry">✕</button>
                       </td>
                     </tr>`).join('')}
@@ -1185,7 +1200,7 @@ const App = {
         document.getElementById('divLookupResult').style.display = 'none';
 
         try {
-            const data = await API.aiFetchDividendMetadata(symbol);
+            const data = await API.snowballFetchDividendMetadata(symbol);
             this._divLookupSymbol = symbol;
             this.divLookupPopulate(data);
             this.divLookupSetStatus(`Snowball result for ${symbol} — review and save below.`);
@@ -1330,159 +1345,6 @@ const App = {
         }
     },
 
-    // ── AI Assistant ──────────────────────────────────────────────────────────
-
-    _aiMessages: [],
-    _aiOpen: false,
-
-    toggleAIChat() {
-        this._aiOpen = !this._aiOpen;
-        const panel = document.getElementById('aiChatPanel');
-        panel.style.display = this._aiOpen ? 'flex' : 'none';
-        if (this._aiOpen) document.getElementById('aiChatInput').focus();
-    },
-
-    clearAIChat() {
-        this._aiMessages = [];
-        const list = document.getElementById('aiChatMessages');
-        list.innerHTML = '<div id="aiChatPlaceholder" style="margin:auto;text-align:center;color:var(--text-secondary);font-size:0.85rem;padding:1rem;">Ask me about your holdings, dividends, or portfolio performance.</div>';
-    },
-
-    async sendAIMessage() {
-        const input = document.getElementById('aiChatInput');
-        const text = input.value.trim();
-        if (!text) return;
-
-        input.value = '';
-        input.disabled = true;
-        document.getElementById('aiChatSendBtn').disabled = true;
-
-        // Remove placeholder on first message
-        const placeholder = document.getElementById('aiChatPlaceholder');
-        if (placeholder) placeholder.remove();
-
-        this._aiMessages.push({ role: 'user', content: text });
-        this._renderAIMessage('user', text);
-
-        document.getElementById('aiChatThinking').style.display = 'block';
-        this._aiScrollToBottom();
-
-        try {
-            const reply = await API.chatWithAI(this._aiMessages);
-            this._aiMessages.push({ role: 'assistant', content: reply });
-            this._renderAIMessage('assistant', reply);
-        } catch (err) {
-            this._renderAIMessage('error', err.message);
-        } finally {
-            document.getElementById('aiChatThinking').style.display = 'none';
-            input.disabled = false;
-            document.getElementById('aiChatSendBtn').disabled = false;
-            input.focus();
-            this._aiScrollToBottom();
-        }
-    },
-
-    _renderAIMessage(role, text) {
-        const list = document.getElementById('aiChatMessages');
-        const isUser = role === 'user';
-        const isError = role === 'error';
-
-        const bubble = document.createElement('div');
-        bubble.style.cssText = [
-            'max-width:88%',
-            'padding:0.5rem 0.75rem',
-            'border-radius:12px',
-            'font-size:0.875rem',
-            'line-height:1.5',
-            'white-space:pre-wrap',
-            'word-break:break-word',
-            isUser  ? 'align-self:flex-end;background:var(--primary,#7c3aed);color:#fff;border-bottom-right-radius:3px'
-            : isError ? 'align-self:flex-start;background:rgba(239,68,68,0.12);color:var(--danger,#ef4444);border-bottom-left-radius:3px'
-            : 'align-self:flex-start;background:var(--surface-2);color:var(--text);border-bottom-left-radius:3px',
-        ].join(';');
-        bubble.textContent = text;
-        list.appendChild(bubble);
-        this._aiScrollToBottom();
-    },
-
-    _aiScrollToBottom() {
-        const list = document.getElementById('aiChatMessages');
-        list.scrollTop = list.scrollHeight;
-    },
-
-    // ── AI Settings ───────────────────────────────────────────────────────────
-
-    updateAIProviderFields() {
-        const provider = document.getElementById('aiProvider').value;
-        const baseurlGroup = document.getElementById('ai-baseurl-group');
-        const apikeyGroup  = document.getElementById('ai-apikey-group');
-        const modelInput   = document.getElementById('aiModel');
-        const keyLabel     = document.getElementById('aiApiKeyLabel');
-
-        baseurlGroup.style.display = provider === 'self-hosted' ? 'block' : 'none';
-        apikeyGroup.style.display  = provider === 'self-hosted' ? 'block' : (provider ? 'block' : 'none');
-
-        const defaults = { claude: 'claude-sonnet-4-6', openai: 'gpt-4o', gemini: 'gemini-2.0-flash', 'self-hosted': '' };
-        if (defaults[provider] !== undefined && !modelInput.value) modelInput.placeholder = defaults[provider] || 'e.g. llama3.2';
-
-        const keyLabels = { claude: 'Anthropic API Key', openai: 'OpenAI API Key', gemini: 'Google AI API Key', 'self-hosted': 'API Key (optional)' };
-        if (keyLabel && keyLabels[provider]) keyLabel.textContent = keyLabels[provider];
-    },
-
-    async handleSaveAISettings() {
-        const btn = document.getElementById('saveAiSettingsBtn');
-        const msg = document.getElementById('aiSettingsMsg');
-        btn.classList.add('loading'); btn.disabled = true;
-        msg.style.display = 'none';
-
-        const provider = document.getElementById('aiProvider').value;
-        const model    = document.getElementById('aiModel').value.trim();
-        const apiKey   = document.getElementById('aiApiKey').value.trim() || null;
-        const baseUrl  = document.getElementById('aiBaseUrl').value.trim() || null;
-
-        try {
-            await API.updateSettings({
-                ai_provider: provider || null,
-                ai_model: model || null,
-                ai_api_key: apiKey,
-                ai_base_url: baseUrl,
-            });
-            msg.textContent = 'Settings saved.';
-            msg.style.cssText = 'display:block;font-size:0.85rem;margin-top:0.6rem;padding:0.4rem 0.75rem;border-radius:var(--radius-sm);background:rgba(34,197,94,0.12);color:var(--success,#16a34a);';
-        } catch (err) {
-            msg.textContent = err.message;
-            msg.style.cssText = 'display:block;font-size:0.85rem;margin-top:0.6rem;padding:0.4rem 0.75rem;border-radius:var(--radius-sm);background:rgba(239,68,68,0.1);color:var(--danger,#ef4444);';
-        } finally {
-            btn.classList.remove('loading'); btn.disabled = false;
-        }
-    },
-
-    async handleTestAIConnection() {
-        const btn = document.getElementById('testAiConnectionBtn');
-        const msg = document.getElementById('aiSettingsMsg');
-        btn.classList.add('loading'); btn.disabled = true;
-        msg.style.display = 'none';
-
-        try {
-            await API.testAIConnection();
-            msg.textContent = 'Connection successful!';
-            msg.style.cssText = 'display:block;font-size:0.85rem;margin-top:0.6rem;padding:0.4rem 0.75rem;border-radius:var(--radius-sm);background:rgba(34,197,94,0.12);color:var(--success,#16a34a);';
-        } catch (err) {
-            msg.textContent = err.message;
-            msg.style.cssText = 'display:block;font-size:0.85rem;margin-top:0.6rem;padding:0.4rem 0.75rem;border-radius:var(--radius-sm);background:rgba(239,68,68,0.1);color:var(--danger,#ef4444);';
-        } finally {
-            btn.classList.remove('loading'); btn.disabled = false;
-        }
-    },
-
-    _loadAISettings(settings) {
-        const provider = settings.ai_provider || '';
-        document.getElementById('aiProvider').value = provider;
-        document.getElementById('aiModel').value = settings.ai_model || '';
-        if (settings.ai_api_key) document.getElementById('aiApiKey').value = settings.ai_api_key;
-        if (settings.ai_base_url) document.getElementById('aiBaseUrl').value = settings.ai_base_url;
-        this.updateAIProviderFields();
-    },
 };
 
 // Initialize app

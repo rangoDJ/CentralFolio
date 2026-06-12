@@ -105,12 +105,12 @@ export const clearDividendCache = (req: Request, res: Response) => {
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
 const FREQ_VALUES = new Set([1, 2, 4, 6, 12, 24, 26, 52]);
 
-export const aiFetchDividendMetadataHandler = async (req: Request, res: Response) => {
+export const snowballFetchDividendMetadataHandler = async (req: Request, res: Response) => {
   const symbol = req.params.symbol?.toUpperCase().trim();
   if (!symbol || !SYMBOL_RE.test(symbol)) {
     return res.status(400).json({ error: 'Invalid symbol' });
   }
-  logger.info('Portfolio', `POST /api/portfolios/dividend-metadata/${symbol}/ai-fetch`);
+  logger.info('Portfolio', `POST /api/portfolios/dividend-metadata/${symbol}/snowball-fetch`);
   try {
     const result = await lookupDividendWithAI(symbol);
     if (!result) {
@@ -118,7 +118,7 @@ export const aiFetchDividendMetadataHandler = async (req: Request, res: Response
     }
     res.json({ symbol, ...result });
   } catch (err: any) {
-    logger.error('Portfolio', `aiFetchDividendMetadata(${symbol}) failed: ${err.message}`);
+    logger.error('Portfolio', `snowballFetchDividendMetadata(${symbol}) failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };

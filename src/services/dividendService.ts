@@ -1,29 +1,8 @@
-import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, setSetting, getActiveAccountIds, getDividendProviders, clearDividendMetadataCache } from "../models/db.js";
+import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
-import YahooFinance from "yahoo-finance2";
-
-const yahooFinance = new YahooFinance();
-
-// Per-provider rate limiting — Yahoo needs a much larger gap
-const lastRequestTime: Record<string, number> = {};
-const PROVIDER_INTERVAL_MS: Record<string, number> = {
-  yahoo:        1500,
-  tiingo:        300,
-  eodhd:        3500, // 20 req/min → one every 3s, using 3.5s to be safe
-  polygon:       300,
-  alphavantage:  300,
-  finnhub:       300,
-};
-
-async function rateLimit(provider: string) {
-  const interval = PROVIDER_INTERVAL_MS[provider] ?? 300;
-  const elapsed = Date.now() - (lastRequestTime[provider] ?? 0);
-  if (elapsed < interval) await sleep(interval - elapsed);
-  lastRequestTime[provider] = Date.now();
-}
 
 // In-memory cache for dividend metadata (24h TTL)
 const divMetadataCache = new Map<string, { 
@@ -58,468 +37,102 @@ export interface DividendEvent {
   accountId?: string;
 }
 
-function inferFrequencyFromHistory(records: { ex_dividend_date: string }[]): number {
-  if (records.length < 2) return 4;
-  const dates = records
-    .map(r => new Date(r.ex_dividend_date).getTime())
-    .filter(t => !isNaN(t))
-    .sort((a, b) => b - a);
-  if (dates.length < 2) return 4;
-  const gaps: number[] = [];
-  for (let i = 0; i < Math.min(dates.length - 1, 6); i++) {
-    gaps.push(dates[i] - dates[i + 1]);
+function getSnowballUrls(symbol: string): string[] {
+  let mapped = symbol.toUpperCase().trim();
+  const dotIndex = mapped.lastIndexOf('.');
+  if (dotIndex !== -1) {
+    let ticker = mapped.slice(0, dotIndex);
+    let exchange = mapped.slice(dotIndex + 1);
+    ticker = ticker.replace(/\./g, '-');
+    if (exchange === 'VN') {
+      exchange = 'V';
+    } else if (exchange === 'NE') {
+      exchange = 'NEO';
+    }
+    const base = `${ticker}.${exchange}`;
+    return [
+      `https://snowball-analytics.com/public/asset/${base}`,
+      `https://snowball-analytics.com/public/asset/${base}.CAD`,
+    ];
+  } else {
+    return [
+      `https://snowball-analytics.com/public/asset/${mapped}.US`,
+      `https://snowball-analytics.com/public/asset/${mapped}.US.USD`,
+    ];
   }
-  const avgDays = gaps.reduce((s, g) => s + g, 0) / gaps.length / (1000 * 60 * 60 * 24);
-  if (avgDays <= 45)       return 12; // monthly
-  if (avgDays <= 120)      return 4;  // quarterly
-  if (avgDays <= 240)      return 2;  // semi-annual
-  return 1;                           // annual
 }
 
-async function fetchFromYahooFinance(symbol: string): Promise<any> {
-  const MAX_RETRIES = 3;
+const SNOWBALL_INTERVAL_MS = 20_000; // 20s (max 3 req/min)
+let lastSnowballRequestTime = 0;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-  try {
-    logger.info('YahooFinance', `Fetching dividend data for ${symbol}${attempt > 1 ? ` (attempt ${attempt})` : ''}...`);
-    await rateLimit('yahoo');
+async function rateLimitSnowball() {
+  const elapsed = Date.now() - lastSnowballRequestTime;
+  if (elapsed < SNOWBALL_INTERVAL_MS) {
+    const delay = SNOWBALL_INTERVAL_MS - elapsed;
+    logger.info('Snowball', `Rate limiting: sleeping for ${(delay / 1000).toFixed(1)}s...`);
+    await sleep(delay);
+  }
+  lastSnowballRequestTime = Date.now();
+}
 
-    const quote = await yahooFinance.quote(symbol);
-    const companyName = quote.longName || quote.shortName || symbol;
+async function fetchFromSnowball(symbol: string): Promise<any> {
+  const urls = getSnowballUrls(symbol);
+  for (const url of urls) {
+    try {
+      logger.info('Snowball', `Fetching dividend data for ${symbol} from ${url}...`);
+      await rateLimitSnowball();
 
-    if (quote && quote.dividendDate) {
-      const quoteSummary = await yahooFinance.quoteSummary(symbol, { modules: ['fundProfile', 'summaryDetail'] });
-      const summaryData = quoteSummary.summaryDetail;
-
-      const annualRate = summaryData?.trailingAnnualDividendRate || quote.trailingAnnualDividendRate || 0;
-      const perPayment = summaryData?.dividendRate || 0;
-
-      const amountPerShare = annualRate || perPayment || 0;
-
-      // Derive frequency from annual ÷ per-payment ratio
-      let frequency = 4; // default quarterly
-      if (perPayment > 0 && annualRate > 0) {
-        const ratio = annualRate / perPayment;
-        if (ratio <= 1.5)      frequency = 1;   // annual
-        else if (ratio <= 3)   frequency = 2;   // semi-annual
-        else if (ratio <= 6)   frequency = 4;   // quarterly
-        else                   frequency = 12;  // monthly
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+      });
+      if (!res.ok) {
+        logger.debug('Snowball', `${symbol} -> HTTP ${res.status} on ${url}`);
+        continue;
+      }
+      const html = await res.text();
+      const nextDataMatch = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/i);
+      if (!nextDataMatch) {
+        logger.debug('Snowball', `${symbol} -> __NEXT_DATA__ tag not found on ${url}`);
+        continue;
+      }
+      const parsed = JSON.parse(nextDataMatch[1]);
+      const asset = parsed.props?.pageProps?.asset;
+      if (!asset) {
+        logger.debug('Snowball', `${symbol} -> asset details not found in JSON on ${url}`);
+        continue;
       }
 
-      const lastExDate = quote.dividendDate
-        ? new Date(quote.dividendDate * 1000).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0];
+      const frequency = asset.divFrequency ?? 0;
+      const annualPayout = asset.divPerYearFWD ?? 0;
+      const amountPerShare = (frequency > 0 && annualPayout > 0) ? (annualPayout / frequency) : 0;
+      const lastExDate = asset.exDividendDate ? asset.exDividendDate.split("T")[0] : null;
 
-      const data = {
+      logger.info('Snowball', `${symbol} -> found dividend data (annualPayout=${annualPayout}, freq=${frequency}, lastEx=${lastExDate})`);
+      return {
         frequency,
         lastExDate,
-        amountPerShare: amountPerShare || 0,
-        name: companyName,
-        timestamp: Date.now()
+        amountPerShare,
+        name: asset.description || asset.name || symbol,
+        timestamp: Date.now(),
       };
-
-      logger.info('YahooFinance', `${symbol} → found dividend data (amount=$${data.amountPerShare})`);
-      return data;
+    } catch (err: any) {
+      logger.warn('Snowball', `Error fetching ${symbol} from ${url}: ${err.message}`);
     }
-    return null;
-  } catch (err: any) {
-    const isRateLimit = /too many|rate limit|429/i.test(err.message ?? '');
-    if (isRateLimit && attempt < MAX_RETRIES) {
-      const backoff = attempt * 3000;
-      logger.warn('YahooFinance', `${symbol} — rate limited, retrying in ${backoff / 1000}s...`);
-      await sleep(backoff);
-      continue;
-    }
-    logger.warn('YahooFinance', `${symbol} — error: ${err.message}`);
-    return null;
-  }
   }
   return null;
 }
 
-async function fetchFromTiingo(symbol: string): Promise<any> {
-  const apiKey = getSetting("tiingo_api_key");
-  if (!apiKey) {
-    logger.debug('Tiingo', `${symbol} — API key not configured`);
-    return null;
-  }
-
-  // Tiingo uses ticker without exchange suffix (e.g. "RY" not "RY.TO")
-  const ticker = symbol.split('.')[0];
-
-  try {
-    logger.info('Tiingo', `Fetching dividend data for ${ticker}...`);
-    await rateLimit('tiingo');
-
-    const startDate = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const res = await fetch(
-      `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(ticker)}/dividends?startDate=${startDate}`,
-      { headers: { 'Authorization': `Token ${apiKey}`, 'Content-Type': 'application/json' } }
-    );
-
-    if (res.status === 404) {
-      logger.info('Tiingo', `${ticker} — not found`);
-      return null;
-    }
-    if (!res.ok) {
-      logger.warn('Tiingo', `${ticker} — HTTP ${res.status}`);
-      return null;
-    }
-
-    const dividends: any[] = await res.json();
-    if (!Array.isArray(dividends) || dividends.length === 0) {
-      logger.info('Tiingo', `${ticker} — no dividend history found`);
-      return null;
-    }
-
-    // Tiingo returns { exDate, date, value } — filter out zero/missing entries
-    const sorted = dividends
-      .filter(d => d.exDate && d.value > 0)
-      .sort((a, b) => new Date(b.exDate).getTime() - new Date(a.exDate).getTime());
-
-    if (sorted.length === 0) return null;
-
-    const latest = sorted[0];
-    const frequency = inferFrequencyFromHistory(sorted.map(d => ({ ex_dividend_date: d.exDate })));
-
-    logger.info('Tiingo', `${ticker} → freq=${frequency}, lastEx=${latest.exDate}, amount=${latest.value}`);
-    return {
-      frequency,
-      lastExDate: latest.exDate.split('T')[0],
-      amountPerShare: latest.value,
-      name: ticker,
-      timestamp: Date.now()
-    };
-  } catch (err: any) {
-    logger.error('Tiingo', `${ticker} — error: ${err.message}`);
-    return null;
-  }
-}
-
-// ── EODHD daily quota tracker ─────────────────────────────────────────────────
-const EODHD_DAILY_LIMIT = 18; // leave 2 buffer from the 20/day free plan
-
-function eodhdQuotaAvailable(): boolean {
-  const today = new Date().toISOString().split('T')[0];
-  const storedDate = getSetting('eodhd_daily_date');
-  if (storedDate !== today) {
-    setSetting('eodhd_daily_date', today);
-    setSetting('eodhd_daily_count', '0');
-    return true;
-  }
-  const count = parseInt(getSetting('eodhd_daily_count') ?? '0', 10);
-  return count < EODHD_DAILY_LIMIT;
-}
-
-function eodhdIncrementQuota() {
-  const count = parseInt(getSetting('eodhd_daily_count') ?? '0', 10);
-  setSetting('eodhd_daily_count', String(count + 1));
-}
-
-async function fetchFromEODHD(symbol: string): Promise<any> {
-  const apiKey = getSetting('eodhd_api_key');
-  if (!apiKey) {
-    logger.debug('EODHD', `${symbol} — API key not configured`);
-    return null;
-  }
-
-  if (!eodhdQuotaAvailable()) {
-    const used = getSetting('eodhd_daily_count') ?? '0';
-    logger.warn('EODHD', `${symbol} — daily quota reached (${used}/${EODHD_DAILY_LIMIT}), skipping`);
-    return null;
-  }
-
-  // EODHD ticker format: RY.TO stays as-is; plain US tickers need .US suffix
-  const ticker = symbol.includes('.') ? symbol.toUpperCase() : `${symbol.toUpperCase()}.US`;
-
-  try {
-    logger.info('EODHD', `Fetching dividend data for ${ticker} (quota: ${getSetting('eodhd_daily_count') ?? '0'}/${EODHD_DAILY_LIMIT})...`);
-    await rateLimit('eodhd');
-
-    const fromDate = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const res = await fetch(
-      `https://eodhistoricaldata.com/api/div/${encodeURIComponent(ticker)}?api_token=${apiKey}&fmt=json&from=${fromDate}`
-    );
-
-    eodhdIncrementQuota();
-
-    if (res.status === 404) {
-      logger.info('EODHD', `${ticker} — not found (404)`);
-      return null;
-    }
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      logger.warn('EODHD', `${ticker} — HTTP ${res.status}: ${body.slice(0, 200)}`);
-      return null;
-    }
-
-    const dividends: any[] = await res.json();
-    if (!Array.isArray(dividends) || dividends.length === 0) {
-      logger.info('EODHD', `${ticker} — no dividend history found`);
-      return null;
-    }
-
-    // EODHD returns [{ date, dividends, currency }] sorted ascending — reverse it
-    const sorted = dividends
-      .filter(d => d.date && d.dividends > 0)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-    if (sorted.length === 0) return null;
-
-    const latest = sorted[0];
-    const frequency = inferFrequencyFromHistory(sorted.map(d => ({ ex_dividend_date: d.date })));
-
-    logger.info('EODHD', `${ticker} → freq=${frequency}, lastEx=${latest.date}, amount=${latest.dividends}`);
-    return {
-      frequency,
-      lastExDate: latest.date,
-      amountPerShare: latest.dividends,
-      name: ticker,
-      timestamp: Date.now()
-    };
-  } catch (err: any) {
-    logger.error('EODHD', `${ticker} — error: ${err.message}`);
-    return null;
-  }
-}
-
-async function fetchFromPolygon(symbol: string): Promise<any> {
-  const apiKey = getSetting("polygon_api_key");
-  if (!apiKey) {
-    logger.debug('Polygon', `${symbol} — API key not configured`);
-    return null;
-  }
-
-  try {
-    logger.info('Polygon', `Fetching dividend data for ${symbol}...`);
-    await rateLimit('polygon');
-
-    // v3 API returns frequency field and uses Authorization header (key not in URL)
-    const res = await fetch(
-      `https://api.polygon.io/v3/reference/dividends?ticker=${encodeURIComponent(symbol)}&limit=12&sort=ex_dividend_date&order=desc`,
-      { headers: { Authorization: `Bearer ${apiKey}` } }
-    );
-
-    if (!res.ok) {
-      logger.warn('Polygon', `${symbol} — HTTP ${res.status}`);
-      return null;
-    }
-
-    const data = await res.json();
-    if (!data.results || data.results.length === 0) {
-      logger.info('Polygon', `${symbol} — no dividend data found`);
-      return null;
-    }
-
-    const latest = data.results[0];
-
-    // v3 frequency: 0=unspecified, 1=annual, 2=bi-annual, 4=quarterly, 12=monthly
-    const freqMap: Record<number, number> = { 1: 1, 2: 2, 4: 4, 12: 12 };
-    const frequency = freqMap[latest.frequency] ?? inferFrequencyFromHistory(data.results);
-
-    return {
-      frequency,
-      lastExDate: latest.ex_dividend_date || new Date().toISOString().split('T')[0],
-      amountPerShare: parseFloat(latest.cash_amount) || 0,
-      name: symbol,
-      timestamp: Date.now()
-    };
-  } catch (err: any) {
-    logger.error('Polygon', `${symbol} — error: ${err.message}`);
-    return null;
-  }
-}
-
-async function fetchFromAlphaVantage(symbol: string): Promise<any> {
-  const apiKey = getSetting("alphavantage_api_key");
-  if (!apiKey) {
-    logger.debug('AlphaVantage', `${symbol} — API key not configured`);
-    return null;
-  }
-
-  try {
-    logger.info('AlphaVantage', `Fetching dividend data for ${symbol}...`);
-    await rateLimit('alphavantage');
-
-    // OVERVIEW endpoint provides ExDividendDate, DividendDate, DividendPerShare, and frequency hints
-    const res = await fetch(
-      `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`
-    );
-
-    if (!res.ok) {
-      logger.warn('AlphaVantage', `${symbol} — HTTP ${res.status}`);
-      return null;
-    }
-
-    const data = await res.json();
-    if (!data['Symbol'] || data['Symbol'] !== symbol) {
-      logger.info('AlphaVantage', `${symbol} — no overview data found`);
-      return null;
-    }
-
-    const dividendPerShare = parseFloat(data['DividendPerShare'] || '0');
-    if (!dividendPerShare || dividendPerShare === 0) {
-      logger.info('AlphaVantage', `${symbol} — no dividend per share found`);
-      return null;
-    }
-
-    const exDateRaw = data['ExDividendDate'];
-    const annualDivYield = parseFloat(data['DividendYield'] || '0');
-    // 50DayMovingAverage is a reasonable proxy for current price; AnalystTargetPrice is a forecast
-    const price = parseFloat(data['50DayMovingAverage'] || '0');
-    const annualRate = annualDivYield > 0 && price > 0 ? annualDivYield * price : 0;
-
-    // Detect frequency from annual ÷ per-payment
-    let frequency = 4;
-    if (annualRate > 0 && dividendPerShare > 0) {
-      const ratio = annualRate / dividendPerShare;
-      if (ratio <= 1.5)      frequency = 1;
-      else if (ratio <= 3)   frequency = 2;
-      else if (ratio <= 6)   frequency = 4;
-      else                   frequency = 12;
-    }
-
-    const lastExDate = (exDateRaw && exDateRaw !== 'None' && exDateRaw !== '0000-00-00')
-      ? exDateRaw
-      : new Date().toISOString().split('T')[0];
-
-    return {
-      frequency,
-      lastExDate,
-      amountPerShare: dividendPerShare,
-      name: data['Name'] || symbol,
-      timestamp: Date.now()
-    };
-  } catch (err: any) {
-    logger.error('AlphaVantage', `${symbol} — error: ${err.message}`);
-    return null;
-  }
-}
-
-async function fetchFromFinnhub(symbol: string): Promise<any> {
-  const apiKey = getSetting("finnhub_api_key");
-  if (!apiKey) {
-    logger.debug('Finnhub', `${symbol} — API key not configured`);
-    return null;
-  }
-
-  try {
-    logger.info('Finnhub', `Fetching dividend data for ${symbol}...`);
-    await rateLimit('finnhub');
-
-    // Use X-Finnhub-Token header to keep key out of URL
-    const fromDate = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const toDate = new Date().toISOString().split('T')[0];
-    const res = await fetch(
-      `https://finnhub.io/api/v1/stock/dividend?symbol=${encodeURIComponent(symbol)}&from=${fromDate}&to=${toDate}`,
-      { headers: { 'X-Finnhub-Token': apiKey } }
-    );
-
-    if (!res.ok) {
-      logger.warn('Finnhub', `${symbol} — HTTP ${res.status}`);
-      return null;
-    }
-
-    const dividends = await res.json();
-    if (!dividends || dividends.length === 0) {
-      logger.info('Finnhub', `${symbol} — no dividend history found`);
-      return null;
-    }
-
-    const sorted = dividends.sort((a: any, b: any) =>
-      new Date(b.exDate).getTime() - new Date(a.exDate).getTime()
-    );
-    const latest = sorted[0];
-
-    return {
-      frequency: inferFrequencyFromHistory(sorted.map((d: any) => ({ ex_dividend_date: d.exDate }))),
-      lastExDate: latest.exDate,
-      amountPerShare: latest.amount ?? 0,
-      name: symbol,
-      timestamp: Date.now()
-    };
-  } catch (err: any) {
-    logger.error('Finnhub', `${symbol} — error: ${err.message}`);
-    return null;
-  }
-}
-
-const FREQ_STRING_TO_NUMBER: Record<string, number> = {
-  monthly: 12,
-  quarterly: 4,
-  "semi-annual": 2,
-  annual: 1,
-};
-
-const SAFE_SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
-
-// Strip exchange suffixes for ticker comparison (e.g. VFV.TO → VFV)
-function normalizeTickerForComparison(ticker: string): string {
-  return ticker.toUpperCase().replace(/\.(TO|TSX|V|CN|NEO|NYSE|NASDAQ|AMEX|L|PA|DE|HK)$/i, '');
-}
-
-async function fetchFromAI(symbol: string): Promise<any> {
-  if (!SAFE_SYMBOL_RE.test(symbol)) {
-    logger.warn("AI", `fetchFromAI — rejected unsafe symbol: "${symbol}"`);
-    return null;
-  }
-
-  // Dynamic import breaks the circular dependency: aiService → dividendService → aiService
-  const { createAIProvider } = await import("./aiService.js");
-  const provider = createAIProvider();
-
-  const question =
-    `You are a financial data assistant. Provide dividend information for the stock ticker "${symbol}".\n\n` +
-    `IMPORTANT: Respond ONLY for the ticker "${symbol}". Do not substitute or confuse it with any other ticker.\n\n` +
-    `Return a single JSON object with exactly these fields:\n` +
-    `  "ticker": must be exactly "${symbol}",\n` +
-    `  "name": full company or fund name (string),\n` +
-    `  "frequency": one of "monthly", "quarterly", "semi-annual", "annual", or "none",\n` +
-    `  "amountPerShare": most recent dividend per share as a number (0 if none),\n` +
-    `  "lastExDate": most recent ex-dividend date in YYYY-MM-DD format, or null if unknown.\n\n` +
-    `If "${symbol}" does not pay dividends, set frequency to "none" and amountPerShare to 0.\n` +
-    `Respond with ONLY the JSON object. No explanation, no markdown fences.`;
-
-  try {
-    const raw = await provider.queryKnowledge(question);
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]);
-
-    // Validate the AI responded for the correct ticker
-    if (parsed.ticker) {
-      const got = normalizeTickerForComparison(String(parsed.ticker));
-      const want = normalizeTickerForComparison(symbol);
-      if (got !== want) {
-        logger.warn("AI", `fetchFromAI(${symbol}) — ticker mismatch in response: got "${parsed.ticker}", rejecting`);
-        return null;
-      }
-    }
-
-    const freqNum = FREQ_STRING_TO_NUMBER[parsed.frequency];
-    if (!freqNum) return null;
-    return {
-      frequency: freqNum,
-      lastExDate: parsed.lastExDate ?? null,
-      amountPerShare: typeof parsed.amountPerShare === "number" ? parsed.amountPerShare : null,
-      name: parsed.name ?? symbol,
-      timestamp: Date.now(),
-    };
-  } catch (err: any) {
-    logger.warn("AI", `fetchFromAI(${symbol}) failed: ${err.message}`);
-    return null;
-  }
-}
-
-// Exported so controllers can trigger a one-off AI lookup for a specific symbol
+// Exported so controllers can trigger a manual Snowball lookup for a specific symbol
 export async function lookupDividendWithAI(symbol: string): Promise<any> {
-  return fetchFromAI(symbol);
+  return fetchFromSnowball(symbol);
 }
 
 /**
- * Helper to fetch dividend metadata with multiple provider fallback
+ * Helper to fetch dividend metadata with cache-only non-blocking option
  */
-export async function fetchDividendMetadata(symbol: string): Promise<any> {
+export async function fetchDividendMetadata(symbol: string, allowExternalFetch: boolean = true): Promise<any> {
   const now = Date.now();
 
   // 1. Check in-memory Cache
@@ -549,68 +162,47 @@ export async function fetchDividendMetadata(symbol: string): Promise<any> {
     }
   }
 
-  // 3. Get enabled providers from settings
-  const providers = getDividendProviders();
-
-  // Canadian exchange suffixes — only Yahoo covers these reliably
-  const isCanadian = /\.(TO|TSX|V|CN|NEO)$/i.test(symbol);
-
-  // When Tiingo is enabled:
-  //   Canadian symbols → Yahoo first (Tiingo has no TSX data), others as fallback
-  //   US symbols       → Tiingo first, Yahoo last (avoids hitting Yahoo rate limit for US)
-  // Routing strategy:
-  //   Canadian (.TO/.TSX/.V/.CN/.NEO):
-  //     EODHD (good CA coverage, limited daily quota) →
-  //     Yahoo (best CA coverage, rate-limited) →
-  //     others as last resort
-  //   US / unknown:
-  //     Tiingo (paid, reliable US) →
-  //     EODHD →
-  //     Polygon / AlphaVantage / Finnhub →
-  //     Yahoo last (avoid burning Yahoo quota on US symbols)
-  const aiEnabled = !!getSetting("ai_provider");
-  const providerOrder = isCanadian
-    ? [
-        { name: 'eodhd',        enabled: providers.eodhd,        fn: fetchFromEODHD },
-        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
-        { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
-        { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
-        { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
-        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
-        { name: 'ai',           enabled: aiEnabled,              fn: fetchFromAI },
-      ]
-    : [
-        { name: 'tiingo',       enabled: providers.tiingo,       fn: fetchFromTiingo },
-        { name: 'eodhd',        enabled: providers.eodhd,        fn: fetchFromEODHD },
-        { name: 'polygon',      enabled: providers.polygon,      fn: fetchFromPolygon },
-        { name: 'alphavantage', enabled: providers.alphavantage, fn: fetchFromAlphaVantage },
-        { name: 'finnhub',      enabled: providers.finnhub,      fn: fetchFromFinnhub },
-        { name: 'yahoo',        enabled: providers.yahoo,        fn: fetchFromYahooFinance },
-        { name: 'ai',           enabled: aiEnabled,              fn: fetchFromAI },
-      ];
-
-  logger.debug('Dividend', `${symbol} — routing: ${isCanadian ? 'Canadian' : 'US'} → [${providerOrder.filter(p => p.enabled).map(p => p.name).join(', ')}]`);
-
-  // Try each enabled provider in order
-  for (const provider of providerOrder) {
-    if (!provider.enabled) continue;
-
-    const data = await provider.fn(symbol);
-    if (data) {
-      divMetadataCache.set(symbol, data);
-      saveCachedDividendMetadata(symbol, data, provider.name);
-      logger.info('Dividend', `${symbol} → saved to cache via ${provider.name}`);
-      return data;
-    }
+  // If external fetch is not allowed, return null immediately (keeps WebUI snappy)
+  if (!allowExternalFetch) {
+    logger.debug('Dividend', `fetchDividendMetadata(${symbol}) → Cache MISS (external fetch disabled)`);
+    return null;
   }
 
-  logger.warn('Dividend', `${symbol} — no dividend data available from any provider`);
+  // 3. Fetch from Snowball
+  const data = await fetchFromSnowball(symbol);
+  if (data) {
+    divMetadataCache.set(symbol, data);
+    saveCachedDividendMetadata(symbol, data, 'snowball');
+    logger.info('Dividend', `${symbol} → saved to cache via snowball`);
+    return data;
+  }
+
+  logger.warn('Dividend', `${symbol} — no dividend data available from snowball`);
   return null;
 }
 
-export async function getDividendForecastForAccount(portfolio: Portfolio, accountId: string, forceRefresh: boolean = false): Promise<DividendEvent[]> {
+
+function advanceDate(date: Date, frequency: number): Date {
+  const newDate = new Date(date.getTime());
+  if (frequency === 1 || frequency === 2 || frequency === 4 || frequency === 6 || frequency === 12) {
+    const monthsToAdd = 12 / frequency;
+    newDate.setMonth(newDate.getMonth() + monthsToAdd);
+  } else {
+    // Fallback to days for weekly (52), bi-weekly (26), semi-monthly (24) or others
+    const daysToAdd = Math.round(365.25 / frequency);
+    newDate.setDate(newDate.getDate() + daysToAdd);
+  }
+  return newDate;
+}
+
+export async function getDividendForecastForAccount(
+  portfolio: Portfolio,
+  accountId: string,
+  forceRefresh: boolean = false,
+  allowExternalFetch: boolean = true
+): Promise<DividendEvent[]> {
   if (!portfolio.userSecret) throw new Error(`Portfolio "${portfolio.name}" is not registered with SnapTrade`);
-  logger.info('Forecast', `getDividendForecastForAccount — portfolio="${portfolio.name}" account=${accountId} forceRefresh=${forceRefresh}`);
+  logger.info('Forecast', `getDividendForecastForAccount — portfolio="${portfolio.name}" account=${accountId} forceRefresh=${forceRefresh} allowExternalFetch=${allowExternalFetch}`);
 
   try {
     let positions: any[] = [];
@@ -664,7 +256,7 @@ export async function getDividendForecastForAccount(portfolio: Portfolio, accoun
         let metadata;
         try {
           metadata = await withTimeout(
-            fetchDividendMetadata(symbol),
+            fetchDividendMetadata(symbol, allowExternalFetch),
             METADATA_TIMEOUT_MS,
             `fetchDividendMetadata(${symbol})`
           );
@@ -687,15 +279,12 @@ export async function getDividendForecastForAccount(portfolio: Portfolio, accoun
           continue;
         }
 
-        const monthsToAdd = 12 / frequency;
-        logger.info('Forecast', `  ${symbol} — monthsToAdd=${monthsToAdd}`);
-
         let currentProjDate = new Date(lastExDate);
         logger.info('Forecast', `  ${symbol} — starting projection from ${currentProjDate.toISOString()}`);
 
         let loopCount = 0;
         while (currentProjDate < now && loopCount < 100) {
-          currentProjDate.setMonth(currentProjDate.getMonth() + monthsToAdd);
+          currentProjDate = advanceDate(currentProjDate, frequency);
           loopCount++;
         }
         if (loopCount >= 100) {
@@ -713,7 +302,7 @@ export async function getDividendForecastForAccount(portfolio: Portfolio, accoun
             units,
             name
           });
-          currentProjDate.setMonth(currentProjDate.getMonth() + monthsToAdd);
+          currentProjDate = advanceDate(currentProjDate, frequency);
         }
         logger.info('Forecast', `  ${symbol} → added ${frequency} projected event(s)`);
       } catch (err) {
@@ -734,7 +323,10 @@ let cachedAllDividends: any[] = [];
 let cachedDividendsTime: number = 0;
 const CACHE_DIVIDENDS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
+export async function getAllDividendsForAllPortfolios(
+  forceRefresh: boolean = false,
+  allowExternalFetch: boolean = true
+): Promise<any[]> {
   const portfolios = listPortfolios();
   const results = [];
 
@@ -782,7 +374,7 @@ export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
       for (const acc of activeAccounts) {
         logger.info('DividendSvc', `    Account: "${acc.name ?? acc.id}" (${acc.id})`);
         try {
-          const dividends = await getDividendForecastForAccount(portfolio, acc.id);
+          const dividends = await getDividendForecastForAccount(portfolio, acc.id, forceRefresh, allowExternalFetch);
           logger.info('DividendSvc', `    → ${dividends.length} projected dividend event(s)`);
           results.push({
             portfolioName: portfolio.name,
@@ -808,9 +400,16 @@ export async function getAllDividendsForAllPortfolios(): Promise<any[]> {
 
   const totalEvents = results.reduce((s, r) => s + (r.dividends?.length ?? 0), 0);
   logger.info('DividendSvc', `getAllDividendsForAllPortfolios complete — ${results.length} account(s), ${totalEvents} total event(s)`);
-  cachedAllDividends = results;
-  cachedDividendsTime = Date.now();
+  
+  if (allowExternalFetch) {
+    cachedAllDividends = results;
+    cachedDividendsTime = Date.now();
+  }
   return results;
+}
+
+export async function getAllDividendsFromCacheOnly(): Promise<any[]> {
+  return getAllDividendsForAllPortfolios(false, false);
 }
 
 export function getCachedAllDividends(): any[] | null {

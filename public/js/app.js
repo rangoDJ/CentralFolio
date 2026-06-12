@@ -90,15 +90,7 @@ const App = {
 
         document.getElementById('listUsersBtn').onclick = () => this.handleListUsers();
         document.getElementById('wipeBtn').onclick = () => this.handleWipeUsers();
-        document.getElementById('saveDividendProvidersBtn').onclick = () => this.handleSaveSettings();
         document.getElementById('clearDividendCacheBtn').onclick = () => this.handleClearDividendCache();
-
-        // Add listeners for provider toggles
-        document.getElementById('provider-tiingo').addEventListener('change', () => this.updateProviderKeyVisibility());
-        document.getElementById('provider-eodhd').addEventListener('change', () => this.updateProviderKeyVisibility());
-        document.getElementById('provider-polygon').addEventListener('change', () => this.updateProviderKeyVisibility());
-        document.getElementById('provider-alphavantage').addEventListener('change', () => this.updateProviderKeyVisibility());
-        document.getElementById('provider-finnhub').addEventListener('change', () => this.updateProviderKeyVisibility());
     },
 
     async loadPortfolios() {
@@ -531,93 +523,10 @@ const App = {
             if (intervalInput) intervalInput.value = intervalHours;
             this.updateRefreshHint(intervalHours);
 
-            // Load dividend provider settings
-            const providers = settings.dividend_providers ? JSON.parse(settings.dividend_providers) : {};
-            document.getElementById('provider-yahoo').checked = providers.yahoo || false;
-            document.getElementById('provider-tiingo').checked = providers.tiingo || false;
-            document.getElementById('provider-eodhd').checked = providers.eodhd || false;
-            document.getElementById('provider-polygon').checked = providers.polygon || false;
-            document.getElementById('provider-alphavantage').checked = providers.alphavantage || false;
-            document.getElementById('provider-finnhub').checked = providers.finnhub || false;
-
-            // Load API keys
-            if (settings.tiingo_api_key) {
-                document.getElementById('tiingoApiKey').value = settings.tiingo_api_key;
-            }
-            if (settings.eodhd_api_key) {
-                document.getElementById('eodhdApiKey').value = settings.eodhd_api_key;
-            }
-            // Show EODHD daily quota usage
-            const quotaEl = document.getElementById('eodhdQuotaDisplay');
-            if (quotaEl && settings.eodhd_daily_count !== undefined) {
-                const date = settings.eodhd_daily_date || 'today';
-                const used = parseInt(settings.eodhd_daily_count || '0', 10);
-                quotaEl.textContent = `Daily usage: ${used}/20 calls used (resets daily)`;
-            }
-            if (settings.polygon_api_key) {
-                document.getElementById('polygonApiKey').value = settings.polygon_api_key;
-            }
-            if (settings.alphavantage_api_key) {
-                document.getElementById('alphavantageApiKey').value = settings.alphavantage_api_key;
-            }
-            if (settings.finnhub_api_key) {
-                document.getElementById('finnhubApiKey').value = settings.finnhub_api_key;
-            }
-
-            // Update visibility of API key inputs
-            this.updateProviderKeyVisibility();
-
             // Load AI assistant settings
             this._loadAISettings(settings);
         } catch (err) {
             console.error('Failed to load settings:', err);
-        }
-    },
-
-    updateProviderKeyVisibility() {
-        document.getElementById('tiingo-key-group').style.display =
-            document.getElementById('provider-tiingo').checked ? 'block' : 'none';
-        document.getElementById('eodhd-key-group').style.display =
-            document.getElementById('provider-eodhd').checked ? 'block' : 'none';
-        document.getElementById('polygon-key-group').style.display =
-            document.getElementById('provider-polygon').checked ? 'block' : 'none';
-        document.getElementById('alphavantage-key-group').style.display =
-            document.getElementById('provider-alphavantage').checked ? 'block' : 'none';
-        document.getElementById('finnhub-key-group').style.display =
-            document.getElementById('provider-finnhub').checked ? 'block' : 'none';
-    },
-
-    async handleSaveSettings() {
-        const saveBtn = document.getElementById('saveDividendProvidersBtn');
-        saveBtn.classList.add('loading');
-        saveBtn.disabled = true;
-
-        try {
-            const providers = {
-                yahoo: document.getElementById('provider-yahoo').checked,
-                tiingo: document.getElementById('provider-tiingo').checked,
-                eodhd: document.getElementById('provider-eodhd').checked,
-                polygon: document.getElementById('provider-polygon').checked,
-                alphavantage: document.getElementById('provider-alphavantage').checked,
-                finnhub: document.getElementById('provider-finnhub').checked
-            };
-
-            const settings = {
-                dividend_providers: JSON.stringify(providers),
-                tiingo_api_key: document.getElementById('tiingoApiKey').value.trim() || null,
-                eodhd_api_key: document.getElementById('eodhdApiKey').value.trim() || null,
-                polygon_api_key: document.getElementById('polygonApiKey').value.trim() || null,
-                alphavantage_api_key: document.getElementById('alphavantageApiKey').value.trim() || null,
-                finnhub_api_key: document.getElementById('finnhubApiKey').value.trim() || null
-            };
-
-            await API.updateSettings(settings);
-            UI.showToast('Dividend provider settings saved successfully');
-        } catch (err) {
-            UI.showToast(err.message, 'error');
-        } finally {
-            saveBtn.classList.remove('loading');
-            saveBtn.disabled = false;
         }
     },
 
@@ -1148,13 +1057,11 @@ const App = {
             if (countEl) countEl.textContent = `${rows.length} symbol${rows.length !== 1 ? 's' : ''}`;
 
             if (badgeEl) {
-                badgeEl.style.display = 'inline';
-                badgeEl.textContent = `EODHD: ${eodhd.used}/20 calls today`;
-                badgeEl.style.color = eodhd.used >= 18 ? 'var(--danger)' : 'var(--text-secondary)';
+                badgeEl.style.display = 'none';
             }
 
-            const freqLabel = f => ({ 1: 'Annual', 2: 'Semi-annual', 4: 'Quarterly', 12: 'Monthly' }[f] || f || '—');
-            const providerBadgeColor = p => ({ yahoo: '#7e57c2', tiingo: '#42a5f5', eodhd: '#26a69a', polygon: '#ff7043', alphavantage: '#66bb6a', finnhub: '#ffa726', manual: '#555', ai: '#9c27b0' }[p] || '#888');
+            const freqLabel = f => ({ 1: 'Annual', 2: 'Semi-annual', 4: 'Quarterly', 6: 'Bi-monthly', 12: 'Monthly', 24: 'Semi-monthly', 26: 'Bi-weekly', 52: 'Weekly' }[f] || f || '—');
+            const providerBadgeColor = p => ({ snowball: '#4caf50', yahoo: '#7e57c2', tiingo: '#42a5f5', eodhd: '#26a69a', polygon: '#ff7043', alphavantage: '#66bb6a', finnhub: '#ffa726', manual: '#555', ai: '#9c27b0' }[p] || '#888');
 
             const render = (filter) => {
                 const filtered = filter
@@ -1213,10 +1120,10 @@ const App = {
     },
 
     divLookupPopulate(data) {
-        const freqMap = { 12: '12', 4: '4', 2: '2', 1: '1' };
+        const freqMap = { 52: '52', 26: '26', 24: '24', 12: '12', 6: '6', 4: '4', 2: '2', 1: '1' };
         document.getElementById('divLookupName').value = data.name || '';
         const freqSel = document.getElementById('divLookupFreq');
-        if (freqSel) freqSel.value = freqMap[data.frequency] || '4';
+        if (freqSel) freqSel.value = freqMap[data.frequency] || String(data.frequency) || '4';
         document.getElementById('divLookupAmount').value = data.amountPerShare != null ? data.amountPerShare : '';
         document.getElementById('divLookupExDate').value = data.lastExDate || '';
         document.getElementById('divLookupResult').style.display = 'block';
@@ -1236,14 +1143,14 @@ const App = {
 
         const btn = document.getElementById('divLookupFetchBtn');
         if (btn) btn.disabled = true;
-        this.divLookupSetStatus('Asking AI…');
+        this.divLookupSetStatus('Querying Snowball Analytics…');
         document.getElementById('divLookupResult').style.display = 'none';
 
         try {
             const data = await API.aiFetchDividendMetadata(symbol);
             this._divLookupSymbol = symbol;
             this.divLookupPopulate(data);
-            this.divLookupSetStatus(`AI result for ${symbol} — review and save below.`);
+            this.divLookupSetStatus(`Snowball result for ${symbol} — review and save below.`);
         } catch (err) {
             this.divLookupSetStatus(err.message, true);
         } finally {
@@ -1253,7 +1160,7 @@ const App = {
 
     async divLookupSave() {
         const symbol = this._divLookupSymbol;
-        if (!symbol) { UI.showToast('No symbol loaded — fetch with AI first.', 'error'); return; }
+        if (!symbol) { UI.showToast('No symbol loaded — fetch first.', 'error'); return; }
 
         const payload = {
             frequency: parseInt(document.getElementById('divLookupFreq').value, 10),

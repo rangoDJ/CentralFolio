@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio, getAllCachedDividendMetadata, listSettings, saveCachedDividendMetadata, deleteCachedDividendMetadata } from "../models/db.js";
-import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches, lookupDividendWithAI } from "../services/dividendService.js";
+import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches, lookupDividendWithAI, getAllDividendsFromCacheOnly } from "../services/dividendService.js";
 import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
@@ -17,7 +17,7 @@ export const getPortfolios = (req: Request, res: Response) => {
   res.json(portfolios.map(sanitizePortfolio));
 };
 
-export const getAllDividends = (req: Request, res: Response) => {
+export const getAllDividends = async (req: Request, res: Response) => {
   const forceRefresh = req.query.forceRefresh === 'true';
   logger.info('Portfolio', `GET /api/portfolios/all-dividends — forceRefresh=${forceRefresh}`);
 
@@ -25,18 +25,15 @@ export const getAllDividends = (req: Request, res: Response) => {
     triggerJob('dividend-fetch', 'manual');
   }
 
-  const cached = getCachedAllDividends();
   const fetching = isJobRunning('dividend-fetch');
 
-  if (!cached && !fetching) {
-    // No cache and nothing running — kick off background fetch
-    triggerJob('dividend-fetch', 'on-demand');
-  }
+  // Calculate forecast on the fly from already cached DB data (non-blocking)
+  const data = await getAllDividendsFromCacheOnly();
 
-  const total = (cached ?? []).reduce((sum: number, a: any) => sum + (a.dividends?.length ?? 0), 0);
-  logger.info('Portfolio', `all-dividends — serving ${cached?.length ?? 0} account(s), ${total} event(s) (fetching=${fetching})`);
+  const total = data.reduce((sum: number, a: any) => sum + (a.dividends?.length ?? 0), 0);
+  logger.info('Portfolio', `all-dividends — serving ${data.length} account(s), ${total} event(s) (fetching=${fetching})`);
 
-  res.json({ fetching, data: cached ?? [] });
+  res.json({ fetching, data });
 };
 
 export const createOrUpdatePortfolio = (req: Request, res: Response) => {
@@ -106,7 +103,7 @@ export const clearDividendCache = (req: Request, res: Response) => {
 };
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
-const FREQ_VALUES = new Set([1, 2, 4, 12]);
+const FREQ_VALUES = new Set([1, 2, 4, 6, 12, 24, 26, 52]);
 
 export const aiFetchDividendMetadataHandler = async (req: Request, res: Response) => {
   const symbol = req.params.symbol?.toUpperCase().trim();
@@ -117,7 +114,7 @@ export const aiFetchDividendMetadataHandler = async (req: Request, res: Response
   try {
     const result = await lookupDividendWithAI(symbol);
     if (!result) {
-      return res.status(404).json({ error: `AI could not find dividend data for "${symbol}". It may not pay dividends or the ticker is unrecognised.` });
+      return res.status(404).json({ error: `Snowball Analytics could not find dividend data for "${symbol}". It may not pay dividends or the ticker is unrecognized.` });
     }
     res.json({ symbol, ...result });
   } catch (err: any) {
@@ -136,7 +133,7 @@ export const manualSaveDividendMetadataHandler = (req: Request, res: Response) =
 
   const freq = Number(frequency);
   if (!FREQ_VALUES.has(freq)) {
-    return res.status(400).json({ error: 'frequency must be 1, 2, 4, or 12' });
+    return res.status(400).json({ error: 'frequency must be 1, 2, 4, 6, 12, 24, 26, or 52' });
   }
   const amount = parseFloat(amountPerShare);
   if (isNaN(amount) || amount < 0) {

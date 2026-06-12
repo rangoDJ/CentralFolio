@@ -290,16 +290,17 @@
             </div>
           </div>
 
-          <!-- AI / Manual lookup panel -->
+          <!-- Snowball / Manual lookup panel -->
           <div id="divLookupPanel" style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:1rem 1.25rem;margin-bottom:1.25rem;">
-            <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.75rem;">AI Dividend Lookup</div>
+            <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.75rem;">Snowball Dividend Lookup</div>
             <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
               <input type="text" id="divLookupSymbol" placeholder="Ticker (e.g. VFV.TO)" maxlength="20"
                 style="padding:0.35rem 0.7rem;font-size:0.9rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-primary);width:160px;font-family:monospace;text-transform:uppercase;"
                 onkeydown="if(event.key==='Enter')App.divLookupFetchAI()">
-              <button class="btn btn-primary btn-sm" id="divLookupFetchBtn" onclick="App.divLookupFetchAI()">Fetch with AI</button>
+              <button class="btn btn-primary btn-sm" id="divLookupFetchBtn" onclick="App.divLookupFetchAI()">Fetch with Snowball</button>
               <span id="divLookupStatus" style="font-size:0.82rem;color:var(--text-secondary);"></span>
             </div>
+          </div>
             <!-- Result / edit form — hidden until AI returns data -->
             <div id="divLookupResult" style="display:none;margin-top:1rem;padding-top:0.85rem;border-top:1px solid var(--border);">
               <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0.65rem 1rem;">
@@ -308,7 +309,11 @@
                 </label>
                 <label style="font-size:0.8rem;color:var(--text-secondary);">Frequency
                   <select id="divLookupFreq" style="display:block;width:100%;margin-top:0.2rem;padding:0.3rem 0.5rem;font-size:0.85rem;border:1px solid var(--border);border-radius:5px;background:var(--surface);color:var(--text-primary);">
+                    <option value="52">Weekly (52×/yr)</option>
+                    <option value="26">Bi-weekly (26×/yr)</option>
+                    <option value="24">Semi-monthly (24×/yr)</option>
                     <option value="12">Monthly (12×/yr)</option>
+                    <option value="6">Bi-monthly (6×/yr)</option>
                     <option value="4">Quarterly (4×/yr)</option>
                     <option value="2">Semi-annual (2×/yr)</option>
                     <option value="1">Annual (1×/yr)</option>
@@ -457,86 +462,17 @@
                 <div id="portfolioList"></div>
               </div>
 
-              <!-- Dividend providers -->
+              <!-- Dividend provider -->
               <div class="card">
                 <div class="card-header" style="margin-bottom:0.75rem;">
-                  <span class="card-title">Dividend Data Providers</span>
+                  <span class="card-title">Dividend Data Provider</span>
                 </div>
-                <p class="text-muted text-sm mb-3">Enable providers for dividend data. Multiple providers are used as fallback.</p>
-
-                <div class="settings-row">
-                  <div class="settings-row-info">
-                    <div class="settings-row-label">Yahoo Finance</div>
-                    <div class="settings-row-desc">US &amp; Canadian stocks &middot; Free &middot; No key required</div>
-                  </div>
-                  <label class="switch"><input type="checkbox" id="provider-yahoo"><span class="slider"></span></label>
+                <p class="text-muted text-sm mb-3">Dividend data is fetched exclusively from <strong>Snowball Analytics</strong>.</p>
+                <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.75rem 1rem;margin-bottom:1rem;">
+                  <p class="text-sm mb-0">To prevent rate limits or IP blocks, external calls are restricted to a maximum of <strong>3 requests per minute</strong> (20-second interval) in the background. The WebUI loads cached data instantly without blocking.</p>
                 </div>
-
-                <div class="settings-row">
-                  <div class="settings-row-info">
-                    <div class="settings-row-label">Tiingo</div>
-                    <div class="settings-row-desc">US stocks &middot; Paid &middot; Requires API key</div>
-                  </div>
-                  <label class="switch"><input type="checkbox" id="provider-tiingo"><span class="slider"></span></label>
-                </div>
-
-                <div class="settings-row">
-                  <div class="settings-row-info">
-                    <div class="settings-row-label">EODHD</div>
-                    <div class="settings-row-desc">US &amp; Canadian stocks &middot; Free 20 calls/day &middot; Requires API key</div>
-                  </div>
-                  <label class="switch"><input type="checkbox" id="provider-eodhd"><span class="slider"></span></label>
-                </div>
-
-                <div class="settings-row">
-                  <div class="settings-row-info">
-                    <div class="settings-row-label">Polygon.io</div>
-                    <div class="settings-row-desc">Multiple markets &middot; Free tier &middot; Requires API key</div>
-                  </div>
-                  <label class="switch"><input type="checkbox" id="provider-polygon"><span class="slider"></span></label>
-                </div>
-
-                <div class="settings-row">
-                  <div class="settings-row-info">
-                    <div class="settings-row-label">Alpha Vantage</div>
-                    <div class="settings-row-desc">Global stocks &middot; Free tier &middot; Requires API key</div>
-                  </div>
-                  <label class="switch"><input type="checkbox" id="provider-alphavantage"><span class="slider"></span></label>
-                </div>
-
-                <div class="settings-row mb-3">
-                  <div class="settings-row-info">
-                    <div class="settings-row-label">Finnhub</div>
-                    <div class="settings-row-desc">Global stocks &middot; Free tier &middot; Requires API key</div>
-                  </div>
-                  <label class="switch"><input type="checkbox" id="provider-finnhub"><span class="slider"></span></label>
-                </div>
-
-                <div style="border-top:1px solid var(--border);padding-top:1.25rem;">
-                  <p class="text-sm mb-2" style="font-weight:600;">API Keys</p>
-                  <div class="form-group" style="display:none;" id="eodhd-key-group">
-                    <label for="eodhdApiKey">EODHD API Key</label>
-                    <input type="password" id="eodhdApiKey" placeholder="Enter EODHD API key">
-                    <p class="text-muted text-sm" id="eodhdQuotaDisplay" style="margin-top:0.35rem;"></p>
-                  </div>
-                  <div class="form-group" style="display:none;" id="tiingo-key-group">
-                    <label for="tiingoApiKey">Tiingo API Key</label>
-                    <input type="password" id="tiingoApiKey" placeholder="Enter Tiingo API key">
-                  </div>
-                  <div class="form-group" style="display:none;" id="polygon-key-group">
-                    <label for="polygonApiKey">Polygon.io API Key</label>
-                    <input type="password" id="polygonApiKey" placeholder="Enter Polygon.io API key">
-                  </div>
-                  <div class="form-group" style="display:none;" id="alphavantage-key-group">
-                    <label for="alphavantageApiKey">Alpha Vantage API Key</label>
-                    <input type="password" id="alphavantageApiKey" placeholder="Enter Alpha Vantage API key">
-                  </div>
-                  <div class="form-group" style="display:none;" id="finnhub-key-group">
-                    <label for="finnhubApiKey">Finnhub API Key</label>
-                    <input type="password" id="finnhubApiKey" placeholder="Enter Finnhub API key">
-                  </div>
-                  <button id="saveDividendProvidersBtn" class="btn btn-primary">Save Provider Settings</button>
-                  <button id="clearDividendCacheBtn" class="btn btn-outline" style="margin-top:0.5rem;">Clear Dividend Cache</button>
+                <div style="border-top:1px solid var(--border);padding-top:1rem;display:flex;flex-direction:column;gap:0.5rem;">
+                  <button id="clearDividendCacheBtn" class="btn btn-outline w-full">Clear Dividend Cache</button>
                 </div>
               </div>
             </div>

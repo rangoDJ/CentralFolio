@@ -63,8 +63,6 @@ const UI = {
         const list = document.getElementById('portfolioList');
         if (!list) return;
 
-        this.portfolioCountEl.textContent = portfolios.length;
-
         if (portfolios.length === 0) {
             list.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No portfolios added yet.</p></div>';
             return;

@@ -6,6 +6,7 @@ const App = {
     activePortfolios: [],
     currentGroups: [],
     activePortfolioId: null,
+    selectedUserPortfolioId: 'all',
     inactiveAccountIds: new Set(), // seeded from server DB on fetchAccounts
     cachedHoldingsData: null,
     holdingsLastUpdated: null,
@@ -41,8 +42,11 @@ const App = {
 
         await Promise.all([
             this.loadPortfolios(),
-            this.loadSettings()
+            this.loadSettings(),
+            this.fetchUserPortfolios()
         ]);
+
+        this.renderGlobalPortfolioSelect();
 
         // Load data for whichever settings pane is active at startup
         const activeSettingsTab = localStorage.getItem('activeSettingsTab') || 'portfolios';
@@ -569,7 +573,7 @@ const App = {
         const refreshBtn = document.getElementById('refreshHoldingsBtn');
 
         if (!forceRefresh && this.cachedHoldingsData && this.holdingsLastUpdated) {
-            UI.renderAllHoldings(this.cachedHoldingsData);
+            UI.renderAllHoldings(this.getFilteredHoldingsData());
             this.updateHoldingsTimestamp();
             return;
         }
@@ -621,7 +625,7 @@ const App = {
             this.holdingsLastUpdated = new Date();
             this.updateHoldingsTimestamp();
 
-            UI.renderAllHoldings(this.cachedHoldingsData);
+            UI.renderAllHoldings(this.getFilteredHoldingsData());
         } catch (err) {
             container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
         } finally {
@@ -646,7 +650,7 @@ const App = {
                 this.cachedDividendsData = response.data;
                 this.dividendsLastUpdated = new Date();
                 this.updateDividendsTimestamp();
-                UI.renderDividends(this.cachedDividendsData, this.currentDividendAccountId);
+                UI.renderDividends(this.getFilteredDividendsData(), this.currentDividendAccountId);
             } else if (!response.fetching) {
                 container.innerHTML = '<div class="empty-state"><p>No dividend data available. Trigger a fetch from Settings → Background Jobs.</p></div>';
             }
@@ -697,10 +701,10 @@ const App = {
                         this.cachedDividendsData = response.data;
                         this.dividendsLastUpdated = new Date();
                         const container = document.getElementById('dividends-page-content');
-                        if (container) UI.renderDividends(this.cachedDividendsData, this.currentDividendAccountId);
+                        if (container) UI.renderDividends(this.getFilteredDividendsData(), this.currentDividendAccountId);
                         this.updateDividendsTimestamp();
                         // Also update dashboard widgets
-                        UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+                        UI.renderDashboardDividendWidgets(this.getFilteredDividendsData(), this.totalPortfolioValue());
                         if (!isDivJobRunning && !anyRunning) {
                             UI.showToast('Dividend data updated successfully');
                         }
@@ -765,25 +769,31 @@ const App = {
         if (!container) return;
 
         if (!forceRefresh && this.cachedDividendsData && this.dividendsLastUpdated) {
-            UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
+            UI.renderDividendCalendar(this.getFilteredDividendsData(), this.currentCalendarDate, this.currentDividendAccountId);
             return;
         }
 
         // If no cache, we can trigger the loadAllDividends which populates the cache
         await this.loadAllDividends(forceRefresh);
-        UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
+        UI.renderDividendCalendar(this.getFilteredDividendsData(), this.currentCalendarDate, this.currentDividendAccountId);
     },
 
     changeCalendarMonth(delta) {
         const newDate = new Date(this.currentCalendarDate);
         newDate.setMonth(newDate.getMonth() + delta);
         this.currentCalendarDate = newDate;
-        UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
+        UI.renderDividendCalendar(this.getFilteredDividendsData(), this.currentCalendarDate, this.currentDividendAccountId);
     },
 
     async loadAllTransactions(forceRefresh = false) {
         const container = document.getElementById('transactions-tables');
         if (!container) return;
+
+        if (!forceRefresh && this.cachedTransactionsData && this.transactionsLastUpdated) {
+            UI.renderAllTransactions(this.getFilteredTransactionsData());
+            this.updateTransactionsTimestamp();
+            return;
+        }
 
         const refreshBtn = document.getElementById('refreshTransactionsBtn');
 
@@ -808,8 +818,8 @@ const App = {
                     transactions: group.transactions
                 }));
 
-            UI.renderAllTransactions(data);
             this.cachedTransactionsData = data;
+            UI.renderAllTransactions(this.getFilteredTransactionsData());
 
             const elapsed = Date.now() - start;
             if (elapsed > 1000) {
@@ -904,6 +914,15 @@ const App = {
     },
 
     async loadDashboard() {
+        const countEl = document.getElementById('portfolioCount');
+        if (countEl) countEl.textContent = this.userPortfolios ? this.userPortfolios.length : 0;
+
+        if (!this.currentGroups || this.currentGroups.length === 0) {
+            try {
+                this.currentGroups = await API.getAccounts();
+            } catch (_) {}
+        }
+
         if (!this.currentGroups || this.currentGroups.length === 0) {
             const holdingsContainer = document.getElementById('dashHoldingsContainer');
             if (holdingsContainer) holdingsContainer.innerHTML = `<div class="empty-state">
@@ -914,19 +933,22 @@ const App = {
             return;
         }
 
+        const filteredGroups = this.getFilteredGroups();
+
         // Render allocation chart and accounts table from already-loaded data (fast)
-        if (this.currentGroups && this.currentGroups.length > 0) {
+        if (filteredGroups) {
             if (UI.accountsChartInstance) {
-                UI.accountsChartInstance.resize();
-            } else {
-                UI.renderDashboardChart(this.currentGroups, this.inactiveAccountIds);
+                UI.accountsChartInstance.destroy();
+                UI.accountsChartInstance = null;
             }
-            UI.renderDashboardHoldingsTable(this.currentGroups, this.inactiveAccountIds);
+            UI.renderDashboardChart(filteredGroups, this.inactiveAccountIds);
+            UI.renderDashboardHoldingsTable(filteredGroups, this.inactiveAccountIds);
         }
 
         // Use cached dividend data if available, else trigger background job
-        if (this.cachedDividendsData) {
-            UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+        const filteredDividends = this.getFilteredDividendsData();
+        if (filteredDividends) {
+            UI.renderDashboardDividendWidgets(filteredDividends, this.totalPortfolioValue());
         } else {
             UI.setDashboardDividendLoading(true);
             try {
@@ -934,7 +956,7 @@ const App = {
                 if (response.data && response.data.length > 0) {
                     this.cachedDividendsData = response.data;
                     this.dividendsLastUpdated = new Date();
-                    UI.renderDashboardDividendWidgets(this.cachedDividendsData, this.totalPortfolioValue());
+                    UI.renderDashboardDividendWidgets(this.getFilteredDividendsData(), this.totalPortfolioValue());
                 } else if (response.fetching) {
                     this.startJobPolling();
                 }
@@ -943,7 +965,7 @@ const App = {
         }
 
         // Render dividends received from cached transaction data
-        UI.renderDashboardReceivedChart(this.cachedTransactionsData || null);
+        UI.renderDashboardReceivedChart(this.getFilteredTransactionsData() || null);
     },
 
     toggleSidebar() {
@@ -1079,20 +1101,21 @@ const App = {
     switchDividendAccountTab(accountId) {
         this.currentDividendAccountId = accountId;
 
+        const filteredDivs = this.getFilteredDividendsData();
         // Re-render tabs to reflect active selection
-        if (this.cachedDividendsData) {
-            UI.renderDividendAccountTabs(this.cachedDividendsData, this.currentDividendAccountId);
+        if (filteredDivs) {
+            UI.renderDividendAccountTabs(filteredDivs, this.currentDividendAccountId);
         }
 
         // Check which subtab is active and re-render that subtab
         const activeSubTab = document.querySelector('#dividend-sub-tabs .pill-tab.active')?.getAttribute('data-subtab');
         if (activeSubTab === 'forecast' || !activeSubTab) {
-            if (this.cachedDividendsData) {
-                UI.renderDividends(this.cachedDividendsData, this.currentDividendAccountId);
+            if (filteredDivs) {
+                UI.renderDividends(filteredDivs, this.currentDividendAccountId);
             }
         } else if (activeSubTab === 'calendar') {
-            if (this.cachedDividendsData) {
-                UI.renderDividendCalendar(this.cachedDividendsData, this.currentCalendarDate, this.currentDividendAccountId);
+            if (filteredDivs) {
+                UI.renderDividendCalendar(filteredDivs, this.currentCalendarDate, this.currentDividendAccountId);
             }
         }
     },
@@ -1251,8 +1274,108 @@ const App = {
         }
     },
 
-    // ── User Portfolio Management ─────────────────────────────────────────────
+    // ── Global User Portfolio Filter helpers ──────────────────────────────────
+    async fetchUserPortfolios() {
+        try {
+            this.userPortfolios = await API.getUserPortfolios();
+        } catch (err) {
+            console.error('Failed to fetch user portfolios:', err);
+        }
+    },
 
+    renderGlobalPortfolioSelect() {
+        const select = document.getElementById('globalPortfolioSelect');
+        if (!select) return;
+
+        const savedSelect = localStorage.getItem('selectedUserPortfolioId') || 'all';
+        this.selectedUserPortfolioId = savedSelect === 'all' ? 'all' : parseInt(savedSelect, 10);
+
+        let html = '<option value="all">All Portfolios</option>';
+        if (this.userPortfolios && this.userPortfolios.length > 0) {
+            this.userPortfolios.forEach(p => {
+                const isSelected = this.selectedUserPortfolioId === p.id;
+                html += `<option value="${p.id}" ${isSelected ? 'selected' : ''}>${sanitize(p.name)}</option>`;
+            });
+        }
+        select.innerHTML = html;
+        select.value = this.selectedUserPortfolioId;
+
+        select.onchange = (e) => {
+            const val = e.target.value;
+            this.selectedUserPortfolioId = val === 'all' ? 'all' : parseInt(val, 10);
+            localStorage.setItem('selectedUserPortfolioId', this.selectedUserPortfolioId);
+            this.refreshActiveTab();
+        };
+    },
+
+    refreshActiveTab() {
+        const activeTab = localStorage.getItem('activeMainTab') || 'dashboard';
+        if (activeTab === 'dashboard') {
+            this.loadDashboard();
+        } else if (activeTab === 'holdings') {
+            UI.renderAllHoldings(this.getFilteredHoldingsData());
+        } else if (activeTab === 'transactions') {
+            UI.renderAllTransactions(this.getFilteredTransactionsData());
+        } else if (activeTab === 'dividend-tracker') {
+            const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
+            const filteredDivs = this.getFilteredDividendsData();
+            if (subTab === 'forecast') {
+                UI.renderDividends(filteredDivs, this.currentDividendAccountId);
+            } else if (subTab === 'calendar') {
+                UI.renderDividendCalendar(filteredDivs, this.currentCalendarDate, this.currentDividendAccountId);
+            }
+        }
+    },
+
+    getSelectedUserPortfolio() {
+        if (this.selectedUserPortfolioId === 'all') return null;
+        return (this.userPortfolios || []).find(p => p.id === this.selectedUserPortfolioId) || null;
+    },
+
+    getFilteredGroups() {
+        if (!this.currentGroups) return [];
+        if (this.selectedUserPortfolioId === 'all') return this.currentGroups;
+        
+        const portfolio = this.getSelectedUserPortfolio();
+        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        
+        return this.currentGroups.map(g => {
+            const filteredAccounts = (g.accounts || []).filter(a => accountIds.has(a.id));
+            return { ...g, accounts: filteredAccounts };
+        }).filter(g => g.accounts.length > 0);
+    },
+
+    getFilteredHoldingsData() {
+        if (!this.cachedHoldingsData) return null;
+        if (this.selectedUserPortfolioId === 'all') return this.cachedHoldingsData;
+        
+        const portfolio = this.getSelectedUserPortfolio();
+        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        
+        return this.cachedHoldingsData.filter(h => accountIds.has(h.accountId));
+    },
+
+    getFilteredDividendsData() {
+        if (!this.cachedDividendsData) return null;
+        if (this.selectedUserPortfolioId === 'all') return this.cachedDividendsData;
+        
+        const portfolio = this.getSelectedUserPortfolio();
+        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        
+        return this.cachedDividendsData.filter(d => accountIds.has(d.accountId));
+    },
+
+    getFilteredTransactionsData() {
+        if (!this.cachedTransactionsData) return null;
+        if (this.selectedUserPortfolioId === 'all') return this.cachedTransactionsData;
+        
+        const portfolio = this.getSelectedUserPortfolio();
+        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        
+        return this.cachedTransactionsData.filter(t => accountIds.has(t.accountId));
+    },
+
+    // ── User Portfolio Management ─────────────────────────────────────────────
     userPortfolios: [],
 
     async loadUserPortfolios() {
@@ -1325,6 +1448,7 @@ const App = {
             await API.setUserPortfolioAccounts(portfolio.id, accountIds);
             UI.closeUserPortfolioModal();
             await this.loadUserPortfolios();
+            this.renderGlobalPortfolioSelect();
             UI.showToast(id ? 'Portfolio updated' : 'Portfolio created');
         } catch (err) {
             showErr(err.message || 'Something went wrong. Check browser console.');
@@ -1339,6 +1463,7 @@ const App = {
         try {
             await API.deleteUserPortfolio(id);
             await this.loadUserPortfolios();
+            this.renderGlobalPortfolioSelect();
             UI.showToast('Portfolio deleted');
         } catch (err) {
             UI.showToast('Delete failed: ' + err.message, 'error');

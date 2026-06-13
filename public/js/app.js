@@ -27,7 +27,16 @@ const App = {
 
         this.setupEventListeners();
 
-        // Restore tab state
+        // Load all portfolios, settings, and user portfolios first to avoid race conditions
+        await Promise.all([
+            this.loadPortfolios(),
+            this.loadSettings(),
+            this.fetchUserPortfolios()
+        ]);
+
+        this.renderGlobalPortfolioSelect();
+
+        // Restore tab state and load data after we have loaded the portfolio definitions
         const savedMainTab = localStorage.getItem('activeMainTab') || 'dashboard';
         const mainBtn = document.querySelector(`.sidebar-item[data-tab="${savedMainTab}"]`);
         this.switchMainTab(savedMainTab, mainBtn);
@@ -39,14 +48,6 @@ const App = {
         const savedDividendSubTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
         const dividendSubBtn = document.querySelector(`#dividend-sub-tabs .pill-tab[data-subtab="${savedDividendSubTab}"]`);
         this.switchDividendSubTab(savedDividendSubTab, dividendSubBtn);
-
-        await Promise.all([
-            this.loadPortfolios(),
-            this.loadSettings(),
-            this.fetchUserPortfolios()
-        ]);
-
-        this.renderGlobalPortfolioSelect();
 
         // Load data for whichever settings pane is active at startup
         const activeSettingsTab = localStorage.getItem('activeSettingsTab') || 'portfolios';
@@ -907,8 +908,9 @@ const App = {
 
     totalPortfolioValue() {
         let total = 0;
-        if (this.currentGroups) {
-            this.currentGroups.forEach(g => {
+        const groups = this.getFilteredGroups();
+        if (groups) {
+            groups.forEach(g => {
                 (g.accounts || []).forEach(acc => {
                     if (!this.inactiveAccountIds?.has(acc.id)) {
                         total += acc.balance?.total?.amount || 0;
@@ -930,11 +932,11 @@ const App = {
         }
 
         if (!this.currentGroups || this.currentGroups.length === 0) {
-            const holdingsContainer = document.getElementById('dashHoldingsContainer');
-            if (holdingsContainer) holdingsContainer.innerHTML = `<div class="empty-state">
+            const holdingsTable = document.getElementById('dashHoldingsTable');
+            if (holdingsTable) holdingsTable.innerHTML = `<div class="empty-state">
                 <div class="empty-icon">🔑</div>
-                <p><strong>No portfolios configured.</strong></p>
-                <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to add your SnapTrade credentials.</p>
+                <p><strong>No connections configured.</strong></p>
+                <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');App.switchSettingsTab('keys');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Keys & Providers</a> to connect a brokerage.</p>
             </div>`;
             return;
         }
@@ -1290,6 +1292,14 @@ const App = {
         } catch (err) {
             console.error('Failed to fetch user portfolios:', err);
         }
+    },
+
+    getUserPortfolioNamesForAccount(accountId) {
+        if (!this.userPortfolios || this.userPortfolios.length === 0) return 'Unassigned';
+        const matched = this.userPortfolios
+            .filter(p => (p.accountIds || []).includes(accountId))
+            .map(p => p.name);
+        return matched.length > 0 ? matched.join(', ') : 'Unassigned';
     },
 
     renderGlobalPortfolioSelect() {

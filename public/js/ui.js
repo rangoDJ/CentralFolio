@@ -273,6 +273,10 @@ const UI = {
             });
         }
 
+        if (this.totalBalanceEl) {
+            this.totalBalanceEl.textContent = `$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
         const countEl = document.getElementById('dashAccountCount');
         if (countEl) {
             if (App.selectedUserPortfolioId === 'all') {

@@ -599,7 +599,7 @@ const App = {
                         try {
                             const data = await API.getHoldings(group.portfolioId, acc.id, forceRefresh);
                             allHoldingsData.push({
-                                portfolioName: group.portfolioName,
+                                portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
                                 accountName: acc.customName || acc.name,
                                 accountId: acc.id,
                                 portfolioId: group.portfolioId,
@@ -610,7 +610,7 @@ const App = {
                             // Skip disabled accounts silently, only show other errors
                             if (err.message !== 'Account is disabled') {
                                 allHoldingsData.push({
-                                    portfolioName: group.portfolioName,
+                                    portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
                                     accountName: acc.customName || acc.name,
                                     accountId: acc.id,
                                     error: err.message
@@ -647,7 +647,10 @@ const App = {
         try {
             const response = await API.getAllDividends(forceRefresh);
             if (response.data && response.data.length > 0) {
-                this.cachedDividendsData = response.data;
+                this.cachedDividendsData = response.data.map(d => ({
+                    ...d,
+                    portfolioName: this.getUserPortfolioNamesForAccount(d.accountId)
+                }));
                 this.dividendsLastUpdated = new Date();
                 this.updateDividendsTimestamp();
                 UI.renderDividends(this.getFilteredDividendsData(), this.currentDividendAccountId);
@@ -698,7 +701,10 @@ const App = {
                     const newTotal = response.data.reduce((sum, a) => sum + (a.dividends?.length ?? 0), 0);
 
                     if (newTotal !== oldTotal || !this.cachedDividendsData) {
-                        this.cachedDividendsData = response.data;
+                        this.cachedDividendsData = response.data.map(d => ({
+                            ...d,
+                            portfolioName: this.getUserPortfolioNamesForAccount(d.accountId)
+                        }));
                         this.dividendsLastUpdated = new Date();
                         const container = document.getElementById('dividends-page-content');
                         if (container) UI.renderDividends(this.getFilteredDividendsData(), this.currentDividendAccountId);
@@ -811,7 +817,7 @@ const App = {
             const data = response
                 .filter(group => group.transactions && group.transactions.length > 0)
                 .map(group => ({
-                    portfolioName: group.portfolioName,
+                    portfolioName: this.getUserPortfolioNamesForAccount(group.accountId),
                     accountName: group.accountName,
                     accountId: group.accountId,
                     positionsBySymbol: group.positionsBySymbol || {},
@@ -954,7 +960,10 @@ const App = {
             try {
                 const response = await API.getAllDividends(false);
                 if (response.data && response.data.length > 0) {
-                    this.cachedDividendsData = response.data;
+                    this.cachedDividendsData = response.data.map(d => ({
+                        ...d,
+                        portfolioName: this.getUserPortfolioNamesForAccount(d.accountId)
+                    }));
                     this.dividendsLastUpdated = new Date();
                     UI.renderDashboardDividendWidgets(this.getFilteredDividendsData(), this.totalPortfolioValue());
                 } else if (response.fetching) {

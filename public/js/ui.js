@@ -12,6 +12,15 @@ function sanitize(str) {
         .replace(/'/g, '&#39;');
 }
 
+function findAccountInGroups(groups, aid) {
+    for (const g of groups) {
+        for (const a of (g.accounts || [])) {
+            if (a.id === aid) return a;
+        }
+    }
+    return null;
+}
+
 const UI = {
     portfolioList:    document.getElementById('portfolioList'),
     accountContainer: document.getElementById('accountContainer'),
@@ -209,35 +218,89 @@ const UI = {
 
         let grandTotal = 0;
         const rows = [];
-        currentGroups.forEach(g => {
-            g.accounts.forEach(acc => {
-                if (!inactiveAccountIds.has(acc.id)) {
-                    const val = acc.balance?.total?.amount || 0;
-                    grandTotal += val;
-                    rows.push({ name: acc.customName || acc.name || 'Unnamed', brokerage: acc.brokerage?.name || '', value: val });
-                }
+
+        if (App.selectedUserPortfolioId === 'all') {
+            (App.userPortfolios || []).forEach(p => {
+                let total = 0;
+                (p.accountIds || []).forEach(aid => {
+                    if (!inactiveAccountIds.has(aid)) {
+                        const acc = findAccountInGroups(currentGroups, aid);
+                        if (acc) total += acc.balance?.total?.amount || 0;
+                    }
+                });
+                grandTotal += total;
+                rows.push({
+                    name: p.name,
+                    subtitle: `${(p.accountIds || []).length} account${(p.accountIds || []).length !== 1 ? 's' : ''}`,
+                    value: total
+                });
             });
-        });
+
+            let unassignedTotal = 0;
+            let unassignedCount = 0;
+            currentGroups.forEach(group => {
+                group.accounts.forEach(acc => {
+                    if (!inactiveAccountIds.has(acc.id)) {
+                        const isAssigned = (App.userPortfolios || []).some(p => (p.accountIds || []).includes(acc.id));
+                        if (!isAssigned) {
+                            unassignedTotal += acc.balance?.total?.amount || 0;
+                            unassignedCount++;
+                        }
+                    }
+                });
+            });
+            if (unassignedTotal > 0) {
+                grandTotal += unassignedTotal;
+                rows.push({
+                    name: 'Unassigned Accounts',
+                    subtitle: `${unassignedCount} account${unassignedCount !== 1 ? 's' : ''}`,
+                    value: unassignedTotal
+                });
+            }
+        } else {
+            currentGroups.forEach(g => {
+                g.accounts.forEach(acc => {
+                    if (!inactiveAccountIds.has(acc.id)) {
+                        const val = acc.balance?.total?.amount || 0;
+                        grandTotal += val;
+                        rows.push({
+                            name: acc.customName || acc.name || 'Unnamed',
+                            subtitle: acc.brokerage?.name || '',
+                            value: val
+                        });
+                    }
+                });
+            });
+        }
 
         const countEl = document.getElementById('dashAccountCount');
-        if (countEl) countEl.textContent = `${rows.length} account${rows.length !== 1 ? 's' : ''} active`;
+        if (countEl) {
+            if (App.selectedUserPortfolioId === 'all') {
+                const totalPorts = (App.userPortfolios || []).length;
+                countEl.textContent = `${totalPorts} portfolio${totalPorts !== 1 ? 's' : ''} configured`;
+            } else {
+                countEl.textContent = `${rows.length} account${rows.length !== 1 ? 's' : ''} active`;
+            }
+        }
 
         if (rows.length === 0) {
-            container.innerHTML = '<div class="empty-state" style="padding:1.5rem 0;"><p>No active accounts.</p></div>';
+            container.innerHTML = '<div class="empty-state" style="padding:1.5rem 0;"><p>No active portfolios or accounts.</p></div>';
             return;
         }
 
         rows.sort((a, b) => b.value - a.value);
 
-        container.innerHTML = '<table class="data-table"><thead><tr>' +
-            '<th>Account</th><th class="right">Value</th><th class="right">Allocation</th>' +
-            '</tr></thead><tbody>' +
+        const labelHeader = App.selectedUserPortfolioId === 'all' ? 'Portfolio' : 'Account';
+
+        container.innerHTML = `<table class="data-table"><thead><tr>` +
+            `<th>${labelHeader}</th><th class="right">Value</th><th class="right">Allocation</th>` +
+            `</tr></thead><tbody>` +
             rows.map(r => {
                 const alloc = grandTotal > 0 ? (r.value / grandTotal * 100) : 0;
                 return `<tr>
                     <td>
                         <div style="font-size:0.85rem;font-weight:500;">${sanitize(r.name)}</div>
-                        ${r.brokerage ? `<div class="ticker-desc">${sanitize(r.brokerage)}</div>` : ''}
+                        ${r.subtitle ? `<div class="ticker-desc">${sanitize(r.subtitle)}</div>` : ''}
                     </td>
                     <td class="right" style="font-weight:600;">$${r.value.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     <td class="right">
@@ -848,20 +911,57 @@ const UI = {
         const area = document.getElementById('dashboardChartArea');
         if (!area) return;
 
-        const activeAccounts = [];
-        currentGroups.forEach(group => {
-            group.accounts.forEach(acc => {
-                const amount = acc.balance?.total?.amount || 0;
-                if (!inactiveAccountIds.has(acc.id) && amount > 0) {
-                    activeAccounts.push({
-                        label: acc.customName || acc.name || 'Unnamed',
-                        value: amount
+        const activeSlices = [];
+
+        if (App.selectedUserPortfolioId === 'all') {
+            (App.userPortfolios || []).forEach(p => {
+                let total = 0;
+                (p.accountIds || []).forEach(aid => {
+                    if (!inactiveAccountIds.has(aid)) {
+                        const acc = findAccountInGroups(currentGroups, aid);
+                        if (acc) total += acc.balance?.total?.amount || 0;
+                    }
+                });
+                if (total > 0) {
+                    activeSlices.push({
+                        label: p.name,
+                        value: total
                     });
                 }
             });
-        });
 
-        if (activeAccounts.length === 0) {
+            let unassignedTotal = 0;
+            currentGroups.forEach(group => {
+                group.accounts.forEach(acc => {
+                    if (!inactiveAccountIds.has(acc.id)) {
+                        const isAssigned = (App.userPortfolios || []).some(p => (p.accountIds || []).includes(acc.id));
+                        if (!isAssigned) {
+                            unassignedTotal += acc.balance?.total?.amount || 0;
+                        }
+                    }
+                });
+            });
+            if (unassignedTotal > 0) {
+                activeSlices.push({
+                    label: 'Unassigned',
+                    value: unassignedTotal
+                });
+            }
+        } else {
+            currentGroups.forEach(group => {
+                group.accounts.forEach(acc => {
+                    const amount = acc.balance?.total?.amount || 0;
+                    if (!inactiveAccountIds.has(acc.id) && amount > 0) {
+                        activeSlices.push({
+                            label: acc.customName || acc.name || 'Unnamed',
+                            value: amount
+                        });
+                    }
+                });
+            });
+        }
+
+        if (activeSlices.length === 0) {
             if (this.accountsChartInstance) {
                 this.accountsChartInstance.destroy();
                 this.accountsChartInstance = null;
@@ -875,15 +975,15 @@ const UI = {
         }
 
         const ctx    = document.getElementById('accountsChart').getContext('2d');
-        const labels = activeAccounts.map(a => a.label);
-        const data   = activeAccounts.map(a => a.value);
+        const labels = activeSlices.map(a => a.label);
+        const data   = activeSlices.map(a => a.value);
 
         const palette = [
             '#00d09c','#4f8ef7','#f7c948','#f76f8e','#a78bfa',
             '#38bdf8','#fb923c','#34d399','#e879f9','#facc15',
             '#60a5fa','#f87171','#2dd4bf','#c084fc','#fbbf24'
         ];
-        const bgColors = activeAccounts.map((_, i) => palette[i % palette.length] + 'cc');
+        const bgColors = activeSlices.map((_, i) => palette[i % palette.length] + 'cc');
 
         if (this.accountsChartInstance) {
             this.accountsChartInstance.data.labels                         = labels;

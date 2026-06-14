@@ -3,16 +3,7 @@ import { getPortfolio } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { onBrokerageReconnected } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
-
-/**
- * Extracts a safe client-facing message from a SnapTrade SDK error.
- */
-function snapTradeError(err: any, clientFallback: string): { log: string; client: string } {
-  const body = err?.responseBody ?? err?.response?.data;
-  const log = body?.detail || body?.message || err?.message || 'unknown error';
-  const client = body?.detail || clientFallback;
-  return { log, client };
-}
+import { snapTradeError } from "../utils/snapTradeError.js";
 
 export const getLoginLink = async (req: Request, res: Response) => {
   const { portfolioId } = req.body;

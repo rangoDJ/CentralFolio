@@ -32,34 +32,22 @@ const registry = new Map<string, RegisteredJob>();
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Convert hours → a cron expression that fires every N hours/minutes/days.
+ * Convert hours → a cron expression that fires every N hours.
+ * Fractional hours (< 1) are converted to minutes.
  * Returns null for 0 (manual-only).
- *
- * Examples:
- *   0.5h  → "* /30 * * * *"  (every 30 minutes)
- *   1h    → "0 * /1 * * *"   (every hour, aligned)
- *   4h    → "0 * /4 * * *"   (every 4 hours)
- *   24h   → "0 0 * * *"      (daily at midnight)
- *   168h  → "0 0 * /7 * *"   (every 7 days at midnight)
  */
 export function hoursToCron(hours: number): string | null {
   if (!hours || hours <= 0) return null;
-
   if (hours < 1) {
-    // Sub-hour: express as minutes
     const minutes = Math.round(hours * 60);
     return `*/${minutes} * * * *`;
   }
-
-  const days = hours / 24;
-  if (days >= 1 && Number.isInteger(days)) {
-    if (days === 1) return `0 0 * * *`;       // daily at midnight
-    return `0 0 */${days} * *`;               // every N days at midnight
+  if (Number.isInteger(hours) && 24 % hours === 0) {
+    return `0 */${hours} * * *`;  // aligned to clock hours
   }
-
-  // Whole hours, or fractional hours >= 1 (round to nearest hour)
-  const roundedHours = Math.round(hours);
-  return `0 */${roundedHours} * * *`;
+  // Fall back to fractional hours expressed as minutes
+  const minutes = Math.round(hours * 60);
+  return `*/${minutes} * * * *`;
 }
 
 /** Compute approximate ms until next cron fire (for display in UI). */

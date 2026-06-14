@@ -4,17 +4,7 @@ import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
 import { logger } from "../utils/logger.js";
-
-/**
- * Extracts a safe client-facing message from a SnapTrade SDK error.
- * Logs the full detail server-side; never returns raw SDK internals to the client.
- */
-function snapTradeError(err: any, clientFallback: string): { log: string; client: string } {
-  const body = err?.responseBody ?? err?.response?.data;
-  const log = body?.detail || body?.message || err?.message || 'unknown error';
-  const client = body?.detail || clientFallback;
-  return { log, client };
-}
+import { snapTradeError } from "../utils/snapTradeError.js";
 
 export const registerUser = async (req: Request, res: Response) => {
   const { portfolioId } = req.body;

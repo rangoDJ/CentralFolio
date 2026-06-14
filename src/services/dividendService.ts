@@ -358,6 +358,14 @@ export async function getAllDividendsForAllPortfolios(
   forceRefresh: boolean = false,
   allowExternalFetch: boolean = true
 ): Promise<any[]> {
+  if (!forceRefresh) {
+    const mem = getCachedAllDividends();
+    if (mem) {
+      logger.debug('Cache', 'getAllDividendsForAllPortfolios — returning in-memory cached dividends');
+      return mem;
+    }
+  }
+
   const portfolios = listPortfolios();
   const results = [];
 

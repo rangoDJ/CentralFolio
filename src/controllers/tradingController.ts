@@ -2,16 +2,7 @@ import { Request, Response } from "express";
 import { getPortfolio, accountBelongsToPortfolio, getAccountActive } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
-
-/**
- * Extracts a safe client-facing message from a SnapTrade SDK error.
- */
-function snapTradeError(err: any, clientFallback: string): { log: string; client: string } {
-  const body = err?.responseBody ?? err?.response?.data;
-  const log = body?.detail || body?.message || err?.message || 'unknown error';
-  const client = body?.detail || clientFallback;
-  return { log, client };
-}
+import { snapTradeError } from "../utils/snapTradeError.js";
 
 const VALID_ACTIONS     = ['BUY', 'SELL'] as const;
 const VALID_ORDER_TYPES = ['Market', 'Limit'] as const;

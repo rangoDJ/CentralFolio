@@ -4,16 +4,7 @@ import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { listPortfolios } from "../models/db.js";
-
-/**
- * Extracts a safe client-facing message from a SnapTrade SDK error.
- */
-function snapTradeError(err: any, clientFallback: string): { log: string; client: string } {
-  const body = err?.responseBody ?? err?.response?.data;
-  const log = body?.detail || body?.message || err?.message || 'unknown error';
-  const client = body?.detail || clientFallback;
-  return { log, client };
-}
+import { snapTradeError } from "../utils/snapTradeError.js";
 
 export const listAccounts = async (req: Request, res: Response) => {
   const forceRefresh = req.query.forceRefresh === 'true';

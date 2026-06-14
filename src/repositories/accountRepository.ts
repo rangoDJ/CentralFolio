@@ -124,7 +124,7 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
       const symbolId = pos.instrument?.id || (pos.symbol as any)?.symbol?.id || null;
       const description = pos.instrument?.description
         || (pos.symbol as any)?.description || pos.description;
-      logger.info('DB', `  pos: symbol=${symbol} symbolId=${symbolId}`);
+      logger.debug('DB', `  pos: symbol=${symbol} symbolId=${symbolId}`);
 
       insertStmt.run(
         accountId,

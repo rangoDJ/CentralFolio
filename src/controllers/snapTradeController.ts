@@ -143,7 +143,7 @@ export const getDividendForecast = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
 
-    if (!accountBelongsToPortfolio(String(accountId), portfolioId)) {
+    if (!accountBelongsToPortfolio(String(accountId), String(portfolioId))) {
       logger.warn('SnapTrade', `getDividendForecast — account ${accountId} does not belong to portfolio ${portfolioId}`);
       return res.status(403).json({ error: "Account does not belong to this portfolio" });
     }

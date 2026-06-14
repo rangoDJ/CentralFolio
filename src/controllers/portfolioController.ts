@@ -106,7 +106,7 @@ const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
 const FREQ_VALUES = new Set([1, 2, 4, 6, 12, 24, 26, 52]);
 
 export const snowballFetchDividendMetadataHandler = async (req: Request, res: Response) => {
-  const symbol = req.params.symbol?.toUpperCase().trim();
+  const symbol = String(req.params.symbol)?.toUpperCase().trim();
   if (!symbol || !SYMBOL_RE.test(symbol)) {
     return res.status(400).json({ error: 'Invalid symbol' });
   }
@@ -124,7 +124,7 @@ export const snowballFetchDividendMetadataHandler = async (req: Request, res: Re
 };
 
 export const manualSaveDividendMetadataHandler = (req: Request, res: Response) => {
-  const symbol = req.params.symbol?.toUpperCase().trim();
+  const symbol = String(req.params.symbol)?.toUpperCase().trim();
   if (!symbol || !SYMBOL_RE.test(symbol)) {
     return res.status(400).json({ error: 'Invalid symbol' });
   }
@@ -155,7 +155,7 @@ export const manualSaveDividendMetadataHandler = (req: Request, res: Response) =
 };
 
 export const deleteDividendMetadataHandler = (req: Request, res: Response) => {
-  const symbol = req.params.symbol?.toUpperCase().trim();
+  const symbol = String(req.params.symbol)?.toUpperCase().trim();
   if (!symbol || !SYMBOL_RE.test(symbol)) {
     return res.status(400).json({ error: 'Invalid symbol' });
   }
@@ -173,7 +173,7 @@ export const removePortfolio = (req: Request, res: Response) => {
   if (!existing) return res.status(404).json({ error: 'Portfolio not found' });
 
   try {
-    onPortfolioDeleted(id);
+    onPortfolioDeleted(String(id));
     deletePortfolio(String(id));
     logger.info('Portfolio', `Portfolio id=${id} deleted`);
     res.json({ success: true });

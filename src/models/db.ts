@@ -28,6 +28,8 @@ export {
   getCachedPositions,
   saveCachedPositions,
   clearPositionsForAccount,
+  getAccountFetchTimestamps,
+  updateLastPositionsFetch,
 } from "../repositories/accountRepository.js";
 
 export {
@@ -56,4 +58,9 @@ export {
   clearTransactionCache,
   clearTransactionsForAccount,
 } from "../repositories/transactionRepository.js";
+
+export {
+  getPortfolioTargets,
+  setPortfolioTargets,
+} from "../repositories/rebalanceRepository.js";
 

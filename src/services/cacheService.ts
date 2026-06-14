@@ -12,6 +12,7 @@ import { logger } from "../utils/logger.js";
 export function onPortfolioDeleted(portfolioId: number | string) {
   logger.info('Cache', `onPortfolioDeleted(portfolio=${portfolioId}) — purging related caches`);
   clearAccountsForPortfolio(portfolioId);
+  clearDividendMemoryCache();
   logger.info('Cache', `onPortfolioDeleted — cleared portfolio cache`);
 }
 
@@ -23,6 +24,16 @@ export function onAccountDeactivated(accountId: string) {
   logger.info('Cache', `onAccountDeactivated(account=${accountId}) — clearing positions and transactions`);
   clearPositionsForAccount(accountId);
   clearTransactionsForAccount(accountId);
+  clearDividendMemoryCache();
+}
+
+/**
+ * Called when an account is updated (e.g. renamed or activated).
+ * Invalidates the bulk dividend memory cache.
+ */
+export function onAccountModified(accountId: string) {
+  logger.info('Cache', `onAccountModified(account=${accountId}) — invalidating memory cache`);
+  clearDividendMemoryCache();
 }
 
 /**
@@ -33,6 +44,7 @@ export function onAccountDeactivated(accountId: string) {
 export function onBrokerageReconnected(portfolioId: number | string) {
   logger.info('Cache', `onBrokerageReconnected(portfolio=${portfolioId}) — invalidating account and position caches`);
   clearAccountsForPortfolio(portfolioId);
+  clearDividendMemoryCache();
   logger.info('Cache', `onBrokerageReconnected — portfolio cache cleared`);
 }
 

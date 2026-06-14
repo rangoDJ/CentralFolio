@@ -73,7 +73,7 @@ export const login = async (req: Request, res: Response) => {
     return res.status(401).json({ error: "Invalid password." });
   }
   clearRateLimit(ip);
-  const token = jwt.sign({ app: "centralfolio" }, getJwtSecret(), { expiresIn: "7d" });
+  const token = jwt.sign({ app: "centralfolio" }, getJwtSecret() + (hash || ""), { expiresIn: "7d" });
   logger.info("Auth", `Successful login from ${ip}`);
   res.json({ token });
 };

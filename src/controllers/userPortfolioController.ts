@@ -38,7 +38,7 @@ export const createUserPortfolioHandler = (req: Request, res: Response) => {
 };
 
 export const updateUserPortfolioHandler = (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
 
   const { name, description, color } = req.body;
@@ -66,7 +66,7 @@ export const updateUserPortfolioHandler = (req: Request, res: Response) => {
 };
 
 export const deleteUserPortfolioHandler = (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
 
   const deleted = deleteUserPortfolio(id);
@@ -77,7 +77,7 @@ export const deleteUserPortfolioHandler = (req: Request, res: Response) => {
 };
 
 export const setPortfolioAccountsHandler = (req: Request, res: Response) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
 
   const existing = getUserPortfolioById(id);

@@ -1,4 +1,4 @@
-import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache } from "../models/db.js";
+import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
@@ -44,7 +44,9 @@ function getSnowballUrls(symbol: string): string[] {
     let ticker = mapped.slice(0, dotIndex);
     let exchange = mapped.slice(dotIndex + 1);
     ticker = ticker.replace(/\./g, '-');
-    if (exchange === 'VN') {
+    if (exchange === 'TO') {
+      exchange = 'CA';
+    } else if (exchange === 'VN') {
       exchange = 'V';
     } else if (exchange === 'NE') {
       exchange = 'NEO';
@@ -76,11 +78,11 @@ async function rateLimitSnowball() {
 }
 
 async function fetchFromSnowball(symbol: string): Promise<any> {
+  await rateLimitSnowball();
   const urls = getSnowballUrls(symbol);
   for (const url of urls) {
     try {
       logger.info('Snowball', `Fetching dividend data for ${symbol} from ${url}...`);
-      await rateLimitSnowball();
 
       const res = await fetch(url, {
         headers: {
@@ -218,11 +220,11 @@ function advanceDate(date: Date, frequency: number): Date {
   const newDate = new Date(date.getTime());
   if (frequency === 1 || frequency === 2 || frequency === 4 || frequency === 6 || frequency === 12) {
     const monthsToAdd = 12 / frequency;
-    newDate.setMonth(newDate.getMonth() + monthsToAdd);
+    newDate.setUTCMonth(newDate.getUTCMonth() + monthsToAdd);
   } else {
     // Fallback to days for weekly (52), bi-weekly (26), semi-monthly (24) or others
     const daysToAdd = Math.round(365.25 / frequency);
-    newDate.setDate(newDate.getDate() + daysToAdd);
+    newDate.setUTCDate(newDate.getUTCDate() + daysToAdd);
   }
   return newDate;
 }
@@ -240,17 +242,17 @@ export async function getDividendForecastForAccount(
     let positions: any[] = [];
 
     const cached = getCachedPositions(accountId);
-    const isFresh = cached.length > 0 && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
+    const timestamps = getAccountFetchTimestamps(accountId);
+    const lastFetch = timestamps?.lastPositionsFetch;
+    const lastFetchTime = lastFetch ? new Date(lastFetch.replace(' ', 'T') + 'Z').getTime() : 0;
+    const isFresh = lastFetchTime > 0 && (Date.now() - lastFetchTime < SNAPTRADE_CACHE_TTL_MS);
 
-    if ((isFresh || !allowExternalFetch) && cached.length > 0) {
+    if (isFresh || !allowExternalFetch) {
       logger.info('Cache', `getDividendForecastForAccount — positions cache HIT (or loading from database only) for account ${accountId} (${cached.length} position(s))`);
       positions = cached.map(p => ({
         symbol: { symbol: { symbol: p.symbol }, description: p.description },
         units: p.units
       }));
-    } else if (!allowExternalFetch) {
-      logger.info('Cache', `getDividendForecastForAccount — positions cache MISS and allowExternalFetch=false for account ${accountId}, skipping positions fetch`);
-      positions = [];
     } else {
       logger.info('SnapTrade', `getDividendForecastForAccount — fetching fresh positions for account ${accountId}...`);
       const client = getSnapTradeClientForPortfolio(portfolio);

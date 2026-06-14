@@ -7,6 +7,19 @@ import { logger } from "../utils/logger.js";
 // Keys that must never be written via the settings API — only set internally
 const PROTECTED_SETTINGS = new Set(['jwt_secret', 'auth_password_hash']);
 
+// Whitelisted settings keys that can be written via the settings API
+const ALLOWED_SETTINGS = new Set([
+  'dividend_background_fetch_enabled',
+  'data_refresh_interval_hours',
+  'dividend_providers',
+  'eodhd_api_key',
+  'polygon_api_key',
+  'yahoo_api_key',
+  'job_dividend-fetch_interval_hours',
+  'job_holdings-refresh_interval_hours',
+  'job_transactions-refresh_interval_hours'
+]);
+
 // Pattern for values that must be masked before sending to the client
 const SENSITIVE_KEY_RE = /api_key|_secret|_hash/i;
 
@@ -106,11 +119,21 @@ export const updateSettings = (req: Request, res: Response) => {
   logger.info('Admin', `POST /admin/settings — updating ${Object.keys(req.body).length} key(s)`);
   try {
     const settings = req.body;
-    const blocked = Object.keys(settings).filter(k => PROTECTED_SETTINGS.has(k));
-    if (blocked.length > 0) {
-      logger.warn('Admin', `updateSettings — attempt to write protected key(s): ${blocked.join(', ')}`);
-      return res.status(403).json({ error: `Cannot update protected setting(s): ${blocked.join(', ')}` });
+
+    // Validate setting keys and value lengths
+    for (const [key, value] of Object.entries(settings)) {
+      if (!ALLOWED_SETTINGS.has(key)) {
+        logger.warn('Admin', `updateSettings — attempt to write unauthorized or protected key: ${key}`);
+        return res.status(403).json({ error: `Unauthorized or protected setting: ${key}` });
+      }
+      if (typeof value !== 'string') {
+        return res.status(400).json({ error: `Value for key ${key} must be a string` });
+      }
+      if (value.length > 4000) {
+        return res.status(400).json({ error: `Value for key ${key} exceeds maximum length of 4000 characters` });
+      }
     }
+
     for (const [key, value] of Object.entries(settings)) {
       const displayVal = SENSITIVE_KEY_RE.test(key) ? '***' : String(value);
       logger.info('Admin', `  Setting: ${key} = ${displayVal}`);

@@ -31,13 +31,21 @@ const stmtGetAccountsMeta = db.prepare(
   "SELECT id, isActive, customName FROM accounts WHERE portfolioId = ?"
 );
 
+const stmtUpdateLastPositionsFetch = db.prepare(
+  "UPDATE accounts SET lastPositionsFetch = CURRENT_TIMESTAMP WHERE id = ?"
+);
+
+const stmtGetAccountFetchTimestamps = db.prepare(
+  "SELECT lastPositionsFetch, lastTransactionsFetch FROM accounts WHERE id = ?"
+);
+
 const stmtDeleteAccounts = db.prepare(
   "DELETE FROM accounts WHERE portfolioId = ?"
 );
 
 const stmtInsertAccount = db.prepare(`
-  INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cachedAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cashBalance, cachedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const stmtClearAccounts = db.prepare(
@@ -65,8 +73,8 @@ const stmtDeletePositions = db.prepare(
 );
 
 const stmtInsertPosition = db.prepare(`
-  INSERT INTO positions (accountId, symbol, symbolId, description, units, price, marketValue, cachedAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  INSERT INTO positions (accountId, symbol, symbolId, description, units, price, marketValue, averagePurchasePrice, cachedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
@@ -78,7 +86,10 @@ export function getCachedAccounts(portfolioId: number | string): any[] {
     ...r,
     isActive: r.isActive === 1 || r.isActive === true,
     balance: r.balanceTotal != null
-      ? { total: { amount: r.balanceTotal, currency: r.currency } }
+      ? { 
+          total: { amount: r.balanceTotal, currency: r.currency },
+          cash: r.cashBalance != null ? { amount: r.cashBalance, currency: r.currency } : undefined
+        }
       : undefined,
   }));
 }
@@ -135,7 +146,8 @@ export function saveCachedAccounts(portfolioId: number | string, accounts: any[]
         acc.currency || null,
         activeMap.has(acc.id) ? activeMap.get(acc.id) : 1,
         acc.balance?.total?.amount ?? null,
-        customNameMap.get(acc.id) ?? null
+        customNameMap.get(acc.id) ?? null,
+        acc.balance?.cash?.amount ?? null
       );
     }
   })(accounts);
@@ -189,8 +201,18 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
         description || null,
         pos.units || 0,
         pos.price || 0,
-        pos.marketValue || 0
+        pos.marketValue || 0,
+        pos.average_purchase_price ?? null
       );
     }
+    stmtUpdateLastPositionsFetch.run(accountId);
   })(positions);
+}
+
+export function updateLastPositionsFetch(accountId: string) {
+  stmtUpdateLastPositionsFetch.run(accountId);
+}
+
+export function getAccountFetchTimestamps(accountId: string): { lastPositionsFetch: string | null, lastTransactionsFetch: string | null } | null {
+  return (stmtGetAccountFetchTimestamps.get(accountId) as any) || null;
 }

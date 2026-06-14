@@ -134,6 +134,19 @@ const migrations: Array<{ name: string; sql: string }> = [
   { name: 'positions.symbolId',         sql: `ALTER TABLE positions ADD COLUMN symbolId TEXT` },
   { name: 'portfolios.tradingEnabled',  sql: `ALTER TABLE portfolios ADD COLUMN tradingEnabled INTEGER NOT NULL DEFAULT 0` },
   { name: 'dividend_metadata.provider', sql: `ALTER TABLE dividend_metadata ADD COLUMN provider TEXT` },
+  { name: 'accounts.lastPositionsFetch',    sql: `ALTER TABLE accounts ADD COLUMN lastPositionsFetch DATETIME` },
+  { name: 'accounts.lastTransactionsFetch', sql: `ALTER TABLE accounts ADD COLUMN lastTransactionsFetch DATETIME` },
+  { name: 'accounts.cashBalance',           sql: `ALTER TABLE accounts ADD COLUMN cashBalance REAL` },
+  { name: 'user_portfolio_targets.create',  sql: `
+    CREATE TABLE IF NOT EXISTS user_portfolio_targets (
+      portfolio_id INTEGER NOT NULL,
+      symbol TEXT NOT NULL,
+      target_pct REAL NOT NULL,
+      PRIMARY KEY (portfolio_id, symbol),
+      FOREIGN KEY (portfolio_id) REFERENCES user_portfolios (id) ON DELETE CASCADE
+    )
+  ` },
+  { name: 'positions.averagePurchasePrice', sql: 'ALTER TABLE positions ADD COLUMN averagePurchasePrice REAL' },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

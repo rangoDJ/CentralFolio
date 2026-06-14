@@ -1,4 +1,4 @@
-import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios, saveCachedAccounts } from "../models/db.js";
+import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios, saveCachedAccounts, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
@@ -45,9 +45,10 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
       if (!activeAccountIds.has(account.id)) continue;
 
       try {
-        const positions = getCachedPositions(account.id);
-        const isFresh = positions.length > 0 &&
-          (Date.now() - new Date(positions[0].cachedAt).getTime() < intervalMs);
+        const timestamps = getAccountFetchTimestamps(account.id);
+        const lastFetch = timestamps?.lastPositionsFetch;
+        const lastFetchTime = lastFetch ? new Date(lastFetch.replace(' ', 'T') + 'Z').getTime() : 0;
+        const isFresh = lastFetchTime > 0 && (Date.now() - lastFetchTime < intervalMs);
 
         if (isFresh && !forceRefresh) {
           logger.debug('Holdings', `Account ${account.id} — cache fresh, skipping`);

@@ -1,4 +1,4 @@
-import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios, saveCachedAccounts } from "../models/db.js";
+import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios, saveCachedAccounts, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
@@ -130,8 +130,10 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
             logger.debug('Transactions', `Processing account ${account.id} from portfolio "${portfolio.name}"`);
 
             // Check cache TTL (24 hours)
-            const cachedTxns = getCachedTransactions(account.id);
-            const isFresh = cachedTxns.length > 0 && (Date.now() - new Date(cachedTxns[0].cachedAt).getTime() < intervalMs);
+            const timestamps = getAccountFetchTimestamps(account.id);
+            const lastFetch = timestamps?.lastTransactionsFetch;
+            const lastFetchTime = lastFetch ? new Date(lastFetch.replace(' ', 'T') + 'Z').getTime() : 0;
+            const isFresh = lastFetchTime > 0 && (Date.now() - lastFetchTime < intervalMs);
 
             if (isFresh && !forceRefresh) {
               logger.debug('Transactions', `  Account ${account.id} — cache is fresh, skipping`);

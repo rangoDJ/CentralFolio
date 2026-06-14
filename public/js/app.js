@@ -74,6 +74,9 @@ const App = {
         document.getElementById('userPortfolioModalClose').onclick = () => UI.closeUserPortfolioModal();
         document.getElementById('userPortfolioForm').onsubmit = (e) => this.handleUserPortfolioSubmit(e);
 
+        // Rebalancing targets form
+        document.getElementById('rebalanceTargetsForm').onsubmit = (e) => this.handleSaveTargets(e);
+
         document.getElementById('tradeModalClose').onclick = () => this.closeTradeModal();
 
         // Trade button delegation — data-* attributes prevent inline JS injection
@@ -250,6 +253,11 @@ const App = {
     },
 
     async fetchAccounts(forceRefresh = false) {
+        if (forceRefresh) {
+            this.cachedHoldingsData = null;
+            this.cachedDividendsData = null;
+            this.cachedTransactionsData = null;
+        }
         UI.accountContainer.innerHTML = '<div class="empty-state">Loading accounts for all portfolios...</div>';
         try {
             this.currentGroups = await API.getAccounts(forceRefresh);
@@ -941,6 +949,44 @@ const App = {
         return total;
     },
 
+    async fetchHoldingsDataSilently() {
+        if (!this.currentGroups || this.currentGroups.length === 0) {
+            this.currentGroups = await API.getAccounts();
+        }
+
+        let allHoldingsData = [];
+        for (const group of this.currentGroups) {
+            const portfolio = this.activePortfolios.find(p => p.id === group.portfolioId);
+            const tradingEnabled = portfolio?.tradingEnabled ? true : false;
+            for (const acc of group.accounts) {
+                if (!this.inactiveAccountIds.has(acc.id)) {
+                    try {
+                        const data = await API.getHoldings(group.portfolioId, acc.id, false);
+                        allHoldingsData.push({
+                            portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
+                            accountName: acc.customName || acc.name,
+                            accountId: acc.id,
+                            portfolioId: group.portfolioId,
+                            tradingEnabled,
+                            holdings: data
+                        });
+                    } catch (err) {
+                        if (err.message !== 'Account is disabled') {
+                            allHoldingsData.push({
+                                portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
+                                accountName: acc.customName || acc.name,
+                                accountId: acc.id,
+                                error: err.message
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        this.cachedHoldingsData = allHoldingsData;
+        this.holdingsLastUpdated = new Date();
+    },
+
     async loadDashboard() {
         const countEl = document.getElementById('portfolioCount');
         if (countEl) countEl.textContent = this.userPortfolios ? this.userPortfolios.length : 0;
@@ -961,22 +1007,92 @@ const App = {
             return;
         }
 
-        const filteredGroups = this.getFilteredGroups();
+        if (!this.cachedHoldingsData) {
+            await this.fetchHoldingsDataSilently();
+        }
 
-        // Render allocation chart and accounts table from already-loaded data (fast)
+        const filteredGroups = this.getFilteredGroups();
+        const filteredHoldings = this.getFilteredHoldingsData();
+
+        let totalBalance = 0;
+        let totalInvested = 0;
+
+        if (filteredHoldings) {
+            filteredHoldings.forEach(acct => {
+                if (this.inactiveAccountIds.has(acct.accountId)) return;
+                if (acct.error) return;
+                (acct.holdings || []).forEach(pos => {
+                    const units = pos.units || 0;
+                    const price = pos.price || 0;
+                    const val = pos.marketValue || (units * price) || 0;
+                    const avgBuy = pos.average_purchase_price || 0;
+                    const cost = avgBuy > 0 ? (units * avgBuy) : val;
+
+                    totalBalance += val;
+                    totalInvested += cost;
+                });
+            });
+        }
+
+        if (filteredGroups) {
+            filteredGroups.forEach(g => {
+                (g.accounts || []).forEach(acc => {
+                    if (!this.inactiveAccountIds.has(acc.id)) {
+                        const cashVal = acc.balance?.cash?.amount || 0;
+                        totalBalance += cashVal;
+                        totalInvested += cashVal;
+                    }
+                });
+            });
+        }
+
+        const profit = totalBalance - totalInvested;
+        const profitPct = totalInvested > 0 ? (profit / totalInvested * 100) : 0;
+
+        const totalBalanceEl = document.getElementById('totalBalance');
+        if (totalBalanceEl) {
+            totalBalanceEl.textContent = `$${totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        const totalInvestedEl = document.getElementById('totalInvested');
+        if (totalInvestedEl) {
+            totalInvestedEl.textContent = `$${totalInvested.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} invested`;
+        }
+
+        const profitEl = document.getElementById('totalProfit');
+        if (profitEl) {
+            profitEl.textContent = `${profit >= 0 ? '+' : '-'}$${Math.abs(profit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            profitEl.style.color = profit >= 0 ? 'var(--primary)' : 'var(--danger)';
+        }
+
+        const profitPctEl = document.getElementById('totalProfitPct');
+        if (profitPctEl) {
+            profitPctEl.textContent = `${profit >= 0 ? '+' : '-'}${Math.abs(profitPct).toFixed(2)}% total return`;
+            profitPctEl.style.color = profit >= 0 ? 'var(--primary)' : 'var(--danger)';
+        }
+
+        const irrValueEl = document.getElementById('irrValue');
+        if (irrValueEl) {
+            irrValueEl.textContent = `${profitPct.toFixed(2)}%`;
+        }
+
+        const irrSubEl = document.getElementById('irrSub');
+        if (irrSubEl) {
+            irrSubEl.textContent = 'Simple return';
+        }
+
         if (filteredGroups) {
             if (UI.accountsChartInstance) {
                 UI.accountsChartInstance.destroy();
                 UI.accountsChartInstance = null;
             }
-            UI.renderDashboardChart(filteredGroups, this.inactiveAccountIds);
-            UI.renderDashboardHoldingsTable(filteredGroups, this.inactiveAccountIds);
+            UI.renderDashboardChart(filteredGroups, this.inactiveAccountIds, filteredHoldings);
+            UI.renderDashboardHoldingsTable(filteredGroups, this.inactiveAccountIds, filteredHoldings);
         }
 
-        // Use cached dividend data if available, else trigger background job
         const filteredDividends = this.getFilteredDividendsData();
         if (filteredDividends) {
-            UI.renderDashboardDividendWidgets(filteredDividends, this.totalPortfolioValue());
+            UI.renderDashboardDividendWidgets(filteredDividends, totalBalance);
         } else {
             UI.setDashboardDividendLoading(true);
             try {
@@ -987,7 +1103,7 @@ const App = {
                         portfolioName: this.getUserPortfolioNamesForAccount(d.accountId)
                     }));
                     this.dividendsLastUpdated = new Date();
-                    UI.renderDashboardDividendWidgets(this.getFilteredDividendsData(), this.totalPortfolioValue());
+                    UI.renderDashboardDividendWidgets(this.getFilteredDividendsData(), totalBalance);
                 } else if (response.fetching) {
                     this.startJobPolling();
                 }
@@ -995,8 +1111,38 @@ const App = {
             finally { UI.setDashboardDividendLoading(false); }
         }
 
-        // Render dividends received from cached transaction data
         UI.renderDashboardReceivedChart(this.getFilteredTransactionsData() || null);
+
+        this.applyDashboardValuesVisibility(localStorage.getItem('cf_mask_values') === 'true');
+    },
+
+    toggleDashboardValuesVisibility() {
+        const current = localStorage.getItem('cf_mask_values') === 'true';
+        const next = !current;
+        localStorage.setItem('cf_mask_values', String(next));
+        this.applyDashboardValuesVisibility(next);
+    },
+
+    applyDashboardValuesVisibility(masked) {
+        const openIcon = document.getElementById('eyeIconOpen');
+        const closedIcon = document.getElementById('eyeIconClosed');
+        
+        if (masked) {
+            if (openIcon) openIcon.style.display = 'none';
+            if (closedIcon) closedIcon.style.display = 'block';
+            document.querySelectorAll('.masked-val').forEach(el => {
+                el.classList.add('hidden-mode');
+            });
+        } else {
+            if (openIcon) openIcon.style.display = 'block';
+            if (closedIcon) closedIcon.style.display = 'none';
+            document.querySelectorAll('.masked-val').forEach(el => {
+                el.classList.remove('hidden-mode');
+            });
+        }
+        if (UI.accountsChartInstance) {
+            UI.accountsChartInstance.update();
+        }
     },
 
     toggleSidebar() {
@@ -1033,7 +1179,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', rebalance: 'Rebalancing', settings: 'Settings' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -1057,6 +1203,8 @@ const App = {
             } else {
                 this.loadDividendCalendar();
             }
+        } else if (tabId === 'rebalance') {
+            this.loadRebalanceTab();
         } else if (tabId === 'settings') {
             this.loadJobsPanel();
         }
@@ -1370,6 +1518,8 @@ const App = {
             UI.renderAllHoldings(this.getFilteredHoldingsData());
         } else if (activeTab === 'transactions') {
             UI.renderAllTransactions(this.getFilteredTransactionsData());
+        } else if (activeTab === 'rebalance') {
+            this.loadRebalanceTab();
         } else if (activeTab === 'dividend-tracker') {
             const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
             const filteredDivs = this.getFilteredDividendsData();
@@ -1521,6 +1671,155 @@ const App = {
             UI.showToast('Portfolio deleted');
         } catch (err) {
             UI.showToast('Delete failed: ' + err.message, 'error');
+        }
+    },
+
+    async loadRebalanceTab(forceRefresh = false) {
+        const portfolioId = this.selectedUserPortfolioId;
+        const unselectedEl = document.getElementById('rebalance-unselected-state');
+        const selectedEl = document.getElementById('rebalance-selected-state');
+        
+        if (portfolioId === 'all') {
+            if (unselectedEl) unselectedEl.style.display = 'block';
+            if (selectedEl) selectedEl.style.display = 'none';
+            return;
+        }
+        
+        if (unselectedEl) unselectedEl.style.display = 'none';
+        if (selectedEl) selectedEl.style.display = 'block';
+        
+        const refreshBtn = document.getElementById('refreshRebalanceBtn');
+        if (refreshBtn && forceRefresh) refreshBtn.classList.add('loading');
+        
+        try {
+            // 1. Load targets for the current portfolio
+            const targets = await API.getPortfolioTargets(portfolioId);
+            UI.renderRebalanceTargets(targets);
+            
+            // 2. Fetch rebalancing suggestions for the selected mode
+            const mode = document.getElementById('rebalanceModeSelect')?.value || 'buy_only';
+            const suggestions = await API.getRebalanceSuggestions(portfolioId, mode);
+            UI.renderRebalanceSuggestions(suggestions);
+            
+            const timestampEl = document.getElementById('rebalance-last-updated');
+            if (timestampEl) {
+                timestampEl.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+            }
+        } catch (err) {
+            UI.showToast('Failed to load rebalancing data: ' + err.message, 'error');
+        } finally {
+            if (refreshBtn) refreshBtn.classList.remove('loading');
+        }
+    },
+
+    handleRebalanceModeChange() {
+        this.loadRebalanceTab(false);
+    },
+
+    addTargetRow() {
+        UI.addTargetRow();
+    },
+
+    async handleSaveTargets(e) {
+        e.preventDefault();
+        const portfolioId = this.selectedUserPortfolioId;
+        if (portfolioId === 'all') return;
+        
+        const rows = document.querySelectorAll('.target-allocation-row');
+        const targets = [];
+        let totalPct = 0;
+        
+        for (const row of rows) {
+            const symbolInput = row.querySelector('.target-symbol-input');
+            const pctInput = row.querySelector('.target-pct-input');
+            
+            const symbol = symbolInput.value.trim().toUpperCase();
+            const pct = parseFloat(pctInput.value) / 100;
+            
+            if (!symbol) continue;
+            
+            if (isNaN(pct) || pct < 0 || pct > 1) {
+                UI.showToast(`Invalid percentage for ${symbol}`, 'error');
+                return;
+            }
+            
+            targets.push({ symbol, targetPct: pct });
+            totalPct += pct;
+        }
+        
+        // Validation: sum must be exactly 1.0 (100%)
+        if (targets.length > 0 && Math.abs(totalPct - 1.0) > 0.0001) {
+            UI.showToast(`Allocations must sum to exactly 100% (currently ${(totalPct * 100).toFixed(1)}%)`, 'error');
+            return;
+        }
+        
+        const btn = document.getElementById('saveTargetsBtn');
+        if (btn) { btn.classList.add('loading'); btn.disabled = true; }
+        
+        try {
+            await API.setPortfolioTargets(portfolioId, targets);
+            UI.showToast('Target allocations saved successfully');
+            this.loadRebalanceTab(false);
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
+        }
+    },
+
+    async executeBulkRebalance(accountId) {
+        const container = document.getElementById(`suggestions-trades-${accountId}`);
+        if (!container) return;
+        
+        const cbs = container.querySelectorAll('.trade-select-cb:checked');
+        if (cbs.length === 0) {
+            UI.showToast('No trades selected for execution', 'error');
+            return;
+        }
+        
+        if (!confirm(`Are you sure you want to place ${cbs.length} order(s) for this account?`)) {
+            return;
+        }
+        
+        const trades = [];
+        cbs.forEach(cb => {
+            const symbol = cb.dataset.symbol;
+            const action = cb.dataset.action;
+            const amount = parseFloat(cb.dataset.amount);
+            trades.push({ accountId, symbol, action, amount });
+        });
+        
+        const btn = document.getElementById(`btn-execute-${accountId}`);
+        if (btn) { btn.classList.add('loading'); btn.disabled = true; }
+        
+        try {
+            const portfolioId = this.selectedUserPortfolioId;
+            const res = await API.executeRebalance(portfolioId, trades);
+            
+            let successCount = 0;
+            let failureMsg = '';
+            
+            res.results.forEach(r => {
+                if (r.success) {
+                    successCount++;
+                } else {
+                    failureMsg += `\n- ${r.trade.symbol} (${r.trade.action}): ${r.error}`;
+                }
+            });
+            
+            if (successCount === res.results.length) {
+                UI.showToast(`Successfully placed all ${successCount} order(s)!`);
+            } else {
+                UI.showToast(`Placed ${successCount} order(s); ${res.results.length - successCount} failed.`, 'error');
+                alert(`Rebalance order execution summary:${failureMsg}`);
+            }
+            
+            // Reload suggestions to reflect new status/positions
+            this.loadRebalanceTab(false);
+        } catch (err) {
+            UI.showToast('Execution failed: ' + err.message, 'error');
+        } finally {
+            if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
         }
     },
 

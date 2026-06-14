@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { getAccountActive, setAccountActive, setAccountCustomName } from "../models/db.js";
-import { onAccountDeactivated } from "../services/cacheService.js";
+import { onAccountDeactivated, onAccountModified } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
 export const toggleAccountActive = (req: Request, res: Response) => {
@@ -21,6 +21,8 @@ export const toggleAccountActive = (req: Request, res: Response) => {
     setAccountActive(String(accountId), isActive);
     if (!isActive) {
       onAccountDeactivated(String(accountId));
+    } else {
+      onAccountModified(String(accountId));
     }
     logger.info('SnapTrade', `toggleAccountActive — account ${accountId} set to ${isActive ? 'ACTIVE' : 'INACTIVE'}`);
     res.json({ success: true, accountId, isActive });
@@ -46,6 +48,7 @@ export const renameAccount = (req: Request, res: Response) => {
 
   try {
     setAccountCustomName(String(accountId), name.trim());
+    onAccountModified(String(accountId));
     logger.info('SnapTrade', `renameAccount — account ${accountId} renamed to "${name.trim()}"`);
     res.json({ success: true, accountId, name: name.trim() });
   } catch (err: any) {

@@ -20,9 +20,24 @@ const API = {
         return res;
     },
 
+    async _json(res) {
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            try {
+                return await res.json();
+            } catch (err) {
+                // fall through
+            }
+        }
+        const text = await res.text();
+        return { error: text || res.statusText || `Request failed with status ${res.status}` };
+    },
+
     async getPortfolios() {
         const res = await this._fetch('/api/portfolios');
-        return await res.json();
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load portfolios');
+        return data;
     },
 
     async savePortfolio(data) {
@@ -30,7 +45,7 @@ const API = {
             method: 'POST',
             body: JSON.stringify(data)
         });
-        const json = await res.json();
+        const json = await this._json(res);
         if (!res.ok) throw new Error(json.error || 'Save failed');
         return json;
     },
@@ -40,14 +55,15 @@ const API = {
             method: 'PATCH',
             body: JSON.stringify({ tradingEnabled })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to update trading setting');
         return data;
     },
 
     async deletePortfolio(id) {
         const res = await this._fetch(`/api/portfolios/${id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Delete failed');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Delete failed');
         return true;
     },
 
@@ -56,7 +72,7 @@ const API = {
             method: 'POST',
             body: JSON.stringify({ portfolioId: id })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Registration failed');
         return data;
     },
@@ -66,7 +82,7 @@ const API = {
             method: 'POST',
             body: JSON.stringify({ portfolioId: id })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to get link');
         return data.loginUrl;
     },
@@ -77,14 +93,14 @@ const API = {
             method: 'POST',
             body: JSON.stringify({ portfolioId: id, redirectUrl })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to get trade link');
         return data.loginUrl;
     },
 
     async getConnectionStatus(portfolioId) {
         const res = await this._fetch(`/api/connection-status/${portfolioId}`);
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to get connection status');
         return data;
     },
@@ -92,14 +108,15 @@ const API = {
     async getAccounts(forceRefresh = false) {
         const url = `/api/accounts${forceRefresh ? '?forceRefresh=true' : ''}`;
         const res = await this._fetch(url);
-        if (!res.ok) throw new Error('Failed to load accounts');
-        return await res.json();
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load accounts');
+        return data;
     },
 
     async getHoldings(portfolioId, accountId, forceRefresh = false) {
         const url = `/api/holdings/${portfolioId}/${accountId}${forceRefresh ? '?forceRefresh=true' : ''}`;
         const res = await this._fetch(url);
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to fetch holdings');
         return data;
     },
@@ -107,7 +124,7 @@ const API = {
     async getDividendForecast(portfolioId, accountId, forceRefresh = false) {
         const url = `/api/dividends/forecast/${portfolioId}/${accountId}${forceRefresh ? '?forceRefresh=true' : ''}`;
         const res = await this._fetch(url);
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to fetch dividend forecast');
         return data;
     },
@@ -115,7 +132,7 @@ const API = {
     async getAllDividends(forceRefresh = false) {
         const url = `/api/portfolios/all-dividends${forceRefresh ? '?forceRefresh=true' : ''}`;
         const res = await this._fetch(url);
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to fetch all dividends');
         // Returns { fetching: bool, data: [] }
         return data;
@@ -123,20 +140,21 @@ const API = {
 
     async getDividendMetadata() {
         const res = await this._fetch('/api/portfolios/dividend-metadata');
-        if (!res.ok) throw new Error('Failed to fetch dividend metadata');
-        return await res.json();
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch dividend metadata');
+        return data;
     },
 
     async clearDividendCache() {
         const res = await this._fetch('/api/portfolios/clear-dividend-cache', { method: 'POST' });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to clear dividend cache');
         return data;
     },
 
     async snowballFetchDividendMetadata(symbol) {
         const res = await this._fetch(`/api/portfolios/dividend-metadata/${encodeURIComponent(symbol)}/snowball-fetch`, { method: 'POST' });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || `Snowball lookup failed for ${symbol}`);
         return data;
     },
@@ -146,27 +164,28 @@ const API = {
             method: 'PUT',
             body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to save dividend metadata');
         return data;
     },
 
     async deleteDividendMetadata(symbol) {
         const res = await this._fetch(`/api/portfolios/dividend-metadata/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || `Failed to delete ${symbol}`);
         return data;
     },
 
     async getJobs() {
         const res = await this._fetch('/api/jobs');
-        if (!res.ok) throw new Error('Failed to fetch jobs');
-        return await res.json();
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch jobs');
+        return data;
     },
 
     async triggerJob(name) {
         const res = await this._fetch(`/api/jobs/${encodeURIComponent(name)}/trigger`, { method: 'POST' });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || `Failed to trigger job ${name}`);
         return data;
     },
@@ -176,34 +195,37 @@ const API = {
             method: 'PATCH',
             body: JSON.stringify({ intervalHours })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || `Failed to update schedule for ${name}`);
         return data;
     },
 
     async getAdminUsers() {
         const res = await this._fetch('/api/admin/users');
-        if (!res.ok) throw new Error('Failed to list users');
-        return await res.json();
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to list users');
+        return data;
     },
 
     async deleteAdminUser(uid) {
         const res = await this._fetch(`/api/admin/users/${uid}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Delete failed');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Delete failed');
         return true;
     },
 
     async wipeAdminUsers() {
         const res = await this._fetch('/api/admin/wipe', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) throw new Error('Wipe failed');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Wipe failed');
         return data;
     },
 
     async getSettings() {
         const res = await this._fetch('/api/admin/settings');
-        if (!res.ok) throw new Error('Failed to fetch settings');
-        return await res.json();
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch settings');
+        return data;
     },
 
     async updateSettings(settings) {
@@ -211,7 +233,7 @@ const API = {
             method: 'POST',
             body: JSON.stringify(settings)
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to update settings');
         return data;
     },
@@ -221,9 +243,9 @@ const API = {
             method: 'POST',
             body: JSON.stringify({ portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce })
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Order placement failed');
-        return json;
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Order placement failed');
+        return data;
     },
 
     async renameAccount(accountId, name) {
@@ -231,7 +253,7 @@ const API = {
             method: 'PATCH',
             body: JSON.stringify({ name })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to rename account');
         return data;
     },
@@ -241,7 +263,7 @@ const API = {
             method: 'PATCH',
             body: JSON.stringify({ isActive })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to update account status');
         return data;
     },
@@ -249,7 +271,7 @@ const API = {
     async getTransactions(forceRefresh = false) {
         const url = `/api/transactions${forceRefresh ? '?forceRefresh=true' : ''}`;
         const res = await this._fetch(url);
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to fetch transactions');
         return data;
     },
@@ -259,22 +281,23 @@ const API = {
             method: 'POST',
             body: JSON.stringify({ currentPassword, newPassword })
         });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to change password');
         return data;
     },
 
     async invalidatePortfolioCache(portfolioId) {
         const res = await this._fetch(`/api/invalidate-cache/${encodeURIComponent(portfolioId)}`, { method: 'POST' });
-        const data = await res.json();
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Cache invalidation failed');
         return data;
     },
 
     async getUserPortfolios() {
         const res = await this._fetch('/api/user-portfolios');
-        if (!res.ok) throw new Error('Failed to load portfolios');
-        return await res.json();
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load portfolios');
+        return data;
     },
 
     async createUserPortfolio(data) {
@@ -282,9 +305,9 @@ const API = {
             method: 'POST',
             body: JSON.stringify(data)
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Failed to create portfolio');
-        return json;
+        const dataJson = await this._json(res);
+        if (!res.ok) throw new Error(dataJson.error || 'Failed to create portfolio');
+        return dataJson;
     },
 
     async updateUserPortfolio(id, data) {
@@ -292,14 +315,15 @@ const API = {
             method: 'PATCH',
             body: JSON.stringify(data)
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Failed to update portfolio');
-        return json;
+        const dataJson = await this._json(res);
+        if (!res.ok) throw new Error(dataJson.error || 'Failed to update portfolio');
+        return dataJson;
     },
 
     async deleteUserPortfolio(id) {
         const res = await this._fetch(`/api/user-portfolios/${id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Failed to delete portfolio');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete portfolio');
         return true;
     },
 
@@ -308,9 +332,43 @@ const API = {
             method: 'PUT',
             body: JSON.stringify({ accountIds })
         });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Failed to update accounts');
-        return json;
+        const dataJson = await this._json(res);
+        if (!res.ok) throw new Error(dataJson.error || 'Failed to update accounts');
+        return dataJson;
+    },
+
+    async getPortfolioTargets(id) {
+        const res = await this._fetch(`/api/user-portfolios/${id}/targets`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load targets');
+        return data;
+    },
+
+    async setPortfolioTargets(id, targets) {
+        const res = await this._fetch(`/api/user-portfolios/${id}/targets`, {
+            method: 'PUT',
+            body: JSON.stringify(targets)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to save targets');
+        return data;
+    },
+
+    async getRebalanceSuggestions(id, mode = 'buy_only') {
+        const res = await this._fetch(`/api/user-portfolios/${id}/rebalance?mode=${mode}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load rebalancing suggestions');
+        return data;
+    },
+
+    async executeRebalance(id, trades) {
+        const res = await this._fetch(`/api/user-portfolios/${id}/rebalance/execute`, {
+            method: 'POST',
+            body: JSON.stringify({ trades })
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to execute rebalance trades');
+        return data;
     },
 
 };

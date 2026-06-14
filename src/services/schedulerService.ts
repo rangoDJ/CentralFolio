@@ -23,7 +23,7 @@ type JobFn = (trigger: string) => Promise<void> | void;
 interface RegisteredJob {
   state: JobState;
   fn: JobFn;
-  task: cron.ScheduledTask | null;
+  task: any | null;
   startupTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -39,15 +39,15 @@ const registry = new Map<string, RegisteredJob>();
 export function hoursToCron(hours: number): string | null {
   if (!hours || hours <= 0) return null;
   if (hours < 1) {
-    const minutes = Math.round(hours * 60);
+    const minutes = Math.max(1, Math.min(59, Math.round(hours * 60)));
     return `*/${minutes} * * * *`;
   }
-  if (Number.isInteger(hours) && 24 % hours === 0) {
-    return `0 */${hours} * * *`;  // aligned to clock hours
+  if (hours < 24) {
+    const roundedHours = Math.max(1, Math.min(23, Math.round(hours)));
+    return `0 */${roundedHours} * * *`;
   }
-  // Fall back to fractional hours expressed as minutes
-  const minutes = Math.round(hours * 60);
-  return `*/${minutes} * * * *`;
+  const days = Math.max(1, Math.round(hours / 24));
+  return `0 0 */${days} * *`;
 }
 
 /** Compute approximate ms until next cron fire (for display in UI). */
@@ -140,7 +140,7 @@ export function registerJob(
 
   // Schedule the recurring cron task
   if (cronExpression) {
-    job.task = cron.schedule(cronExpression, () => runJob(job, 'scheduled'), { scheduled: true });
+    job.task = cron.schedule(cronExpression, () => runJob(job, 'scheduled'));
   }
 
   // Optional startup run with a delay
@@ -187,7 +187,7 @@ export function updateJobInterval(name: string, newIntervalMs: number | null): b
   job.state.nextRunAt = cronExpression ? nextRunFromCron(cronExpression) : null;
 
   if (cronExpression) {
-    job.task = cron.schedule(cronExpression, () => runJob(job, 'scheduled'), { scheduled: true });
+    job.task = cron.schedule(cronExpression, () => runJob(job, 'scheduled'));
   }
 
   const label = cronExpression ?? 'manual';

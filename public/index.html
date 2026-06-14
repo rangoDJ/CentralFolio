@@ -48,6 +48,16 @@
           <span>Transactions</span>
         </button>
 
+        <button class="sidebar-item" data-tab="rebalance" onclick="App.switchMainTab('rebalance', this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+            <path d="M3 21v-5h5"/>
+          </svg>
+          <span>Rebalancing</span>
+        </button>
+
         <button class="sidebar-item" data-tab="settings" onclick="App.switchMainTab('settings', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -95,44 +105,57 @@
         <!-- 4-card stat row -->
         <div class="stats-row dash-stats">
           <div class="stat-card">
-            <div class="stat-label">Total Net Value</div>
-            <div id="totalBalance" class="stat-value" style="font-feature-settings:'tnum'">$0.00</div>
-            <div id="dashAccountCount" class="stat-sublabel">—</div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+              <div class="stat-label" style="margin:0;">Value</div>
+              <button class="hide-btn" id="toggleValueVisibilityBtn" onclick="App.toggleDashboardValuesVisibility()" title="Toggle values visibility" style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:2px; display:flex; align-items:center;">
+                <!-- Eye icon -->
+                <svg id="eyeIconOpen" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+                <svg id="eyeIconClosed" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              </button>
+            </div>
+            <div id="totalBalance" class="stat-value masked-val" style="font-feature-settings:'tnum'">$0.00</div>
+            <div id="totalInvested" class="stat-sublabel masked-val">$0.00 invested</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Annual Passive Income</div>
-            <div id="dashAnnualIncome" class="stat-value primary">—</div>
-            <div id="dashMonthlyIncome" class="stat-sublabel">— / month</div>
+            <div class="stat-label">Total profit</div>
+            <div id="totalProfit" class="stat-value primary masked-val" style="font-feature-settings:'tnum'">+$0.00</div>
+            <div id="totalProfitPct" class="stat-sublabel">+0.00% total return</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Portfolio Yield</div>
-            <div id="dashYield" class="stat-value">—</div>
-            <div class="stat-sublabel">income / portfolio value</div>
+            <div class="stat-label">Total Return</div>
+            <div id="irrValue" class="stat-value masked-val">0.00%</div>
+            <div id="irrSub" class="stat-sublabel">Simple return</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">My Portfolios</div>
-            <div id="portfolioCount" class="stat-value muted">0</div>
-            <div class="stat-sublabel">user portfolios</div>
+            <div class="stat-label">Passive income</div>
+            <div id="passiveYield" class="stat-value masked-val">0.00%</div>
+            <div id="passiveAnnually" class="stat-sublabel masked-val">$0.00 annually</div>
           </div>
         </div>
 
-        <!-- Allocation chart + accounts breakdown -->
-        <div class="dash-main-row">
+        <!-- Redesigned Main Layout: Left = Chart, Right = Holdings breakdown -->
+        <div class="dashboard-grid">
           <div class="card" id="dashboardChartContainer">
             <div class="card-header">
               <span class="card-title">Portfolio Allocation</span>
             </div>
-            <div class="chart-container-lg" id="dashboardChartArea">
+            <div class="chart-container-lg" id="dashboardChartArea" style="position:relative; height:320px;">
               <div class="empty-state">
                 <div class="empty-icon">📊</div>
-                <p>Add a portfolio in Settings to get started.</p>
+                <p>Add a connection in Settings to get started.</p>
               </div>
             </div>
           </div>
           <div class="card">
-            <div class="card-header"><span class="card-title">Accounts</span></div>
-            <div id="dashHoldingsTable">
-              <div class="empty-state" style="padding:1.5rem 0;"><p>No accounts loaded.</p></div>
+            <div class="card-header">
+              <span class="card-title">Holdings breakdown</span>
+            </div>
+            <div id="dashHoldingsTable" style="overflow-x:auto;">
+              <div class="empty-state" style="padding:1.5rem 0;"><p>No holdings loaded.</p></div>
             </div>
           </div>
         </div>
@@ -359,6 +382,76 @@
         <div id="transactions-tabs" class="pill-tabs mb-3" style="display:none;"></div>
         <div id="transactions-tables">
           <div class="empty-state">Select an account in Settings to view transactions.</div>
+        </div>
+      </div>
+
+      <!-- Rebalancing -->
+      <div class="container tab-content" id="rebalance-tab">
+        <div class="page-header">
+          <h1 class="page-heading">Rebalancing</h1>
+          <div class="page-actions">
+            <span id="rebalance-last-updated" class="last-updated"></span>
+            <button id="refreshRebalanceBtn" class="btn btn-outline btn-sm" onclick="App.loadRebalanceTab(true)">
+              <span class="loader"></span>
+              <span class="btn-text">Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="rebalance-unselected-state" class="empty-state card">
+          <div class="empty-icon">⚖️</div>
+          <p><strong>Please select a specific portfolio.</strong></p>
+          <p style="margin-top:0.5rem;color:var(--text-secondary);">Select a user portfolio from the dropdown in the top bar to configure target allocations and view rebalancing suggestions.</p>
+        </div>
+
+        <div id="rebalance-selected-state" style="display:none;">
+          <div style="display:grid;grid-template-columns:350px 1fr;gap:1.5rem;align-items:start;">
+            <!-- Left Panel: Targets Configuration -->
+            <div class="card">
+              <div class="card-header" style="margin-bottom:0.75rem;">
+                <span class="card-title">Target Allocations</span>
+              </div>
+              <p class="text-muted text-sm mb-3">Define target percentage allocations for tickers in this portfolio. Total must sum to exactly 100%.</p>
+              
+              <form id="rebalanceTargetsForm">
+                <div id="targetsListContainer" style="display:flex; flex-direction:column; gap:0.75rem; margin-bottom:1rem;">
+                  <!-- Dynamic rows of symbols & target percentages will be rendered here -->
+                </div>
+                
+                <button type="button" class="btn btn-outline btn-sm w-full mb-3" onclick="App.addTargetRow()">
+                  + Add Ticker
+                </button>
+                
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; border-top:1px solid var(--border); padding-top:1rem;">
+                  <span id="targetsTotalPct" style="font-weight:600; font-size:0.9rem; color:var(--text-secondary);">Total: 0%</span>
+                  <button type="submit" id="saveTargetsBtn" class="btn btn-primary btn-sm">
+                    <span class="loader"></span><span class="btn-text">Save Targets</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Right Panel: Rebalancing suggestions -->
+            <div>
+              <div class="card mb-3" style="display:flex; justify-content:space-between; align-items:center; flex-direction:row; padding:1rem 1.25rem;">
+                <div>
+                  <span class="card-title" style="margin:0;">Suggestions &amp; Deviations</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                  <span class="text-muted text-sm">Mode:</span>
+                  <select id="rebalanceModeSelect" onchange="App.handleRebalanceModeChange()"
+                          style="background:var(--surface-2); border:1px solid var(--border); color:var(--text); border-radius:var(--radius-sm); padding:0.35rem 0.6rem; font-size:0.82rem; cursor:pointer;">
+                    <option value="buy_only">Buy-Only (using cash)</option>
+                    <option value="full">Full Rebalance (sell &amp; buy)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div id="rebalanceSuggestionsContainer">
+                <!-- Dynamic suggestions per account will be rendered here -->
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -1131,3 +1131,172 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 @keyframes spin    { to { transform: rotate(360deg); } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Rebalancing Engine ────────────────────────── */
+
+.target-allocation-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.target-symbol-input {
+  font-family: ui-monospace, monospace;
+  text-transform: uppercase;
+}
+
+.target-pct-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.target-pct-input-wrapper input {
+  padding-right: 1.5rem;
+  text-align: right;
+}
+
+.target-pct-input-wrapper::after {
+  content: '%';
+  position: absolute;
+  right: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+.remove-target-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.remove-target-btn:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+.deviation-bar-wrapper {
+  margin-bottom: 0.85rem;
+}
+
+.deviation-bar-wrapper:last-child {
+  margin-bottom: 0;
+}
+
+.account-suggestion-card {
+  margin-bottom: 1.5rem;
+}
+
+.account-suggestion-card:last-child {
+  margin-bottom: 0;
+}
+
+.account-suggestion-header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.account-suggestion-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.account-suggestion-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.trades-bulk-action {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+  margin-top: 1rem;
+}
+
+.trade-checkbox-custom {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+/* ── Snowball Dashboard Redesign ──────────────── */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.breakdown-asset-cell {
+  position: relative;
+  padding-left: 1.5rem !important;
+}
+
+.breakdown-asset-indicator {
+  position: absolute;
+  left: 0.5rem;
+  top: 15%;
+  bottom: 15%;
+  width: 4px;
+  border-radius: 2px;
+}
+
+.hide-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.hide-btn:hover {
+  opacity: 1;
+  color: var(--text);
+}
+
+.masked-val {
+  transition: filter 0.2s ease-out;
+}
+
+.masked-val.hidden-mode {
+  filter: blur(6px);
+  pointer-events: none;
+  user-select: none;
+}
+
+

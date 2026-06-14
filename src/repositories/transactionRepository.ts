@@ -33,6 +33,16 @@ const stmtDeleteNullId = db.prepare(
   "DELETE FROM transactions WHERE accountId = ? AND transactionId IS NULL"
 );
 
+const stmtInsertNullIdTransaction = db.prepare(`
+  INSERT INTO transactions
+    (accountId, transactionId, symbol, description, type, action, units, price, amount, date, currencyCode, cachedAt)
+  VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+`);
+
+const stmtUpdateLastTransactionsFetch = db.prepare(
+  "UPDATE accounts SET lastTransactionsFetch = CURRENT_TIMESTAMP WHERE id = ?"
+);
+
 const stmtDeleteForAccount = db.prepare(
   "DELETE FROM transactions WHERE accountId = ?"
 );
@@ -94,11 +104,7 @@ export function saveCachedTransactions(accountId: string, transactions: any[]) {
     if (withoutId.length > 0) {
       stmtDeleteNullId.run(accountId);
       for (const txn of withoutId) {
-        db.prepare(`
-          INSERT INTO transactions
-            (accountId, transactionId, symbol, description, type, action, units, price, amount, date, currencyCode, cachedAt)
-          VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `).run(
+        stmtInsertNullIdTransaction.run(
           accountId,
           txn.symbol       ?? null,
           txn.description  ?? null,
@@ -112,6 +118,9 @@ export function saveCachedTransactions(accountId: string, transactions: any[]) {
         );
       }
     }
+
+    // 3. Update lastTransactionsFetch timestamp
+    stmtUpdateLastTransactionsFetch.run(accountId);
   })();
 }
 

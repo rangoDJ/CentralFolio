@@ -11,7 +11,7 @@ export const updateJobSchedule = (req: Request, res: Response) => {
   const { name } = req.params;
   const { intervalHours } = req.body;
 
-  const status = getJobStatus(name);
+  const status = getJobStatus(String(name));
   if (!status) return res.status(404).json({ error: `Job "${name}" not found` });
 
   const h = parseFloat(intervalHours);
@@ -23,8 +23,8 @@ export const updateJobSchedule = (req: Request, res: Response) => {
   }
 
   const newIntervalMs = h === 0 ? null : Math.round(h * 3_600_000);
-  setSetting(`job_${name}_interval_hours`, String(h));
-  updateJobInterval(name, newIntervalMs);
+  setSetting(`job_${String(name)}_interval_hours`, String(h));
+  updateJobInterval(String(name), newIntervalMs);
 
   logger.info('Jobs', `Schedule updated: "${name}" → ${h === 0 ? 'manual' : h + 'h'}`);
   res.json({ success: true, name, intervalHours: h, intervalMs: newIntervalMs });
@@ -32,12 +32,12 @@ export const updateJobSchedule = (req: Request, res: Response) => {
 
 export const triggerJobHandler = (req: Request, res: Response) => {
   const { name } = req.params;
-  const status = getJobStatus(name);
+  const status = getJobStatus(String(name));
   if (!status) return res.status(404).json({ error: `Job "${name}" not found` });
   if (status.status === 'running') {
     return res.status(409).json({ error: `Job "${name}" is already running` });
   }
-  const triggered = triggerJob(name, 'manual');
+  const triggered = triggerJob(String(name), 'manual');
   logger.info('Jobs', `Manual trigger: "${name}" — success=${triggered}`);
   res.json({ success: triggered, name });
 };

@@ -212,110 +212,165 @@ const UI = {
         }
     },
 
-    renderDashboardHoldingsTable(currentGroups, inactiveAccountIds) {
+    renderDashboardHoldingsTable(currentGroups, inactiveAccountIds, holdingsData = null) {
         const container = document.getElementById('dashHoldingsTable');
         if (!container) return;
 
+        if (!holdingsData && typeof App !== 'undefined') {
+            holdingsData = App.getFilteredHoldingsData();
+        }
+
+        if (!holdingsData || holdingsData.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="padding:1.5rem 0;"><p>No holdings loaded. Click Refresh to load position data.</p></div>';
+            return;
+        }
+
+        const symbolMap = new Map();
         let grandTotal = 0;
-        const rows = [];
+        let totalCost = 0;
 
-        if (App.selectedUserPortfolioId === 'all') {
-            (App.userPortfolios || []).forEach(p => {
-                let total = 0;
-                (p.accountIds || []).forEach(aid => {
-                    if (!inactiveAccountIds.has(aid)) {
-                        const acc = findAccountInGroups(currentGroups, aid);
-                        if (acc) total += acc.balance?.total?.amount || 0;
-                    }
-                });
-                grandTotal += total;
-                rows.push({
-                    name: p.name,
-                    subtitle: `${(p.accountIds || []).length} account${(p.accountIds || []).length !== 1 ? 's' : ''}`,
-                    value: total
-                });
+        holdingsData.forEach(acct => {
+            if (inactiveAccountIds && inactiveAccountIds.has(acct.accountId)) {
+                return;
+            }
+            if (acct.error) return;
+
+            (acct.holdings || []).forEach(pos => {
+                const sym = pos.symbol?.symbol?.symbol || pos.symbol?.symbol || pos.symbol || 'Unknown';
+                const desc = pos.symbol?.symbol?.description || pos.description || sym;
+                const units = pos.units || 0;
+                const price = pos.price || 0;
+                const val = pos.marketValue || (units * price) || 0;
+                const avgBuy = pos.average_purchase_price || 0;
+                const cost = avgBuy > 0 ? (units * avgBuy) : val;
+
+                if (!symbolMap.has(sym)) {
+                    symbolMap.set(sym, {
+                        symbol: sym,
+                        description: desc,
+                        value: 0,
+                        cost: 0,
+                        units: 0
+                    });
+                }
+                const entry = symbolMap.get(sym);
+                entry.value += val;
+                entry.cost += cost;
+                entry.units += units;
             });
+        });
 
-            let unassignedTotal = 0;
-            let unassignedCount = 0;
-            currentGroups.forEach(group => {
-                group.accounts.forEach(acc => {
-                    if (!inactiveAccountIds.has(acc.id)) {
-                        const isAssigned = (App.userPortfolios || []).some(p => (p.accountIds || []).includes(acc.id));
-                        if (!isAssigned) {
-                            unassignedTotal += acc.balance?.total?.amount || 0;
-                            unassignedCount++;
+        if (currentGroups) {
+            currentGroups.forEach(g => {
+                g.accounts.forEach(acc => {
+                    if (inactiveAccountIds && inactiveAccountIds.has(acc.id)) return;
+
+                    let isAccountInSelectedPortfolio = true;
+                    if (typeof App !== 'undefined' && App.selectedUserPortfolioId !== 'all') {
+                        const activePort = App.getSelectedUserPortfolio();
+                        const activePortAccountIds = new Set(activePort ? (activePort.accountIds || []) : []);
+                        isAccountInSelectedPortfolio = activePortAccountIds.has(acc.id);
+                    }
+
+                    if (isAccountInSelectedPortfolio) {
+                        const cashVal = acc.balance?.cash?.amount || 0;
+                        if (cashVal > 0) {
+                            const sym = 'CASH';
+                            if (!symbolMap.has(sym)) {
+                                symbolMap.set(sym, {
+                                    symbol: sym,
+                                    description: 'Cash Balance',
+                                    value: 0,
+                                    cost: 0,
+                                    units: 0
+                                });
+                            }
+                            const entry = symbolMap.get(sym);
+                            entry.value += cashVal;
+                            entry.cost += cashVal;
+                            entry.units += cashVal;
                         }
                     }
                 });
             });
-            if (unassignedTotal > 0) {
-                grandTotal += unassignedTotal;
-                rows.push({
-                    name: 'Unassigned Accounts',
-                    subtitle: `${unassignedCount} account${unassignedCount !== 1 ? 's' : ''}`,
-                    value: unassignedTotal
-                });
-            }
-        } else {
-            currentGroups.forEach(g => {
-                g.accounts.forEach(acc => {
-                    if (!inactiveAccountIds.has(acc.id)) {
-                        const val = acc.balance?.total?.amount || 0;
-                        grandTotal += val;
-                        rows.push({
-                            name: acc.customName || acc.name || 'Unnamed',
-                            subtitle: acc.brokerage?.name || '',
-                            value: val
-                        });
-                    }
-                });
-            });
         }
 
-        if (this.totalBalanceEl) {
-            this.totalBalanceEl.textContent = `$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        }
+        const rows = Array.from(symbolMap.values());
+        rows.sort((a, b) => b.value - a.value);
 
-        const countEl = document.getElementById('dashAccountCount');
-        if (countEl) {
-            if (App.selectedUserPortfolioId === 'all') {
-                const totalPorts = (App.userPortfolios || []).length;
-                countEl.textContent = `${totalPorts} portfolio${totalPorts !== 1 ? 's' : ''} configured`;
-            } else {
-                countEl.textContent = `${rows.length} account${rows.length !== 1 ? 's' : ''} active`;
-            }
-        }
+        rows.forEach(r => {
+            grandTotal += r.value;
+            totalCost += r.cost;
+        });
 
         if (rows.length === 0) {
-            container.innerHTML = '<div class="empty-state" style="padding:1.5rem 0;"><p>No active portfolios or accounts.</p></div>';
+            container.innerHTML = '<div class="empty-state" style="padding:1.5rem 0;"><p>No active positions or cash.</p></div>';
             return;
         }
 
-        rows.sort((a, b) => b.value - a.value);
+        const palette = [
+            '#00d09c','#4f8ef7','#f7c948','#f76f8e','#a78bfa',
+            '#38bdf8','#fb923c','#34d399','#e879f9','#facc15',
+            '#60a5fa','#f87171','#2dd4bf','#c084fc','#fbbf24'
+        ];
 
-        const labelHeader = App.selectedUserPortfolioId === 'all' ? 'Portfolio' : 'Account';
+        let tableHtml = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Asset</th>
+              <th class="right">Value / Invested</th>
+              <th class="right">Profit / Return</th>
+              <th class="right">Allocation</th>
+            </tr>
+          </thead>
+          <tbody>
+        `;
 
-        container.innerHTML = `<table class="data-table"><thead><tr>` +
-            `<th>${labelHeader}</th><th class="right">Value</th><th class="right">Allocation</th>` +
-            `</tr></thead><tbody>` +
-            rows.map(r => {
-                const alloc = grandTotal > 0 ? (r.value / grandTotal * 100) : 0;
-                return `<tr>
-                    <td>
-                        <div style="font-size:0.85rem;font-weight:500;">${sanitize(r.name)}</div>
-                        ${r.subtitle ? `<div class="ticker-desc">${sanitize(r.subtitle)}</div>` : ''}
-                    </td>
-                    <td class="right" style="font-weight:600;">$${r.value.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                    <td class="right">
-                        <div>${alloc.toFixed(1)}%</div>
-                        <div style="margin-top:3px;height:3px;background:var(--border);border-radius:2px;min-width:56px;">
-                            <div style="height:100%;background:var(--primary);border-radius:2px;width:${Math.min(alloc,100).toFixed(1)}%;"></div>
-                        </div>
-                    </td>
-                </tr>`;
-            }).join('') +
-            '</tbody></table>';
+        rows.forEach((r, idx) => {
+            const color = palette[idx % palette.length];
+            const alloc = grandTotal > 0 ? (r.value / grandTotal * 100) : 0;
+            const profit = r.value - r.cost;
+            const returnPct = r.cost > 0 ? (profit / r.cost * 100) : 0;
+
+            const profitSign = profit >= 0 ? '+' : '';
+            const profitColor = profit >= 0 ? 'var(--success)' : 'var(--danger)';
+
+            tableHtml += `
+            <tr id="breakdown-row-${idx}" style="cursor: pointer; transition: opacity 0.15s;" onclick="UI.toggleChartSlice(${idx})">
+              <td class="breakdown-asset-cell">
+                <span class="breakdown-asset-indicator" style="background-color: ${color};"></span>
+                <div style="font-size: 0.85rem; font-weight: 600;">${sanitize(r.symbol)}</div>
+                <div class="ticker-desc" style="font-size: 0.75rem; color: var(--text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${sanitize(r.description)}">${sanitize(r.description)}</div>
+              </td>
+              <td class="right">
+                <div class="masked-val" style="font-size: 0.85rem; font-weight: 600;">$${r.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div class="masked-val" style="font-size: 0.72rem; color: var(--text-muted);">$${r.cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              </td>
+              <td class="right">
+                <div class="masked-val" style="font-size: 0.85rem; font-weight: 600; color: ${profitColor};">${profitSign}$${profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div style="font-size: 0.72rem; color: ${profitColor};">${profitSign}${returnPct.toFixed(2)}%</div>
+              </td>
+              <td class="right" style="vertical-align: middle;">
+                <div style="font-size: 0.85rem; font-weight: 500;">${alloc.toFixed(1)}%</div>
+                <div style="margin-top: 3px; height: 3px; background: var(--border); border-radius: 2px; width: 60px; margin-left: auto;">
+                  <div style="height: 100%; background: ${color}; border-radius: 2px; width: ${Math.min(alloc, 100).toFixed(1)}%;"></div>
+                </div>
+              </td>
+            </tr>
+            `;
+        });
+
+        tableHtml += `
+          </tbody>
+        </table>
+        `;
+
+        container.innerHTML = tableHtml;
+
+        if (localStorage.getItem('cf_mask_values') === 'true') {
+            container.querySelectorAll('.masked-val').forEach(el => el.classList.add('hidden-mode'));
+        }
     },
 
     renderDashboardDividendWidgets(dividendsData, portfolioValue) {
@@ -336,6 +391,8 @@ const UI = {
         if (el('dashAnnualIncome'))  el('dashAnnualIncome').textContent  = fmt(annualTotal);
         if (el('dashMonthlyIncome')) el('dashMonthlyIncome').textContent = `${fmt(monthlyAvg)} / month`;
         if (el('dashYield'))         el('dashYield').textContent         = yieldPct > 0 ? `${yieldPct.toFixed(2)}%` : '—';
+        if (el('passiveYield'))      el('passiveYield').textContent      = yieldPct > 0 ? `${yieldPct.toFixed(2)}%` : '0.00%';
+        if (el('passiveAnnually'))   el('passiveAnnually').textContent   = `${fmt(annualTotal)} annually`;
 
         this.renderDashboardEventsStrip(allEvents);
         this.renderDashboardFutureChart(allEvents);
@@ -1119,71 +1176,87 @@ const UI = {
         `).join('');
     },
 
-    renderDashboardChart(currentGroups, inactiveAccountIds) {
+    renderDashboardChart(currentGroups, inactiveAccountIds, holdingsData = null) {
         const area = document.getElementById('dashboardChartArea');
         if (!area) return;
 
-        const activeSlices = [];
+        if (!holdingsData && typeof App !== 'undefined') {
+            holdingsData = App.getFilteredHoldingsData();
+        }
 
-        if (App.selectedUserPortfolioId === 'all') {
-            (App.userPortfolios || []).forEach(p => {
-                let total = 0;
-                (p.accountIds || []).forEach(aid => {
-                    if (!inactiveAccountIds.has(aid)) {
-                        const acc = findAccountInGroups(currentGroups, aid);
-                        if (acc) total += acc.balance?.total?.amount || 0;
-                    }
-                });
-                if (total > 0) {
-                    activeSlices.push({
-                        label: p.name,
-                        value: total
-                    });
+        if (!holdingsData || holdingsData.length === 0) {
+            if (this.accountsChartInstance) {
+                this.accountsChartInstance.destroy();
+                this.accountsChartInstance = null;
+            }
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><p>No position data available. Click Refresh to load position data.</p></div>';
+            return;
+        }
+
+        const symbolMap = new Map();
+
+        holdingsData.forEach(acct => {
+            if (inactiveAccountIds && inactiveAccountIds.has(acct.accountId)) {
+                return;
+            }
+            if (acct.error) return;
+
+            (acct.holdings || []).forEach(pos => {
+                const sym = pos.symbol?.symbol?.symbol || pos.symbol?.symbol || pos.symbol || 'Unknown';
+                const units = pos.units || 0;
+                const price = pos.price || 0;
+                const val = pos.marketValue || (units * price) || 0;
+
+                if (!symbolMap.has(sym)) {
+                    symbolMap.set(sym, 0);
                 }
+                symbolMap.set(sym, symbolMap.get(sym) + val);
             });
+        });
 
-            let unassignedTotal = 0;
-            currentGroups.forEach(group => {
-                group.accounts.forEach(acc => {
-                    if (!inactiveAccountIds.has(acc.id)) {
-                        const isAssigned = (App.userPortfolios || []).some(p => (p.accountIds || []).includes(acc.id));
-                        if (!isAssigned) {
-                            unassignedTotal += acc.balance?.total?.amount || 0;
+        if (currentGroups) {
+            currentGroups.forEach(g => {
+                g.accounts.forEach(acc => {
+                    if (inactiveAccountIds && inactiveAccountIds.has(acc.id)) return;
+
+                    let isAccountInSelectedPortfolio = true;
+                    if (typeof App !== 'undefined' && App.selectedUserPortfolioId !== 'all') {
+                        const activePort = App.getSelectedUserPortfolio();
+                        const activePortAccountIds = new Set(activePort ? (activePort.accountIds || []) : []);
+                        isAccountInSelectedPortfolio = activePortAccountIds.has(acc.id);
+                    }
+
+                    if (isAccountInSelectedPortfolio) {
+                        const cashVal = acc.balance?.cash?.amount || 0;
+                        if (cashVal > 0) {
+                            const sym = 'CASH';
+                            if (!symbolMap.has(sym)) {
+                                symbolMap.set(sym, 0);
+                            }
+                            symbolMap.set(sym, symbolMap.get(sym) + cashVal);
                         }
                     }
                 });
             });
-            if (unassignedTotal > 0) {
-                activeSlices.push({
-                    label: 'Unassigned',
-                    value: unassignedTotal
-                });
-            }
-        } else {
-            currentGroups.forEach(group => {
-                group.accounts.forEach(acc => {
-                    const amount = acc.balance?.total?.amount || 0;
-                    if (!inactiveAccountIds.has(acc.id) && amount > 0) {
-                        activeSlices.push({
-                            label: acc.customName || acc.name || 'Unnamed',
-                            value: amount
-                        });
-                    }
-                });
-            });
         }
+
+        const activeSlices = Array.from(symbolMap.entries())
+            .map(([label, value]) => ({ label, value }))
+            .filter(slice => slice.value > 0);
+
+        activeSlices.sort((a, b) => b.value - a.value);
 
         if (activeSlices.length === 0) {
             if (this.accountsChartInstance) {
                 this.accountsChartInstance.destroy();
                 this.accountsChartInstance = null;
             }
-            area.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><p>No account data available. Connect an account with a positive balance.</p></div>';
+            area.innerHTML = '<div class="empty-state"><div class="empty-icon">📈</div><p>No position data available.</p></div>';
             return;
         }
 
         if (!document.getElementById('accountsChart')) {
-            area.innerHTML = '<canvas id="accountsChart" style="max-height:360px;"></canvas>';
+            area.innerHTML = '<canvas id="accountsChart" style="max-height:320px;"></canvas>';
         }
 
         const ctx    = document.getElementById('accountsChart').getContext('2d');
@@ -1228,12 +1301,14 @@ const UI = {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'right',
-                        labels: { padding: 18, font: { size: 12 }, color: '#e8eaf0' }
+                        display: false
                     },
                     tooltip: {
                         callbacks: {
                             label(ctx) {
+                                if (localStorage.getItem('cf_mask_values') === 'true') {
+                                    return ` ${ctx.label}: $•••••`;
+                                }
                                 return ` ${ctx.label}: ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(ctx.parsed)}`;
                             }
                         },
@@ -1246,10 +1321,25 @@ const UI = {
                         borderWidth: 1
                     }
                 },
-                cutout: '68%',
+                cutout: '70%',
                 animation: { animateScale: true, animateRotate: true }
             }
         });
+    },
+
+    toggleChartSlice(index) {
+        if (this.accountsChartInstance) {
+            const isVisible = this.accountsChartInstance.getDataVisibility(index);
+            if (isVisible) {
+                this.accountsChartInstance.hide(0, index);
+            } else {
+                this.accountsChartInstance.show(0, index);
+            }
+            const row = document.getElementById(`breakdown-row-${index}`);
+            if (row) {
+                row.style.opacity = isVisible ? '0.35' : '1';
+            }
+        }
     },
 
     renderDividendAccountTabs(cachedDividendsData, selectedAccountId) {
@@ -1769,5 +1859,258 @@ const UI = {
     closeUserPortfolioModal() {
         const modal = document.getElementById('userPortfolioModal');
         if (modal) modal.classList.remove('open');
+    },
+
+    renderRebalanceTargets(targets) {
+        const container = document.getElementById('targetsListContainer');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (!targets || targets.length === 0) {
+            this.addTargetRow();
+        } else {
+            targets.forEach(t => {
+                this.addTargetRow(t.symbol, t.targetPct * 100);
+            });
+        }
+        this.updateRebalanceTargetsTotal();
+    },
+
+    addTargetRow(symbol = '', pctVal = 0) {
+        const container = document.getElementById('targetsListContainer');
+        if (!container) return;
+
+        const row = document.createElement('div');
+        row.className = 'target-allocation-row';
+        row.innerHTML = `
+            <input type="text" class="target-symbol-input" placeholder="AAPL" value="${sanitize(symbol)}" required
+                   style="width: 100px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; font-size: 0.85rem;">
+            <div class="target-pct-input-wrapper">
+                <input type="number" class="target-pct-input" placeholder="10" min="0.1" max="100" step="0.1" value="${pctVal || ''}" required
+                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-sm); padding: 0.35rem 0.5rem; font-size: 0.85rem; width: 100%;">
+            </div>
+            <button type="button" class="remove-target-btn" title="Remove ticker">&times;</button>
+        `;
+
+        // Wire up events
+        const symInput = row.querySelector('.target-symbol-input');
+        const pctInput = row.querySelector('.target-pct-input');
+        const removeBtn = row.querySelector('.remove-target-btn');
+
+        symInput.addEventListener('input', () => {
+            symInput.value = symInput.value.toUpperCase().replace(/[^A-Z0-9.:\-]/g, '');
+        });
+        pctInput.addEventListener('input', () => this.updateRebalanceTargetsTotal());
+        removeBtn.addEventListener('click', () => {
+            row.remove();
+            this.updateRebalanceTargetsTotal();
+            if (container.children.length === 0) {
+                this.addTargetRow();
+            }
+        });
+
+        container.appendChild(row);
+    },
+
+    updateRebalanceTargetsTotal() {
+        const inputs = document.querySelectorAll('.target-pct-input');
+        let total = 0;
+        inputs.forEach(input => {
+            const val = parseFloat(input.value);
+            if (!isNaN(val)) total += val;
+        });
+
+        const totalEl = document.getElementById('targetsTotalPct');
+        if (totalEl) {
+            totalEl.textContent = `Total: ${total.toFixed(1)}%`;
+            if (Math.abs(total - 100.0) < 0.0001) {
+                totalEl.style.color = 'var(--success)';
+            } else {
+                totalEl.style.color = 'var(--danger)';
+            }
+        }
+    },
+
+    renderRebalanceSuggestions(suggestions) {
+        const container = document.getElementById('rebalanceSuggestionsContainer');
+        if (!container) return;
+
+        if (!suggestions || !suggestions.targetsConfigured) {
+            container.innerHTML = `
+                <div class="empty-state card">
+                    <div class="empty-icon">🎯</div>
+                    <p><strong>No target allocations configured.</strong></p>
+                    <p style="margin-top:0.5rem;color:var(--text-secondary);">Set your target portfolio allocations on the left to generate rebalancing suggestions.</p>
+                </div>
+            `;
+            return;
+        }
+
+        if (!suggestions.accounts || suggestions.accounts.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state card">
+                    <div class="empty-icon">⚠</div>
+                    <p><strong>No accounts assigned to this portfolio.</strong></p>
+                    <p style="margin-top:0.5rem;color:var(--text-secondary);">Add accounts to this portfolio under settings (Settings → Portfolios) to view rebalancing recommendations.</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = `
+            <svg width="0" height="0" style="position:absolute;">
+              <defs>
+                <linearGradient id="actualGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="var(--primary)" />
+                  <stop offset="100%" stop-color="#4f8ef7" />
+                </linearGradient>
+              </defs>
+            </svg>
+        `;
+
+        suggestions.accounts.forEach(acc => {
+            const formatVal = v => `$${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const formatPct = p => `${(p * 100).toFixed(1)}%`;
+
+            html += `
+                <div class="card account-suggestion-card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
+                    <div class="account-suggestion-header">
+                        <div>
+                            <div class="account-suggestion-title">${sanitize(acc.accountName)}</div>
+                            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Account ID: ${sanitize(acc.accountId)}</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div class="account-suggestion-title" style="font-feature-settings:'tnum'">${formatVal(acc.totalValue)}</div>
+                            <div class="account-suggestion-meta">Cash Balance: <span style="font-weight:600; color:var(--text);">${formatVal(acc.cash)}</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Deviations Comparison Section -->
+                    <div style="margin-bottom: 1.5rem; background: var(--surface-2); border-radius: var(--radius-sm); padding: 1rem; border: 1px solid var(--border);">
+                        <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin-bottom:0.75rem;">Deviation Map</div>
+                        
+                        ${acc.assets.map(a => {
+                            const devVal = a.deviation * 100;
+                            const devSign = devVal >= 0 ? '+' : '';
+                            const devClass = Math.abs(devVal) < 2 ? 'val-pos' : (devVal < -2 ? 'val-neg' : 'text-warning');
+                            
+                            return `
+                                <div class="deviation-bar-wrapper">
+                                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.8rem; margin-bottom:0.3rem;">
+                                        <span style="font-weight:600; font-family:monospace;">${sanitize(a.symbol)}</span>
+                                        <span class="text-muted" style="font-size:0.75rem;">
+                                            Actual: ${formatPct(a.currentPct)} | Target: ${formatPct(a.targetPct)} 
+                                            (<span class="${devClass}" style="font-weight:600;">${devSign}${devVal.toFixed(1)}%</span>)
+                                        </span>
+                                    </div>
+                                    <div style="position:relative; height:6px; background:var(--surface); border-radius:3px; overflow:visible; border: 1px solid var(--border);">
+                                        <div style="position:absolute; left:0; top:0; height:100%; width:${Math.min(a.currentPct * 100, 100).toFixed(1)}%; background:url(#actualGrad); border-radius:3px;"></div>
+                                        <div style="position:absolute; left:${(a.targetPct * 100).toFixed(1)}%; top:-4px; height:12px; width:2px; background:#fff; box-shadow: 0 0 2px rgba(0,0,0,0.8);" title="Target: ${formatPct(a.targetPct)}"></div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+
+                    <!-- Suggested Trades Section -->
+                    <div>
+                        <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); margin-bottom:0.5rem;">Suggested Rebalancing Trades</div>
+            `;
+
+            if (!acc.trades || acc.trades.length === 0) {
+                html += `
+                        <div class="empty-state" style="padding: 1.5rem 0; border: 1px dashed var(--border); border-radius: var(--radius-sm);">
+                            <div style="font-size: 1.2rem; margin-bottom: 0.25rem;">✨</div>
+                            <p class="text-sm">Account is balanced within +/- $5 of targets. No trades needed!</p>
+                        </div>
+                    </div>
+                </div>`;
+                return;
+            }
+
+            html += `
+                        <div style="overflow-x:auto;">
+                            <table class="data-table" style="width:100%; font-size:0.85rem;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 40px; padding:0.5rem 0.75rem;">
+                                            <input type="checkbox" id="trade-select-all-${sanitize(acc.accountId)}" class="trade-checkbox-custom" checked
+                                                   onclick="UI.toggleSelectAllRebalanceTrades('${sanitize(acc.accountId)}', this.checked)">
+                                        </th>
+                                        <th style="padding:0.5rem 0.75rem;">Ticker</th>
+                                        <th style="padding:0.5rem 0.75rem;">Action</th>
+                                        <th class="right" style="padding:0.5rem 0.75rem;">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="suggestions-trades-${sanitize(acc.accountId)}">
+                                    ${acc.trades.map((t, idx) => {
+                                        const aid = sanitize(acc.accountId);
+                                        const sym = sanitize(t.symbol);
+                                        const act = sanitize(t.action);
+                                        const amt = Number(t.amount);
+                                        const badgeClass = act === 'BUY' ? 'badge-buy' : 'badge-with';
+                                        
+                                        return `
+                                            <tr>
+                                                <td style="padding:0.5rem 0.75rem;">
+                                                    <input type="checkbox" class="trade-select-cb trade-checkbox-custom" checked
+                                                           data-symbol="${sym}" data-action="${act}" data-amount="${amt}"
+                                                           onclick="UI.updateRebalanceExecutionBtnState('${aid}')">
+                                                </td>
+                                                <td style="font-weight:600; font-family:monospace; padding:0.5rem 0.75rem;">${sym}</td>
+                                                <td style="padding:0.5rem 0.75rem;"><span class="type-badge ${badgeClass}">${act}</span></td>
+                                                <td class="right" style="font-weight:600; font-variant-numeric:tabular-nums; padding:0.5rem 0.75rem;">${formatVal(amt)}</td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Execution Box -->
+                        <div class="trades-bulk-action">
+                            <span id="trades-count-summary-${sanitize(acc.accountId)}" style="font-size:0.8rem; color:var(--text-secondary); font-weight:500;">
+                                ${acc.trades.length} trade(s) selected
+                            </span>
+                            <button id="btn-execute-${sanitize(acc.accountId)}" class="btn btn-primary btn-sm"
+                                    onclick="App.executeBulkRebalance('${sanitize(acc.accountId)}')">
+                                <span class="loader"></span><span class="btn-text">Execute Orders</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    },
+
+    toggleSelectAllRebalanceTrades(accountId, checked) {
+        const container = document.getElementById(`suggestions-trades-${accountId}`);
+        if (!container) return;
+        const cbs = container.querySelectorAll('.trade-select-cb');
+        cbs.forEach(cb => cb.checked = checked);
+        this.updateRebalanceExecutionBtnState(accountId);
+    },
+
+    updateRebalanceExecutionBtnState(accountId) {
+        const container = document.getElementById(`suggestions-trades-${accountId}`);
+        if (!container) return;
+        const cbs = container.querySelectorAll('.trade-select-cb');
+        const checkedCount = container.querySelectorAll('.trade-select-cb:checked').length;
+        
+        const btn = document.getElementById(`btn-execute-${accountId}`);
+        if (btn) btn.disabled = (checkedCount === 0);
+
+        const summaryEl = document.getElementById(`trades-count-summary-${accountId}`);
+        if (summaryEl) {
+            summaryEl.textContent = `${checkedCount} of ${cbs.length} trade(s) selected`;
+        }
+
+        const allCb = document.getElementById(`trade-select-all-${accountId}`);
+        if (allCb) {
+            allCb.checked = (checkedCount === cbs.length);
+            allCb.indeterminate = (checkedCount > 0 && checkedCount < cbs.length);
+        }
     },
 };

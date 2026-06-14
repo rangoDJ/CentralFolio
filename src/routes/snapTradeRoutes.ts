@@ -1,5 +1,9 @@
 import { Router } from "express";
-import { registerUser, listAccounts, getHoldings, getLoginLink, getTradeLoginLink, getConnectionStatus, getDividendForecast, toggleAccountActive, renameAccount, getTransactions, placeTrade, invalidatePortfolioCache } from "../controllers/snapTradeController.js";
+import { registerUser, getTransactions, getDividendForecast } from "../controllers/snapTradeController.js";
+import { listAccounts, getHoldings } from "../controllers/holdingsController.js";
+import { getLoginLink, getConnectionStatus, invalidatePortfolioCache } from "../controllers/connectionController.js";
+import { toggleAccountActive, renameAccount } from "../controllers/accountController.js";
+import { placeTrade, getTradeLoginLink } from "../controllers/tradingController.js";
 
 const router = Router();
 

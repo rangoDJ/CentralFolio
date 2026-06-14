@@ -6,7 +6,17 @@ const App = {
     activePortfolios: [],
     currentGroups: [],
     activePortfolioId: null,
-    selectedUserPortfolioId: 'all',
+
+    // Reactive selectedUserPortfolioId — automatically keeps localStorage in sync.
+    _selectedUserPortfolioId: 'all',
+    get selectedUserPortfolioId() {
+        return this._selectedUserPortfolioId;
+    },
+    set selectedUserPortfolioId(val) {
+        this._selectedUserPortfolioId = val;
+        localStorage.setItem('selectedUserPortfolioId', String(val));
+    },
+
     inactiveAccountIds: new Set(), // seeded from server DB on fetchAccounts
     cachedHoldingsData: null,
     holdingsLastUpdated: null,
@@ -1316,15 +1326,16 @@ const App = {
         const select = document.getElementById('globalPortfolioSelect');
         if (!select) return;
 
+        // Seed from localStorage on first call — setter keeps it in sync thereafter
         const savedSelect = localStorage.getItem('selectedUserPortfolioId') || 'all';
-        this.selectedUserPortfolioId = savedSelect === 'all' ? 'all' : parseInt(savedSelect, 10);
+        // Use the private backing field to avoid double-writing to localStorage during init
+        this._selectedUserPortfolioId = savedSelect === 'all' ? 'all' : parseInt(savedSelect, 10);
 
-        // Validate that the selected portfolio ID still exists
-        if (this.selectedUserPortfolioId !== 'all') {
-            const exists = (this.userPortfolios || []).some(p => p.id === this.selectedUserPortfolioId);
+        // Validate that the saved ID still exists; silently fall back to 'all' if not
+        if (this._selectedUserPortfolioId !== 'all') {
+            const exists = (this.userPortfolios || []).some(p => p.id === this._selectedUserPortfolioId);
             if (!exists) {
-                this.selectedUserPortfolioId = 'all';
-                localStorage.setItem('selectedUserPortfolioId', 'all');
+                this.selectedUserPortfolioId = 'all'; // setter writes to localStorage
             }
         }
 
@@ -1340,9 +1351,8 @@ const App = {
 
         select.onchange = (e) => {
             const val = e.target.value;
-            this.selectedUserPortfolioId = val === 'all' ? 'all' : parseInt(val, 10);
-            localStorage.setItem('selectedUserPortfolioId', this.selectedUserPortfolioId);
-            
+            this.selectedUserPortfolioId = val === 'all' ? 'all' : parseInt(val, 10); // setter syncs localStorage
+
             // Reset page-level active tabs/sub-selections when global portfolio changes
             this.currentDividendAccountId = 'all';
             this.activeHoldingsTabId = null;

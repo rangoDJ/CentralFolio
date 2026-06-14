@@ -115,24 +115,48 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_positions_accountId   ON positions(accou
 db.exec(`CREATE INDEX IF NOT EXISTS idx_accounts_portfolioId  ON accounts(portfolioId)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_transactions_accountId ON transactions(accountId)`);
 
+// ── Migration tracking table ───────────────────────────────────────────────────
+// Records which migrations have been applied so each one runs exactly once.
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    name      TEXT PRIMARY KEY,
+    appliedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`);
+
 // ── Migrations ────────────────────────────────────────────────────────────────
 
 const migrations: Array<{ name: string; sql: string }> = [
-  { name: 'accounts.isActive',       sql: `ALTER TABLE accounts ADD COLUMN isActive INTEGER NOT NULL DEFAULT 1` },
-  { name: 'accounts.balanceTotal',   sql: `ALTER TABLE accounts ADD COLUMN balanceTotal REAL` },
-  { name: 'accounts.customName',     sql: `ALTER TABLE accounts ADD COLUMN customName TEXT` },
-  { name: 'positions.symbolId',      sql: `ALTER TABLE positions ADD COLUMN symbolId TEXT` },
-  { name: 'portfolios.tradingEnabled', sql: `ALTER TABLE portfolios ADD COLUMN tradingEnabled INTEGER NOT NULL DEFAULT 0` },
+  { name: 'accounts.isActive',          sql: `ALTER TABLE accounts ADD COLUMN isActive INTEGER NOT NULL DEFAULT 1` },
+  { name: 'accounts.balanceTotal',      sql: `ALTER TABLE accounts ADD COLUMN balanceTotal REAL` },
+  { name: 'accounts.customName',        sql: `ALTER TABLE accounts ADD COLUMN customName TEXT` },
+  { name: 'positions.symbolId',         sql: `ALTER TABLE positions ADD COLUMN symbolId TEXT` },
+  { name: 'portfolios.tradingEnabled',  sql: `ALTER TABLE portfolios ADD COLUMN tradingEnabled INTEGER NOT NULL DEFAULT 0` },
   { name: 'dividend_metadata.provider', sql: `ALTER TABLE dividend_metadata ADD COLUMN provider TEXT` },
 ];
 
+const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);
+const markApplied  = db.prepare(`INSERT INTO schema_migrations (name) VALUES (?)`);
+
 for (const m of migrations) {
+  if (checkApplied.get(m.name)) {
+    // Already applied in a previous run — skip silently
+    continue;
+  }
   try {
     db.exec(m.sql);
+    markApplied.run(m.name);
     logger.info('Migration', `Applied: ${m.name}`);
   } catch (e: any) {
-    if (/duplicate column name/i.test(e.message ?? '')) continue;
-    logger.error('Migration', `Failed to apply "${m.name}": ${e.message}`);
+    // Tolerate "duplicate column" in case the DB was partially migrated before
+    // schema_migrations existed (first boot after this upgrade).
+    if (/duplicate column name/i.test(e.message ?? '')) {
+      markApplied.run(m.name); // record as applied so we never try again
+      logger.info('Migration', `Already present (backfilled): ${m.name}`);
+    } else {
+      logger.error('Migration', `Failed to apply "${m.name}": ${e.message}`);
+    }
   }
 }
 

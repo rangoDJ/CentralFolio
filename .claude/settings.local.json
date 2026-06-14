@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.cs$\")",
+      "Bash(grep -r \"mac\\\\|MAC\" \"C:\\\\Users\\\\sneha\\\\Nextcloud\\\\!kodi_downloads\\\\pvr.stalker\\\\src\" -i -n | grep -E \"\\(format|upper|lower|colon\\)\" | head -20)",
+      "Bash(grep -r \"create_link\\\\|forced_storage\\\\|disable_ad\" \"C:\\\\Users\\\\sneha\\\\Nextcloud\\\\!kodi_downloads\\\\pvr.stalker\" -n)"
+    ]
+  }
+}

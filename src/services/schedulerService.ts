@@ -1,3 +1,4 @@
+import cron from "node-cron";
 import { logger } from "../utils/logger.js";
 
 export type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
@@ -10,6 +11,9 @@ export interface JobState {
   lastDurationMs: number | null;
   lastError: string | null;
   nextRunAt: number | null;
+  /** The raw cron expression, or null for manual-only jobs */
+  cronExpression: string | null;
+  /** Kept for UI compatibility — derived from the cron expression when set */
   intervalMs: number | null;
   defaultIntervalMs: number | null;
 }
@@ -19,24 +23,65 @@ type JobFn = (trigger: string) => Promise<void> | void;
 interface RegisteredJob {
   state: JobState;
   fn: JobFn;
-  intervalTimer: ReturnType<typeof setInterval> | null;
+  task: cron.ScheduledTask | null;
   startupTimer: ReturnType<typeof setTimeout> | null;
-  armTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const registry = new Map<string, RegisteredJob>();
 
-// ── Internal helpers ───────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
-function armInterval(job: RegisteredJob): void {
-  if (job.intervalTimer) {
-    clearInterval(job.intervalTimer);
-    job.intervalTimer = null;
+/**
+ * Convert hours → a cron expression that fires every N hours/minutes/days.
+ * Returns null for 0 (manual-only).
+ *
+ * Examples:
+ *   0.5h  → "* /30 * * * *"  (every 30 minutes)
+ *   1h    → "0 * /1 * * *"   (every hour, aligned)
+ *   4h    → "0 * /4 * * *"   (every 4 hours)
+ *   24h   → "0 0 * * *"      (daily at midnight)
+ *   168h  → "0 0 * /7 * *"   (every 7 days at midnight)
+ */
+export function hoursToCron(hours: number): string | null {
+  if (!hours || hours <= 0) return null;
+
+  if (hours < 1) {
+    // Sub-hour: express as minutes
+    const minutes = Math.round(hours * 60);
+    return `*/${minutes} * * * *`;
   }
-  const ms = job.state.intervalMs;
-  if (!ms) return;
-  job.intervalTimer = setInterval(() => runJob(job, 'scheduled'), ms);
-  job.state.nextRunAt = Date.now() + ms;
+
+  const days = hours / 24;
+  if (days >= 1 && Number.isInteger(days)) {
+    if (days === 1) return `0 0 * * *`;       // daily at midnight
+    return `0 0 */${days} * *`;               // every N days at midnight
+  }
+
+  // Whole hours, or fractional hours >= 1 (round to nearest hour)
+  const roundedHours = Math.round(hours);
+  return `0 */${roundedHours} * * *`;
+}
+
+/** Compute approximate ms until next cron fire (for display in UI). */
+function nextRunFromCron(expression: string): number {
+  // node-cron does not expose the next-run date, so we approximate:
+  // parse the minute field interval if it follows */N pattern.
+  try {
+    const parts = expression.split(' ');
+    const minutePart = parts[0];
+    const hourPart   = parts[1];
+    const now = Date.now();
+
+    if (minutePart === '0' && hourPart.startsWith('*/')) {
+      const h = parseInt(hourPart.slice(2), 10);
+      return now + h * 60 * 60 * 1000;
+    }
+    if (minutePart.startsWith('*/')) {
+      const m = parseInt(minutePart.slice(2), 10);
+      return now + m * 60 * 1000;
+    }
+  } catch (_) {}
+  return Date.now() + 60 * 60 * 1000; // fallback: 1h
 }
 
 async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
@@ -55,20 +100,28 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
     job.state.status = 'completed';
     job.state.lastDurationMs = Date.now() - start;
     job.state.lastRunAt = start;
-    if (job.state.intervalMs) job.state.nextRunAt = Date.now() + job.state.intervalMs;
+    if (job.state.cronExpression) {
+      job.state.nextRunAt = nextRunFromCron(job.state.cronExpression);
+    }
     logger.info('Scheduler', `Job "${job.state.name}" completed in ${job.state.lastDurationMs}ms`);
   } catch (err: any) {
     job.state.status = 'failed';
     job.state.lastDurationMs = Date.now() - start;
     job.state.lastRunAt = start;
     job.state.lastError = err.message;
-    if (job.state.intervalMs) job.state.nextRunAt = Date.now() + job.state.intervalMs;
+    if (job.state.cronExpression) {
+      job.state.nextRunAt = nextRunFromCron(job.state.cronExpression);
+    }
     logger.error('Scheduler', `Job "${job.state.name}" failed after ${job.state.lastDurationMs}ms: ${err.message}`);
   }
 }
 
-// ── Public API ─────────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
+/**
+ * Register a recurring job with a cron expression.
+ * Also accepts intervalMs for backwards-compat (converts to a cron expression).
+ */
 export function registerJob(
   name: string,
   label: string,
@@ -77,6 +130,10 @@ export function registerJob(
   runOnStartup = false,
   startupDelayMs = 10_000
 ): void {
+  // Convert ms → hours → cron expression
+  const hours = intervalMs ? intervalMs / (60 * 60 * 1000) : 0;
+  const cronExpression = hoursToCron(hours);
+
   const state: JobState = {
     name,
     label,
@@ -84,14 +141,21 @@ export function registerJob(
     lastRunAt: null,
     lastDurationMs: null,
     lastError: null,
-    nextRunAt: intervalMs ? Date.now() + (runOnStartup ? startupDelayMs : intervalMs) : null,
+    nextRunAt: cronExpression ? nextRunFromCron(cronExpression) : null,
+    cronExpression,
     intervalMs,
     defaultIntervalMs: intervalMs,
   };
 
-  const job: RegisteredJob = { state, fn, intervalTimer: null, startupTimer: null, armTimer: null };
+  const job: RegisteredJob = { state, fn, task: null, startupTimer: null };
   registry.set(name, job);
 
+  // Schedule the recurring cron task
+  if (cronExpression) {
+    job.task = cron.schedule(cronExpression, () => runJob(job, 'scheduled'), { scheduled: true });
+  }
+
+  // Optional startup run with a delay
   if (runOnStartup) {
     job.startupTimer = setTimeout(() => {
       job.startupTimer = null;
@@ -99,22 +163,14 @@ export function registerJob(
     }, startupDelayMs);
   }
 
-  if (intervalMs) {
-    // Arm the recurring interval after one full interval has elapsed
-    job.armTimer = setTimeout(() => {
-      job.armTimer = null;
-      armInterval(job);
-    }, intervalMs);
-  }
-
-  const intervalLabel = intervalMs ? `${Math.round(intervalMs / 3_600_000 * 10) / 10}h` : 'manual';
-  logger.info('Scheduler', `Registered job "${name}" — interval=${intervalLabel} runOnStartup=${runOnStartup}`);
+  const intervalLabel = cronExpression ?? 'manual';
+  logger.info('Scheduler', `Registered job "${name}" — cron="${intervalLabel}" runOnStartup=${runOnStartup}`);
 }
 
 /**
  * Update a job's recurring interval on the fly.
- * Clears any pending timers and arms a new setInterval immediately.
- * Pass null to make the job manual-only.
+ * Pass null (or 0 hours) to make the job manual-only.
+ * For UI compatibility, accepts ms value like the old API.
  */
 export function updateJobInterval(name: string, newIntervalMs: number | null): boolean {
   const job = registry.get(name);
@@ -123,29 +179,31 @@ export function updateJobInterval(name: string, newIntervalMs: number | null): b
     return false;
   }
 
-  // Cancel pending startup and arm timers
+  // Cancel any pending startup timer
   if (job.startupTimer) {
     clearTimeout(job.startupTimer);
     job.startupTimer = null;
   }
-  if (job.armTimer) {
-    clearTimeout(job.armTimer);
-    job.armTimer = null;
+
+  // Stop the existing cron task
+  if (job.task) {
+    job.task.stop();
+    job.task = null;
   }
 
-  // Clear existing interval
-  if (job.intervalTimer) {
-    clearInterval(job.intervalTimer);
-    job.intervalTimer = null;
-  }
+  const hours = newIntervalMs ? newIntervalMs / (60 * 60 * 1000) : 0;
+  const cronExpression = hoursToCron(hours);
 
   job.state.intervalMs = newIntervalMs;
-  job.state.nextRunAt = newIntervalMs ? Date.now() + newIntervalMs : null;
+  job.state.cronExpression = cronExpression;
+  job.state.nextRunAt = cronExpression ? nextRunFromCron(cronExpression) : null;
 
-  if (newIntervalMs) armInterval(job);
+  if (cronExpression) {
+    job.task = cron.schedule(cronExpression, () => runJob(job, 'scheduled'), { scheduled: true });
+  }
 
-  const label = newIntervalMs ? `${Math.round(newIntervalMs / 3_600_000 * 10) / 10}h` : 'manual';
-  logger.info('Scheduler', `Job "${name}" interval updated → ${label}`);
+  const label = cronExpression ?? 'manual';
+  logger.info('Scheduler', `Job "${name}" interval updated → cron="${label}"`);
   return true;
 }
 

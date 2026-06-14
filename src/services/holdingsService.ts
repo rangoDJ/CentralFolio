@@ -1,4 +1,4 @@
-import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios } from "../models/db.js";
+import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios, saveCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
@@ -7,7 +7,7 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
   logger.info('Holdings', 'Starting holdings refresh cycle...');
 
   const portfolios = listPortfolios();
-  const activeAccountIds = getActiveAccountIds();
+  let activeAccountIds = getActiveAccountIds();
   let processed = 0, skipped = 0, errors = 0;
 
   for (const portfolio of portfolios) {
@@ -17,7 +17,29 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
     }
 
     const client = getSnapTradeClientForPortfolio(portfolio);
-    const accounts = getCachedAccounts(portfolio.id!);
+    let accounts = getCachedAccounts(portfolio.id!);
+
+    if (accounts.length === 0) {
+      try {
+        logger.info('Holdings', `No cached accounts for portfolio "${portfolio.name}" — proactively fetching from SnapTrade...`);
+        const accsResponse = await client.accountInformation.listUserAccounts({
+          userId: portfolio.userId,
+          userSecret: portfolio.userSecret!,
+        });
+        const fetchedAccounts = Array.isArray(accsResponse.data) ? accsResponse.data : [];
+        if (fetchedAccounts.length > 0) {
+          saveCachedAccounts(portfolio.id!, fetchedAccounts);
+          accounts = getCachedAccounts(portfolio.id!);
+          activeAccountIds = getActiveAccountIds();
+        }
+      } catch (err: any) {
+        const body = err?.responseBody ?? err?.response?.data;
+        const errMsg = body?.detail || err.message || "Unknown error";
+        logger.warn('Holdings', `Failed to proactively fetch accounts for portfolio "${portfolio.name}": ${errMsg}`);
+        errors++;
+        continue;
+      }
+    }
 
     for (const account of accounts) {
       if (!activeAccountIds.has(account.id)) continue;

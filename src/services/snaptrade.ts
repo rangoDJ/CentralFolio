@@ -26,6 +26,9 @@ export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | numbe
   return new Snaptrade({
     clientId: portfolio.clientId,
     consumerKey: portfolio.consumerKey,
+    baseOptions: {
+      timeout: 15000,
+    },
   });
 }
 

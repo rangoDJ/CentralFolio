@@ -1,5 +1,5 @@
-import { getCachedAccounts, clearAccountsForPortfolio, clearPositionsForAccount, clearAccountCache } from "../repositories/accountRepository.js";
-import { clearTransactionsForAccount, clearTransactionCache } from "../repositories/transactionRepository.js";
+import { clearAccountsForPortfolio, clearAccountCache, clearPositionsForAccount } from "../repositories/accountRepository.js";
+import { clearTransactionCache, clearTransactionsForAccount } from "../repositories/transactionRepository.js";
 import { clearDividendMetadataCache } from "../repositories/dividendRepository.js";
 import { clearDividendMemoryCache } from "./dividendService.js";
 import { logger } from "../utils/logger.js";
@@ -7,15 +7,12 @@ import { logger } from "../utils/logger.js";
 /**
  * Called after a portfolio row is deleted.
  * Purges all cached accounts, positions, and transactions that belonged to it.
+ * Leverages SQLite ON DELETE CASCADE constraints for clean cleanup in one step.
  */
 export function onPortfolioDeleted(portfolioId: number | string) {
   logger.info('Cache', `onPortfolioDeleted(portfolio=${portfolioId}) — purging related caches`);
-  const accounts = getCachedAccounts(portfolioId);
-  for (const acc of accounts) {
-    clearTransactionsForAccount(acc.id);
-  }
   clearAccountsForPortfolio(portfolioId);
-  logger.info('Cache', `onPortfolioDeleted — cleared ${accounts.length} account(s) with their positions and transactions`);
+  logger.info('Cache', `onPortfolioDeleted — cleared portfolio cache`);
 }
 
 /**
@@ -31,16 +28,12 @@ export function onAccountDeactivated(accountId: string) {
 /**
  * Called after a brokerage reconnect completes.
  * Forces fresh account and position data on next load by wiping the portfolio's cached accounts.
+ * Leverages SQLite ON DELETE CASCADE constraints for clean cleanup.
  */
 export function onBrokerageReconnected(portfolioId: number | string) {
   logger.info('Cache', `onBrokerageReconnected(portfolio=${portfolioId}) — invalidating account and position caches`);
-  const accounts = getCachedAccounts(portfolioId);
-  for (const acc of accounts) {
-    clearPositionsForAccount(acc.id);
-    clearTransactionsForAccount(acc.id);
-  }
   clearAccountsForPortfolio(portfolioId);
-  logger.info('Cache', `onBrokerageReconnected — cleared ${accounts.length} account(s)`);
+  logger.info('Cache', `onBrokerageReconnected — portfolio cache cleared`);
 }
 
 /**

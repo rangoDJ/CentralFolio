@@ -53,18 +53,10 @@ export const listAccounts = async (req: Request, res: Response) => {
         logger.info('SnapTrade', `  "${portfolio.name}" — cache MISS, fetching from SnapTrade API...`);
         const client = getSnapTradeClientForPortfolio(portfolio);
 
-        const SNAPTRADE_TIMEOUT_MS = 15000;
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`SnapTrade request timed out after ${SNAPTRADE_TIMEOUT_MS / 1000}s`)), SNAPTRADE_TIMEOUT_MS)
-        );
-
-        const response = await Promise.race([
-          client.accountInformation.listUserAccounts({
-            userId: portfolio.userId,
-            userSecret: portfolio.userSecret,
-          }),
-          timeoutPromise
-        ]);
+        const response = await client.accountInformation.listUserAccounts({
+          userId: portfolio.userId,
+          userSecret: portfolio.userSecret,
+        });
 
         const accountCount = Array.isArray(response.data) ? response.data.length : 0;
         logger.info('SnapTrade', `  "${portfolio.name}" — received ${accountCount} account(s), saving to cache`);

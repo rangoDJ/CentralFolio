@@ -38,15 +38,15 @@ export const getAuthStatus = (req: Request, res: Response) => {
 };
 
 export const setup = async (req: Request, res: Response) => {
+  if (getPasswordHash()) {
+    return res.status(400).json({ error: "Password already configured. Use change-password instead." });
+  }
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   if (isRateLimited(ip)) {
     logger.warn("Auth", `Setup rate limit exceeded for ${ip}`);
     return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
   }
   const { password } = req.body;
-  if (getPasswordHash()) {
-    return res.status(400).json({ error: "Password already configured. Use change-password instead." });
-  }
   if (!password || password.length < 8) {
     return res.status(400).json({ error: "Password must be at least 8 characters." });
   }

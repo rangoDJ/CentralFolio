@@ -1,4 +1,4 @@
-import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios } from "../models/db.js";
+import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios, saveCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
@@ -18,6 +18,7 @@ export interface Transaction {
   accountId?: string;
   portfolioName?: string;
   accountName?: string;
+  accountId_unused?: string; // naming fix or whatever is needed
 }
 
 export async function fetchTransactionsForAccount(accountId: string, portfolioId: number | string, userId: string, userSecret: string): Promise<Transaction[]> {
@@ -81,7 +82,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
     logger.info('Transactions', 'Starting transaction refresh cycle...');
 
     const portfolios = listPortfolios();
-    const activeAccountIds = getActiveAccountIds();
+    let activeAccountIds = getActiveAccountIds();
 
     let processedCount = 0;
     let errorCount = 0;
@@ -93,7 +94,30 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
       }
 
       try {
-        const cachedAccounts = getCachedAccounts(portfolio.id!);
+        let cachedAccounts = getCachedAccounts(portfolio.id!);
+
+        if (cachedAccounts.length === 0) {
+          try {
+            logger.info('Transactions', `No cached accounts for portfolio "${portfolio.name}" — proactively fetching from SnapTrade...`);
+            const client = getSnapTradeClientForPortfolio(portfolio);
+            const accsResponse = await client.accountInformation.listUserAccounts({
+              userId: portfolio.userId,
+              userSecret: portfolio.userSecret!,
+            });
+            const fetchedAccounts = Array.isArray(accsResponse.data) ? accsResponse.data : [];
+            if (fetchedAccounts.length > 0) {
+              saveCachedAccounts(portfolio.id!, fetchedAccounts);
+              cachedAccounts = getCachedAccounts(portfolio.id!);
+              activeAccountIds = getActiveAccountIds();
+            }
+          } catch (err: any) {
+            const body = err?.responseBody ?? err?.response?.data;
+            const errMsg = body?.detail || err.message || "Unknown error";
+            logger.warn('Transactions', `Failed to proactively fetch accounts for portfolio "${portfolio.name}": ${errMsg}`);
+            errorCount++;
+            continue;
+          }
+        }
 
         for (const account of cachedAccounts) {
           // Only process active accounts

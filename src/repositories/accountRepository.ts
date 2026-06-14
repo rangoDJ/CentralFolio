@@ -1,10 +1,78 @@
 import { db } from "../models/database.js";
 import { logger } from "../utils/logger.js";
 
+// ── Prepared statements (compiled once at module load for performance) ─────────
+
+const stmtGetAccounts = db.prepare(
+  "SELECT * FROM accounts WHERE portfolioId = ?"
+);
+
+const stmtGetActiveAccountIds = db.prepare(
+  "SELECT id FROM accounts WHERE isActive = 1"
+);
+
+const stmtSetAccountActive = db.prepare(
+  "UPDATE accounts SET isActive = ? WHERE id = ?"
+);
+
+const stmtGetAccountActive = db.prepare(
+  "SELECT isActive FROM accounts WHERE id = ?"
+);
+
+const stmtAccountBelongsToPortfolio = db.prepare(
+  "SELECT id FROM accounts WHERE id = ? AND portfolioId = ?"
+);
+
+const stmtSetAccountCustomName = db.prepare(
+  "UPDATE accounts SET customName = ? WHERE id = ?"
+);
+
+const stmtGetAccountsMeta = db.prepare(
+  "SELECT id, isActive, customName FROM accounts WHERE portfolioId = ?"
+);
+
+const stmtDeleteAccounts = db.prepare(
+  "DELETE FROM accounts WHERE portfolioId = ?"
+);
+
+const stmtInsertAccount = db.prepare(`
+  INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cachedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+`);
+
+const stmtClearAccounts = db.prepare(
+  "DELETE FROM accounts"
+);
+
+const stmtClearPositions = db.prepare(
+  "DELETE FROM positions"
+);
+
+const stmtDeletePositionsForAccountsOfPortfolio = db.prepare(
+  "DELETE FROM positions WHERE accountId IN (SELECT id FROM accounts WHERE portfolioId = ?)"
+);
+
+const stmtClearPositionsForAccount = db.prepare(
+  "DELETE FROM positions WHERE accountId = ?"
+);
+
+const stmtGetPositions = db.prepare(
+  "SELECT * FROM positions WHERE accountId = ?"
+);
+
+const stmtDeletePositions = db.prepare(
+  "DELETE FROM positions WHERE accountId = ?"
+);
+
+const stmtInsertPosition = db.prepare(`
+  INSERT INTO positions (accountId, symbol, symbolId, description, units, price, marketValue, cachedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+`);
+
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
 export function getCachedAccounts(portfolioId: number | string): any[] {
-  const rows = db.prepare("SELECT * FROM accounts WHERE portfolioId = ?").all(portfolioId) as any[];
+  const rows = stmtGetAccounts.all(portfolioId) as any[];
   logger.debug('DB', `getCachedAccounts(portfolio=${portfolioId}) → ${rows.length} row(s)`);
   return rows.map(r => ({
     ...r,
@@ -16,7 +84,7 @@ export function getCachedAccounts(portfolioId: number | string): any[] {
 }
 
 export function getActiveAccountIds(): Set<string> {
-  const rows = db.prepare("SELECT id FROM accounts WHERE isActive = 1").all() as any[];
+  const rows = stmtGetActiveAccountIds.all() as any[];
   const ids = new Set<string>(rows.map(r => r.id));
   logger.debug('DB', `getActiveAccountIds → ${ids.size} active account(s)`);
   return ids;
@@ -24,11 +92,11 @@ export function getActiveAccountIds(): Set<string> {
 
 export function setAccountActive(accountId: string, isActive: boolean) {
   logger.info('DB', `setAccountActive(${accountId}) → ${isActive}`);
-  db.prepare("UPDATE accounts SET isActive = ? WHERE id = ?").run(isActive ? 1 : 0, accountId);
+  stmtSetAccountActive.run(isActive ? 1 : 0, accountId);
 }
 
 export function getAccountActive(accountId: string): boolean | null {
-  const row = db.prepare("SELECT isActive FROM accounts WHERE id = ?").get(accountId) as any;
+  const row = stmtGetAccountActive.get(accountId) as any;
   if (!row) {
     logger.debug('DB', `getAccountActive(${accountId}) → null (account not found)`);
     return null;
@@ -39,32 +107,26 @@ export function getAccountActive(accountId: string): boolean | null {
 }
 
 export function accountBelongsToPortfolio(accountId: string, portfolioId: number | string): boolean {
-  const row = db.prepare("SELECT id FROM accounts WHERE id = ? AND portfolioId = ?").get(accountId, String(portfolioId));
+  const row = stmtAccountBelongsToPortfolio.get(accountId, String(portfolioId));
   return row != null;
 }
 
 export function setAccountCustomName(accountId: string, customName: string | null) {
   logger.info('DB', `setAccountCustomName(${accountId}) → "${customName}"`);
-  db.prepare("UPDATE accounts SET customName = ? WHERE id = ?").run(customName || null, accountId);
+  stmtSetAccountCustomName.run(customName || null, accountId);
 }
 
 export function saveCachedAccounts(portfolioId: number | string, accounts: any[]) {
   logger.info('DB', `saveCachedAccounts(portfolio=${portfolioId}) — saving ${accounts.length} account(s)`);
 
-  const existing = db.prepare("SELECT id, isActive, customName FROM accounts WHERE portfolioId = ?").all(portfolioId) as any[];
+  const existing = stmtGetAccountsMeta.all(portfolioId) as any[];
   const activeMap    = new Map<string, number>(existing.map(r => [r.id, r.isActive]));
   const customNameMap = new Map<string, string | null>(existing.map(r => [r.id, r.customName]));
 
-  const deleteStmt = db.prepare("DELETE FROM accounts WHERE portfolioId = ?");
-  const insertStmt = db.prepare(`
-    INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cachedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-  `);
-
   db.transaction((data: any[]) => {
-    deleteStmt.run(portfolioId);
+    stmtDeleteAccounts.run(portfolioId);
     for (const acc of data) {
-      insertStmt.run(
+      stmtInsertAccount.run(
         acc.id,
         portfolioId,
         acc.name || null,
@@ -80,25 +142,25 @@ export function saveCachedAccounts(portfolioId: number | string, accounts: any[]
 }
 
 export function clearAccountCache() {
-  db.prepare("DELETE FROM accounts").run();
-  db.prepare("DELETE FROM positions").run();
+  stmtClearAccounts.run();
+  stmtClearPositions.run();
 }
 
 export function clearAccountsForPortfolio(portfolioId: number | string) {
   db.transaction(() => {
-    db.prepare("DELETE FROM positions WHERE accountId IN (SELECT id FROM accounts WHERE portfolioId = ?)").run(String(portfolioId));
-    db.prepare("DELETE FROM accounts WHERE portfolioId = ?").run(String(portfolioId));
+    stmtDeletePositionsForAccountsOfPortfolio.run(String(portfolioId));
+    stmtDeleteAccounts.run(String(portfolioId));
   })();
 }
 
 export function clearPositionsForAccount(accountId: string) {
-  db.prepare("DELETE FROM positions WHERE accountId = ?").run(accountId);
+  stmtClearPositionsForAccount.run(accountId);
 }
 
 // ── Positions ─────────────────────────────────────────────────────────────────
 
 export function getCachedPositions(accountId: string): any[] {
-  const rows = db.prepare("SELECT * FROM positions WHERE accountId = ?").all(accountId);
+  const rows = stmtGetPositions.all(accountId);
   logger.debug('DB', `getCachedPositions(account=${accountId}) → ${rows.length} position(s)`);
   return rows;
 }
@@ -106,14 +168,8 @@ export function getCachedPositions(accountId: string): any[] {
 export function saveCachedPositions(accountId: string, positions: any[]) {
   logger.info('DB', `saveCachedPositions(account=${accountId}) — saving ${positions.length} position(s)`);
 
-  const deleteStmt = db.prepare("DELETE FROM positions WHERE accountId = ?");
-  const insertStmt = db.prepare(`
-    INSERT INTO positions (accountId, symbol, symbolId, description, units, price, marketValue, cachedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-  `);
-
   db.transaction((data: any[]) => {
-    deleteStmt.run(accountId);
+    stmtDeletePositions.run(accountId);
     if (data.length > 0) {
       logger.debug('DB', `saveCachedPositions — first pos keys: ${Object.keys(data[0]).join(', ')}`);
       logger.debug('DB', `saveCachedPositions — first pos raw: ${JSON.stringify(data[0]).slice(0, 400)}`);
@@ -126,7 +182,7 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
         || (pos.symbol as any)?.description || pos.description;
       logger.debug('DB', `  pos: symbol=${symbol} symbolId=${symbolId}`);
 
-      insertStmt.run(
+      stmtInsertPosition.run(
         accountId,
         symbol || null,
         symbolId || null,

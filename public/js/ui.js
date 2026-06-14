@@ -503,68 +503,195 @@ const UI = {
         }
 
         this.holdingsStore.clear();
-        let tabsHtml = '', tablesHtml = '';
 
-        data.forEach((account, index) => {
-            const isActive = index === 0;
-            const tabId = `holdings-pane-${account.accountId}`;
-            const aid = sanitize(account.accountId);
+        if (App.selectedUserPortfolioId === 'all') {
+            // Global selection is All Portfolios, so show tabs for custom user portfolios
+            const portfolios = App.userPortfolios || [];
+            
+            // Check if there are any unassigned accounts
+            const assignedAccountIds = new Set();
+            portfolios.forEach(p => (p.accountIds || []).forEach(aid => assignedAccountIds.add(aid)));
+            const unassignedAccounts = data.filter(h => !assignedAccountIds.has(h.accountId));
 
-            tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                 onclick="App.switchHoldingsPageTab('${aid}')"
-                                 id="holdings-tabbtn-${aid}">
-                             ${sanitize(account.accountName || 'Unnamed')}
-                         </button>`;
+            const tabs = portfolios.map(p => ({ id: p.id, name: p.name, color: p.color }));
+            if (unassignedAccounts.length > 0) {
+                tabs.push({ id: 'unassigned', name: 'Unassigned Accounts', color: '#7c8496' });
+            }
 
-            tablesHtml += `<div class="holdings-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
-
-            if (account.error) {
-                tablesHtml += `
-                    <div class="empty-state" style="padding:2.5rem 1.5rem;">
-                        <div class="empty-icon" style="color:var(--danger);">⚠</div>
-                        <p style="color:var(--danger);font-weight:600;margin-bottom:0.5rem;">Connection Error</p>
-                        <p>${sanitize(account.error)}</p>
-                        <button class="btn btn-outline btn-sm mt-2" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios')">Go to Settings</button>
-                    </div></div>`;
+            if (tabs.length === 0) {
+                if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
+                tablesContainer.innerHTML = '<div class="empty-state"><p>No user portfolios configured. Create one in Settings → Portfolios.</p></div>';
                 return;
             }
 
-            if (!account.holdings || account.holdings.length === 0) {
-                tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No holdings found in this account.</p></div></div>';
-                return;
+            if (!App.activeHoldingsTabId || !tabs.some(t => t.id === App.activeHoldingsTabId)) {
+                App.activeHoldingsTabId = tabs[0].id;
             }
 
-            this.holdingsStore.set(account.accountId, {
-                holdings: account.holdings,
-                tradingEnabled: account.tradingEnabled,
-                portfolioId: account.portfolioId,
-                accountName: account.accountName
+            let tabsHtml = '';
+            tabs.forEach(t => {
+                const isActive = App.activeHoldingsTabId === t.id;
+                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
+                                     onclick="App.switchHoldingsPortfolioTab('${t.id}')"
+                                     style="border-bottom-color: ${isActive ? t.color : 'transparent'};">
+                                 ${sanitize(t.name)}
+                             </button>`;
             });
 
-            const tradeCol = account.tradingEnabled;
-            const colCount = tradeCol ? 6 : 4;
+            if (tabsContainer) {
+                tabsContainer.innerHTML = tabsHtml;
+                tabsContainer.style.display = 'flex';
+            }
 
-            tablesHtml += `
-                <div style="padding:0.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                    <input type="text" class="holdings-filter" data-account="${aid}" placeholder="Filter positions…"
-                           style="flex:1;min-width:140px;max-width:220px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;">
-                    <select class="holdings-sort" data-account="${aid}"
-                            style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;cursor:pointer;">
-                        <option value="value-desc">Value ↓</option>
-                        <option value="value-asc">Value ↑</option>
-                        <option value="symbol">Symbol A→Z</option>
-                        <option value="symbol-desc">Symbol Z→A</option>
-                        <option value="shares-desc">Shares ↓</option>
-                        <option value="price-desc">Price ↓</option>
-                    </select>
-                </div>
-                <table class="data-table"><thead><tr>
-                    <th>Position</th>
-                    <th class="right">Shares</th>
-                    <th class="right">Price</th>
-                    <th class="right">Total Value</th>
-                    ${tradeCol ? '<th></th><th class="right">Quick Buy</th>' : ''}
-                </tr></thead><tbody id="holdings-tbody-${aid}"></tbody></table>`;
+            let activeAccounts = [];
+            if (App.activeHoldingsTabId === 'unassigned') {
+                activeAccounts = unassignedAccounts;
+            } else {
+                const activePort = portfolios.find(p => p.id === App.activeHoldingsTabId);
+                const activePortAccountIds = new Set(activePort ? (activePort.accountIds || []) : []);
+                activeAccounts = data.filter(h => activePortAccountIds.has(h.accountId));
+            }
+
+            if (activeAccounts.length === 0) {
+                tablesContainer.innerHTML = '<div class="empty-state"><p>No active accounts or holdings in this portfolio.</p></div>';
+                return;
+            }
+
+            let tablesHtml = '';
+            activeAccounts.forEach(account => {
+                const tabId = `holdings-pane-${account.accountId}`;
+                const aid = sanitize(account.accountId);
+
+                this.holdingsStore.set(account.accountId, {
+                    holdings: account.holdings,
+                    tradingEnabled: account.tradingEnabled,
+                    portfolioId: account.portfolioId,
+                    accountName: account.accountName
+                });
+
+                const tradeCol = account.tradingEnabled;
+
+                tablesHtml += `<div class="holdings-pane card active" id="${tabId}" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">`;
+                tablesHtml += `<div class="card-header" style="border-bottom:1px solid var(--border); background: var(--surface-2); padding:0.6rem 1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span class="card-title" style="font-size:0.92rem;font-weight:600;margin:0;">${sanitize(account.accountName)}</span>
+                    <span class="text-muted text-sm" style="font-size:0.75rem;">${sanitize(account.portfolioName || 'Unassigned')}</span>
+                </div>`;
+
+                if (account.error) {
+                    tablesHtml += `
+                        <div class="empty-state" style="padding:2rem 1.5rem;">
+                            <div class="empty-icon" style="color:var(--danger);">⚠</div>
+                            <p style="color:var(--danger);font-weight:600;margin-bottom:0.5rem;">Connection Error</p>
+                            <p>${sanitize(account.error)}</p>
+                        </div></div>`;
+                    return;
+                }
+
+                if (!account.holdings || account.holdings.length === 0) {
+                    tablesHtml += '<div class="empty-state" style="padding:1.5rem;"><p>No holdings found in this account.</p></div></div>';
+                    return;
+                }
+
+                tablesHtml += `
+                    <div style="padding:0.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                        <input type="text" class="holdings-filter" data-account="${aid}" placeholder="Filter positions…"
+                               style="flex:1;min-width:140px;max-width:220px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;">
+                        <select class="holdings-sort" data-account="${aid}"
+                                style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;cursor:pointer;">
+                            <option value="value-desc">Value ↓</option>
+                            <option value="value-asc">Value ↑</option>
+                            <option value="symbol">Symbol A→Z</option>
+                            <option value="symbol-desc">Symbol Z→A</option>
+                            <option value="shares-desc">Shares ↓</option>
+                            <option value="price-desc">Price ↓</option>
+                        </select>
+                    </div>
+                    <table class="data-table"><thead><tr>
+                        <th>Position</th>
+                        <th class="right">Shares</th>
+                        <th class="right">Price</th>
+                        <th class="right">Total Value</th>
+                        ${tradeCol ? '<th></th><th class="right">Quick Buy</th>' : ''}
+                    </tr></thead><tbody id="holdings-tbody-${aid}"></tbody></table>`;
+
+                tablesHtml += '</div>';
+            });
+
+            tablesContainer.innerHTML = tablesHtml;
+
+        } else {
+            // Global selection is a specific portfolio, so show account tabs inside it
+            let tabsHtml = '', tablesHtml = '';
+
+            data.forEach((account, index) => {
+                const isActive = index === 0;
+                const tabId = `holdings-pane-${account.accountId}`;
+                const aid = sanitize(account.accountId);
+
+                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
+                                     onclick="App.switchHoldingsPageTab('${aid}')"
+                                     id="holdings-tabbtn-${aid}">
+                                 ${sanitize(account.accountName || 'Unnamed')}
+                             </button>`;
+
+                tablesHtml += `<div class="holdings-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
+
+                if (account.error) {
+                    tablesHtml += `
+                        <div class="empty-state" style="padding:2.5rem 1.5rem;">
+                            <div class="empty-icon" style="color:var(--danger);">⚠</div>
+                            <p style="color:var(--danger);font-weight:600;margin-bottom:0.5rem;">Connection Error</p>
+                            <p>${sanitize(account.error)}</p>
+                            <button class="btn btn-outline btn-sm mt-2" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios')">Go to Settings</button>
+                        </div></div>`;
+                    return;
+                }
+
+                if (!account.holdings || account.holdings.length === 0) {
+                    tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No holdings found in this account.</p></div></div>';
+                    return;
+                }
+
+                this.holdingsStore.set(account.accountId, {
+                    holdings: account.holdings,
+                    tradingEnabled: account.tradingEnabled,
+                    portfolioId: account.portfolioId,
+                    accountName: account.accountName
+                });
+
+                const tradeCol = account.tradingEnabled;
+
+                tablesHtml += `
+                    <div style="padding:0.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                        <input type="text" class="holdings-filter" data-account="${aid}" placeholder="Filter positions…"
+                               style="flex:1;min-width:140px;max-width:220px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;">
+                        <select class="holdings-sort" data-account="${aid}"
+                                style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;cursor:pointer;">
+                            <option value="value-desc">Value ↓</option>
+                            <option value="value-asc">Value ↑</option>
+                            <option value="symbol">Symbol A→Z</option>
+                            <option value="symbol-desc">Symbol Z→A</option>
+                            <option value="shares-desc">Shares ↓</option>
+                            <option value="price-desc">Price ↓</option>
+                        </select>
+                    </div>
+                    <table class="data-table"><thead><tr>
+                        <th>Position</th>
+                        <th class="right">Shares</th>
+                        <th class="right">Price</th>
+                        <th class="right">Total Value</th>
+                        ${tradeCol ? '<th></th><th class="right">Quick Buy</th>' : ''}
+                    </tr></thead><tbody id="holdings-tbody-${aid}"></tbody></table>`;
+
+                tablesHtml += '</div>';
+            });
+
+            if (tabsContainer) {
+                tabsContainer.innerHTML = tabsHtml;
+                tabsContainer.style.display = 'flex';
+            }
+            tablesContainer.innerHTML = tablesHtml;
+        }aid}"></tbody></table>`;
 
             tablesHtml += '</div>';
         });
@@ -694,51 +821,132 @@ const UI = {
         }
 
         this.txStore.clear();
-        let tabsHtml = '', tablesHtml = '';
 
-        data.forEach((account, index) => {
-            const isActive = index === 0;
-            const tabId = `transactions-pane-${account.accountId}`;
-            const aid = sanitize(account.accountId);
+        if (App.selectedUserPortfolioId === 'all') {
+            const portfolios = App.userPortfolios || [];
+            const assignedAccountIds = new Set();
+            portfolios.forEach(p => (p.accountIds || []).forEach(aid => assignedAccountIds.add(aid)));
+            const unassignedAccounts = data.filter(h => !assignedAccountIds.has(h.accountId));
 
-            tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                 onclick="App.switchTransactionsPageTab('${aid}')"
-                                 id="transactions-tabbtn-${aid}">
-                             ${sanitize(account.accountName || 'Unnamed')}
-                         </button>`;
+            const tabs = portfolios.map(p => ({ id: p.id, name: p.name, color: p.color }));
+            if (unassignedAccounts.length > 0) {
+                tabs.push({ id: 'unassigned', name: 'Unassigned Accounts', color: '#7c8496' });
+            }
 
-            tablesHtml += `<div class="transactions-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
-
-            if (!account.transactions || account.transactions.length === 0) {
-                tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No transactions found in this account.</p></div></div>';
+            if (tabs.length === 0) {
+                if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
+                tablesContainer.innerHTML = '<div class="empty-state"><p>No user portfolios configured. Create one in Settings → Portfolios.</p></div>';
                 return;
             }
 
-            this.txStore.set(account.accountId, { transactions: account.transactions, positionsBySymbol: account.positionsBySymbol || {}, page: 0 });
+            if (!App.activeTransactionsTabId || !tabs.some(t => t.id === App.activeTransactionsTabId)) {
+                App.activeTransactionsTabId = tabs[0].id;
+            }
 
-            tablesHtml += `
-                <table class="data-table"><thead><tr>
-                    <th>Security</th><th>Date</th><th>Type</th>
-                    <th class="right">Quantity</th><th class="right">Amount</th>
-                </tr></thead><tbody id="tx-tbody-${aid}"></tbody></table>
-                <div class="tx-pagination" id="tx-pagination-${aid}" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;border-top:1px solid var(--border);font-size:0.78rem;color:var(--text-muted);">
-                    <span id="tx-page-info-${aid}"></span>
-                    <div style="display:flex;gap:0.4rem;">
-                        <button class="btn btn-outline btn-sm" id="tx-prev-${aid}" onclick="UI.txPageChange('${aid}',-1)">← Prev</button>
-                        <button class="btn btn-outline btn-sm" id="tx-next-${aid}" onclick="UI.txPageChange('${aid}',1)">Next →</button>
-                    </div>
-                </div>`;
+            let tabsHtml = '';
+            tabs.forEach(t => {
+                const isActive = App.activeTransactionsTabId === t.id;
+                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
+                                     onclick="App.switchTransactionsPortfolioTab('${t.id}')"
+                                     style="border-bottom-color: ${isActive ? t.color : 'transparent'};">
+                                 ${sanitize(t.name)}
+                             </button>`;
+            });
 
-            tablesHtml += '</div>';
-        });
+            if (tabsContainer) {
+                tabsContainer.innerHTML = tabsHtml;
+                tabsContainer.style.display = 'flex';
+            }
 
-        if (tabsContainer) {
-            tabsContainer.innerHTML = tabsHtml;
-            tabsContainer.style.display = 'flex';
+            let activeAccounts = [];
+            if (App.activeTransactionsTabId === 'unassigned') {
+                activeAccounts = unassignedAccounts;
+            } else {
+                const activePort = portfolios.find(p => p.id === App.activeTransactionsTabId);
+                const activePortAccountIds = new Set(activePort ? (activePort.accountIds || []) : []);
+                activeAccounts = data.filter(h => activePortAccountIds.has(h.accountId));
+            }
+
+            // Merge transactions and positions
+            let combinedTxns = [];
+            let combinedPositions = {};
+            activeAccounts.forEach(account => {
+                combinedTxns.push(...(account.transactions || []));
+                Object.assign(combinedPositions, account.positionsBySymbol || {});
+            });
+            combinedTxns.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            const aid = sanitize(App.activeTransactionsTabId);
+            this.txStore.set(App.activeTransactionsTabId, { transactions: combinedTxns, positionsBySymbol: combinedPositions, page: 0 });
+
+            let tablesHtml = `<div class="transactions-pane card active" id="transactions-pane-${aid}" style="padding:0; overflow:hidden;">`;
+            if (combinedTxns.length === 0) {
+                tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No transactions found in this portfolio.</p></div></div>';
+            } else {
+                tablesHtml += `
+                    <table class="data-table"><thead><tr>
+                        <th>Security</th><th>Date</th><th>Type</th>
+                        <th class="right">Quantity</th><th class="right">Amount</th>
+                    </tr></thead><tbody id="tx-tbody-${aid}"></tbody></table>
+                    <div class="tx-pagination" id="tx-pagination-${aid}" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;border-top:1px solid var(--border);font-size:0.78rem;color:var(--text-muted);">
+                        <span id="tx-page-info-${aid}"></span>
+                        <div style="display:flex;gap:0.4rem;">
+                            <button class="btn btn-outline btn-sm" id="tx-prev-${aid}" onclick="UI.txPageChange('${aid}',-1)">← Prev</button>
+                            <button class="btn btn-outline btn-sm" id="tx-next-${aid}" onclick="UI.txPageChange('${aid}',1)">Next →</button>
+                        </div>
+                    </div>`;
+                tablesHtml += '</div>';
+            }
+            tablesContainer.innerHTML = tablesHtml;
+            this.renderTransactionPage(App.activeTransactionsTabId);
+
+        } else {
+            let tabsHtml = '', tablesHtml = '';
+
+            data.forEach((account, index) => {
+                const isActive = index === 0;
+                const tabId = `transactions-pane-${account.accountId}`;
+                const aid = sanitize(account.accountId);
+
+                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
+                                     onclick="App.switchTransactionsPageTab('${aid}')"
+                                     id="transactions-tabbtn-${aid}">
+                                 ${sanitize(account.accountName || 'Unnamed')}
+                             </button>`;
+
+                tablesHtml += `<div class="transactions-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
+
+                if (!account.transactions || account.transactions.length === 0) {
+                    tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No transactions found in this account.</p></div></div>';
+                    return;
+                }
+
+                this.txStore.set(account.accountId, { transactions: account.transactions, positionsBySymbol: account.positionsBySymbol || {}, page: 0 });
+
+                tablesHtml += `
+                    <table class="data-table"><thead><tr>
+                        <th>Security</th><th>Date</th><th>Type</th>
+                        <th class="right">Quantity</th><th class="right">Amount</th>
+                    </tr></thead><tbody id="tx-tbody-${aid}"></tbody></table>
+                    <div class="tx-pagination" id="tx-pagination-${aid}" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;border-top:1px solid var(--border);font-size:0.78rem;color:var(--text-muted);">
+                        <span id="tx-page-info-${aid}"></span>
+                        <div style="display:flex;gap:0.4rem;">
+                            <button class="btn btn-outline btn-sm" id="tx-prev-${aid}" onclick="UI.txPageChange('${aid}',-1)">← Prev</button>
+                            <button class="btn btn-outline btn-sm" id="tx-next-${aid}" onclick="UI.txPageChange('${aid}',1)">Next →</button>
+                        </div>
+                    </div>`;
+
+                tablesHtml += '</div>';
+            });
+
+            if (tabsContainer) {
+                tabsContainer.innerHTML = tabsHtml;
+                tabsContainer.style.display = 'flex';
+            }
+            tablesContainer.innerHTML = tablesHtml;
+
+            this.txStore.forEach((_, accountId) => this.renderTransactionPage(accountId));
         }
-        tablesContainer.innerHTML = tablesHtml;
-
-        this.txStore.forEach((_, accountId) => this.renderTransactionPage(accountId));
     },
 
     txPageChange(accountId, delta) {
@@ -809,7 +1017,7 @@ const UI = {
             return `<tr>
                 <td>
                     <div class="ticker-cell">${sanitize(symbol !== '—' ? symbol : description)}</div>
-                    ${symbol !== '—' && description !== symbol ? `<div class="ticker-desc">${sanitize(description)}</div>` : ''}
+                    <div class="ticker-desc">${sanitize(description !== symbol ? description : '')}${txn.accountName ? (description !== symbol ? ' · ' : '') + sanitize(txn.accountName) : ''}</div>
                 </td>
                 <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${sanitize(date)}</td>
                 <td>${typeBadge(txn.type)}</td>
@@ -1055,18 +1263,44 @@ const UI = {
         }
 
         let activeAccounts = cachedDividendsData.filter(acct => !acct.error);
-        if (activeAccounts.length > 1) {
-            tabsContainer.style.display = 'flex';
-            let tabsHtml = `<button class="pill-tab ${selectedAccountId === 'all' ? 'active' : ''}" onclick="App.switchDividendAccountTab('all')">All Accounts</button>`;
+        if (activeAccounts.length === 0) {
+            tabsContainer.style.display = 'none';
+            tabsContainer.innerHTML = '';
+            return;
+        }
+
+        let tabsHtml = '';
+        if (App.selectedUserPortfolioId === 'all') {
+            // Global selection is All Portfolios
+            const portfolios = App.userPortfolios || [];
+            
+            // Check if there are any unassigned accounts
+            const assignedAccountIds = new Set();
+            portfolios.forEach(p => (p.accountIds || []).forEach(aid => assignedAccountIds.add(aid)));
+            const hasUnassigned = activeAccounts.some(acct => !assignedAccountIds.has(acct.accountId));
+
+            tabsHtml += `<button class="pill-tab ${selectedAccountId === 'all' ? 'active' : ''}" onclick="App.switchDividendAccountTab('all')">All Portfolios</button>`;
+            
+            portfolios.forEach(p => {
+                const isSelected = selectedAccountId === `portfolio-${p.id}`;
+                tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('portfolio-${p.id}')">${sanitize(p.name)}</button>`;
+            });
+
+            if (hasUnassigned) {
+                const isSelected = selectedAccountId === 'unassigned';
+                tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('unassigned')">Unassigned Accounts</button>`;
+            }
+        } else {
+            // Global selection is a specific user portfolio
+            tabsHtml += `<button class="pill-tab ${selectedAccountId === 'all' ? 'active' : ''}" onclick="App.switchDividendAccountTab('all')">All Accounts</button>`;
             activeAccounts.forEach(acct => {
                 const isSelected = selectedAccountId === acct.accountId;
                 tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('${acct.accountId}')">${sanitize(acct.accountName || 'Unnamed')}</button>`;
             });
-            tabsContainer.innerHTML = tabsHtml;
-        } else {
-            tabsContainer.style.display = 'none';
-            tabsContainer.innerHTML = '';
         }
+
+        tabsContainer.innerHTML = tabsHtml;
+        tabsContainer.style.display = 'flex';
     },
 
     renderDividends(cachedDividendsData, selectedAccountId = 'all') {
@@ -1082,19 +1316,31 @@ const UI = {
         cachedDividendsData.forEach(acct => {
             if (acct.error) return;
 
-            if (App.currentGroups) {
-                App.currentGroups.forEach(g => {
-                    (g.accounts || []).forEach(acc => {
-                        if (acc.id === acct.accountId && !App.inactiveAccountIds?.has(acc.id)) {
-                            if (selectedAccountId === 'all' || selectedAccountId === acct.accountId) {
-                                totalPortfolioValue += acc.balance?.total?.amount || 0;
-                            }
-                        }
-                    });
-                });
+            let include = false;
+            if (selectedAccountId === 'all') {
+                include = true;
+            } else if (selectedAccountId === 'unassigned') {
+                const isAssigned = (App.userPortfolios || []).some(p => (p.accountIds || []).includes(acct.accountId));
+                include = !isAssigned;
+            } else if (String(selectedAccountId).startsWith('portfolio-')) {
+                const pid = parseInt(selectedAccountId.split('-')[1], 10);
+                const port = (App.userPortfolios || []).find(p => p.id === pid);
+                include = port && (port.accountIds || []).includes(acct.accountId);
+            } else {
+                include = acct.accountId === selectedAccountId;
             }
 
-            if (selectedAccountId === 'all' || selectedAccountId === acct.accountId) {
+            if (include) {
+                if (App.currentGroups) {
+                    App.currentGroups.forEach(g => {
+                        (g.accounts || []).forEach(acc => {
+                            if (acc.id === acct.accountId && !App.inactiveAccountIds?.has(acc.id)) {
+                                totalPortfolioValue += acc.balance?.total?.amount || 0;
+                            }
+                        });
+                    });
+                }
+
                 (acct.dividends || []).forEach(e => {
                     allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
                 });
@@ -1273,7 +1519,22 @@ const UI = {
         if (cachedDividendsData) {
             cachedDividendsData.forEach(acct => {
                 if (acct.error) return;
-                if (selectedAccountId === 'all' || selectedAccountId === acct.accountId) {
+
+                let include = false;
+                if (selectedAccountId === 'all') {
+                    include = true;
+                } else if (selectedAccountId === 'unassigned') {
+                    const isAssigned = (App.userPortfolios || []).some(p => (p.accountIds || []).includes(acct.accountId));
+                    include = !isAssigned;
+                } else if (String(selectedAccountId).startsWith('portfolio-')) {
+                    const pid = parseInt(selectedAccountId.split('-')[1], 10);
+                    const port = (App.userPortfolios || []).find(p => p.id === pid);
+                    include = port && (port.accountIds || []).includes(acct.accountId);
+                } else {
+                    include = acct.accountId === selectedAccountId;
+                }
+
+                if (include) {
                     (acct.dividends || []).forEach(e => {
                         allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
                         annualTotal += (e.amount || 0);

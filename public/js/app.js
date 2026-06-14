@@ -884,6 +884,16 @@ const App = {
         }
     },
 
+    switchHoldingsPortfolioTab(portfolioId) {
+        this.activeHoldingsTabId = portfolioId === 'unassigned' ? 'unassigned' : parseInt(portfolioId, 10);
+        UI.renderAllHoldings(this.getFilteredHoldingsData());
+    },
+
+    switchTransactionsPortfolioTab(portfolioId) {
+        this.activeTransactionsTabId = portfolioId === 'unassigned' ? 'unassigned' : parseInt(portfolioId, 10);
+        UI.renderAllTransactions(this.getFilteredTransactionsData());
+    },
+
     async handleChangePassword() {
         const current  = document.getElementById('currentPassword').value;
         const newPw    = document.getElementById('newPassword').value;
@@ -1323,6 +1333,12 @@ const App = {
             const val = e.target.value;
             this.selectedUserPortfolioId = val === 'all' ? 'all' : parseInt(val, 10);
             localStorage.setItem('selectedUserPortfolioId', this.selectedUserPortfolioId);
+            
+            // Reset page-level active tabs/sub-selections when global portfolio changes
+            this.currentDividendAccountId = 'all';
+            this.activeHoldingsTabId = null;
+            this.activeTransactionsTabId = null;
+
             this.refreshActiveTab();
         };
     },

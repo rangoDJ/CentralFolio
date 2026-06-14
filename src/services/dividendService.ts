@@ -138,7 +138,9 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
   // 1. Check in-memory Cache
   if (divMetadataCache.has(symbol)) {
     const cached = divMetadataCache.get(symbol)!;
-    if (now - cached.timestamp < CACHE_TTL_MS) {
+    const isPlaceholder = cached.name === 'No Dividend Data' || cached.frequency === 0;
+    const currentTtl = isPlaceholder ? 24 * 60 * 60 * 1000 : CACHE_TTL_MS;
+    if (now - cached.timestamp < currentTtl) {
       logger.debug('Cache', `fetchDividendMetadata(${symbol}) → memory HIT`);
       return cached;
     }
@@ -149,6 +151,8 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
   if (dbCached) {
     // SQLite CURRENT_TIMESTAMP is UTC. Convert it to standard ISO-8601 UTC timestamp and parse.
     const cachedAt = new Date(dbCached.cachedAt.replace(' ', 'T') + 'Z').getTime();
+    const isPlaceholder = dbCached.name === 'No Dividend Data' || dbCached.frequency === 0;
+    const currentTtl = isPlaceholder ? 24 * 60 * 60 * 1000 : CACHE_TTL_MS;
     
     // Hard Rule: If pulled in the last 24 hours, skip pulling and return cached data
     if (now - cachedAt < 24 * 60 * 60 * 1000) {
@@ -164,8 +168,8 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
       return data;
     }
 
-    // If within standard TTL, or if we are in cache-only mode (external fetch disabled), return cached data
-    if (now - cachedAt < CACHE_TTL_MS || !allowExternalFetch) {
+    // If within calculated TTL, or if we are in cache-only mode (external fetch disabled), return cached data
+    if (now - cachedAt < currentTtl || !allowExternalFetch) {
       logger.debug('Cache', `fetchDividendMetadata(${symbol}) → DB HIT (allowExternalFetch=${allowExternalFetch})`);
       const data = {
         frequency: dbCached.frequency,
@@ -440,10 +444,8 @@ export async function getAllDividendsForAllPortfolios(
   const totalEvents = results.reduce((s, r) => s + (r.dividends?.length ?? 0), 0);
   logger.info('DividendSvc', `getAllDividendsForAllPortfolios complete — ${results.length} account(s), ${totalEvents} total event(s)`);
   
-  if (allowExternalFetch) {
-    cachedAllDividends = results;
-    cachedDividendsTime = Date.now();
-  }
+  cachedAllDividends = results;
+  cachedDividendsTime = Date.now();
   return results;
 }
 

@@ -179,7 +179,7 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
         || (pos.symbol as any)?.symbol?.symbol || pos.symbol?.symbol || pos.symbol;
       const symbolId = pos.instrument?.id || (pos.symbol as any)?.symbol?.id || null;
       const description = pos.instrument?.description
-        || (pos.symbol as any)?.description || pos.description;
+        || (pos.symbol as any)?.description || pos.description || symbol || 'Unknown Asset';
       logger.debug('DB', `  pos: symbol=${symbol} symbolId=${symbolId}`);
 
       stmtInsertPosition.run(

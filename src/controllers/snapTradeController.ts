@@ -57,8 +57,25 @@ export const getTransactions = async (req: Request, res: Response) => {
   logger.info('SnapTrade', `GET /snapTrade/transactions — forceRefresh=${forceRefresh}`);
 
   try {
-    // Only hit SnapTrade on forceRefresh — otherwise serve from cache
-    if (forceRefresh) {
+    let shouldRefresh = forceRefresh;
+    if (!shouldRefresh) {
+      const portfolios = listPortfolios();
+      let totalCachedCount = 0;
+      for (const portfolio of portfolios) {
+        if (portfolio.userSecret) {
+          const cachedAccounts = getCachedAccounts(portfolio.id!);
+          for (const account of cachedAccounts) {
+            totalCachedCount += getCachedTransactions(account.id, 1).length;
+          }
+        }
+      }
+      if (totalCachedCount === 0) {
+        logger.info('SnapTrade', 'No transactions found in cache — triggering initial background sync');
+        shouldRefresh = true;
+      }
+    }
+
+    if (shouldRefresh) {
       await refreshAllTransactions(true);
     }
 

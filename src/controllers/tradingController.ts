@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPortfolio, accountBelongsToPortfolio, getAccountActive } from "../models/db.js";
+import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
@@ -146,7 +146,10 @@ export const placeTrade = async (req: Request, res: Response) => {
       universal_symbol_id: null,
     };
     if (notionalNum != null) {
-      orderBody.notional_value = { amount: notionalNum, currency: 'USD' };
+      const accounts = getCachedAccounts(portfolioId);
+      const acc = accounts.find(a => a.id === String(accountId));
+      const currency = acc?.currency || 'USD';
+      orderBody.notional_value = { amount: notionalNum, currency };
     } else {
       orderBody.units = unitsNum;
     }

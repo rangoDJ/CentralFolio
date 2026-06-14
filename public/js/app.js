@@ -1319,6 +1319,15 @@ const App = {
         const savedSelect = localStorage.getItem('selectedUserPortfolioId') || 'all';
         this.selectedUserPortfolioId = savedSelect === 'all' ? 'all' : parseInt(savedSelect, 10);
 
+        // Validate that the selected portfolio ID still exists
+        if (this.selectedUserPortfolioId !== 'all') {
+            const exists = (this.userPortfolios || []).some(p => p.id === this.selectedUserPortfolioId);
+            if (!exists) {
+                this.selectedUserPortfolioId = 'all';
+                localStorage.setItem('selectedUserPortfolioId', 'all');
+            }
+        }
+
         let html = '<option value="all">All Portfolios</option>';
         if (this.userPortfolios && this.userPortfolios.length > 0) {
             this.userPortfolios.forEach(p => {

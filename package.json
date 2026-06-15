@@ -8,7 +8,8 @@
     "register": "tsx src/scripts/register.ts",
     "login": "tsx src/scripts/login.ts",
     "list-users": "tsx src/scripts/list-users.ts",
-    "start": "tsx src/server.ts"
+    "start": "tsx src/server.ts",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",

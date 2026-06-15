@@ -40,7 +40,8 @@ app.use("/api", requireAuth, apiRoutes);
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error('Server', `Unhandled error on ${req.method} ${req.path}: ${err.message}`, err.stack);
   if (req.path.startsWith('/api/')) {
-    return res.status(500).json({ error: "Internal Server Error", detail: err.message });
+    // Detail is logged above; do not expose internals to the client.
+    return res.status(500).json({ error: "Internal Server Error" });
   }
   next(err);
 });

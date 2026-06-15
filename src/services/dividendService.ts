@@ -15,6 +15,22 @@ const divMetadataCache = new Map<string, {
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — dividend schedules rarely change
 
+// Cap the in-memory metadata cache so a long-running process can't grow it without bound.
+// SQLite remains the source of truth, so evicting a memory entry only costs a DB lookup.
+const DIV_CACHE_MAX_ENTRIES = 2000;
+type DivCacheEntry = { frequency: number; lastExDate: string | null; amountPerShare: number; name: string; timestamp: number };
+
+function setDivCache(symbol: string, data: DivCacheEntry) {
+  // Refresh insertion order (Map iterates oldest-first) so eviction approximates LRU.
+  divMetadataCache.delete(symbol);
+  divMetadataCache.set(symbol, data);
+  while (divMetadataCache.size > DIV_CACHE_MAX_ENTRIES) {
+    const oldest = divMetadataCache.keys().next().value;
+    if (oldest === undefined) break;
+    divMetadataCache.delete(oldest);
+  }
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return Promise.race([
     promise,
@@ -166,7 +182,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
         name: dbCached.name,
         timestamp: cachedAt
       };
-      divMetadataCache.set(symbol, data);
+      setDivCache(symbol, data);
       return data;
     }
 
@@ -180,7 +196,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
         name: dbCached.name,
         timestamp: cachedAt
       };
-      divMetadataCache.set(symbol, data);
+      setDivCache(symbol, data);
       return data;
     }
   }
@@ -194,7 +210,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
   // 3. Fetch from Snowball
   const data = await fetchFromSnowball(symbol);
   if (data) {
-    divMetadataCache.set(symbol, data);
+    setDivCache(symbol, data);
     saveCachedDividendMetadata(symbol, data, 'snowball');
     logger.info('Dividend', `${symbol} → saved to cache via snowball`);
     return data;
@@ -208,7 +224,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
       name: 'No Dividend Data',
       timestamp: Date.now()
     };
-    divMetadataCache.set(symbol, placeholder);
+    setDivCache(symbol, placeholder);
     saveCachedDividendMetadata(symbol, placeholder, 'snowball');
     logger.info('Dividend', `${symbol} → saved 'No Dividend Data' placeholder to cache to avoid re-pulling for 24h`);
     return null;

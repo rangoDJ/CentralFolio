@@ -25,7 +25,7 @@ export const getTargets = (req: Request, res: Response) => {
     res.json(targets);
   } catch (err: any) {
     logger.error('Rebalance', `getTargets failed for portfolio id=${portfolioId}: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to fetch targets' });
   }
 };
 
@@ -68,7 +68,7 @@ export const updateTargets = (req: Request, res: Response) => {
     res.json({ success: true, targets: getPortfolioTargets(portfolioId) });
   } catch (err: any) {
     logger.error('Rebalance', `updateTargets failed for portfolio id=${portfolioId}: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to update targets' });
   }
 };
 
@@ -127,7 +127,7 @@ export const getRebalanceSuggestions = (req: Request, res: Response) => {
     });
   } catch (err: any) {
     logger.error('Rebalance', `getRebalanceSuggestions failed for portfolio id=${portfolioId}: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Failed to compute rebalance suggestions' });
   }
 };
 
@@ -144,6 +144,9 @@ export const executeRebalance = async (req: Request, res: Response) => {
     const portfolio = getUserPortfolioById(portfolioId);
     if (!portfolio) return res.status(404).json({ error: 'User Portfolio not found' });
 
+    // Only accounts that are actually part of this user-portfolio may be traded here.
+    const allowedAccountIds = new Set(portfolio.accountIds || []);
+
     const parentPortfolios = listPortfolios();
     const accountToParentMap = new Map<string, { parent: Portfolio; account: any }>();
 
@@ -159,6 +162,26 @@ export const executeRebalance = async (req: Request, res: Response) => {
 
     for (const t of trades) {
       const { accountId, symbol, action, amount } = t;
+
+      // ── Per-trade validation (mirrors placeTrade guards) ───────────────────
+      if (!accountId || !allowedAccountIds.has(accountId)) {
+        results.push({ trade: t, success: false, error: 'Account does not belong to this portfolio' });
+        continue;
+      }
+      if (typeof symbol !== 'string' || !SYMBOL_RE.test(symbol.trim())) {
+        results.push({ trade: t, success: false, error: 'Invalid or missing symbol' });
+        continue;
+      }
+      if (action !== 'BUY' && action !== 'SELL') {
+        results.push({ trade: t, success: false, error: "action must be 'BUY' or 'SELL'" });
+        continue;
+      }
+      const amountNum = Number(amount);
+      if (!Number.isFinite(amountNum) || amountNum <= 0) {
+        results.push({ trade: t, success: false, error: 'amount must be a positive number' });
+        continue;
+      }
+
       const mapping = accountToParentMap.get(accountId);
 
       if (!mapping) {
@@ -175,7 +198,7 @@ export const executeRebalance = async (req: Request, res: Response) => {
 
       try {
         const client = getSnapTradeClientForPortfolio(parent);
-        const qtyDesc = `$${amount}`;
+        const qtyDesc = `$${amountNum}`;
         logger.info('SnapTrade', `placeTrade (Rebalance) — ${action} ${qtyDesc} ticker="${symbol}" account="${accountId}"`);
 
         const orderBody: any = {
@@ -187,7 +210,7 @@ export const executeRebalance = async (req: Request, res: Response) => {
           time_in_force: 'Day',
           symbol: symbol.trim(),
           universal_symbol_id: null,
-          notional_value: { amount: Number(amount), currency: account.currency || 'USD' }
+          notional_value: { amount: amountNum, currency: account.currency || 'USD' }
         };
 
         const response = await (client as any).trading.placeForceOrder(orderBody);
@@ -204,6 +227,6 @@ export const executeRebalance = async (req: Request, res: Response) => {
     res.json({ success: true, results });
   } catch (err: any) {
     logger.error('Rebalance', `executeRebalance failed: ${err.message}`);
-    res.status(500).json({ error: 'Failed to execute rebalance trades', detail: err.message });
+    res.status(500).json({ error: 'Failed to execute rebalance trades' });
   }
 };

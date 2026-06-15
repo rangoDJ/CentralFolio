@@ -43,10 +43,29 @@ const stmtDeleteAccounts = db.prepare(
   "DELETE FROM accounts WHERE portfolioId = ?"
 );
 
-const stmtInsertAccount = db.prepare(`
+// Upsert rather than delete+reinsert: deleting an account row cascades to its
+// positions (ON DELETE CASCADE), which would wipe cached holdings on every refresh.
+const stmtUpsertAccount = db.prepare(`
   INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cashBalance, cachedAt)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  ON CONFLICT(id) DO UPDATE SET
+    portfolioId  = excluded.portfolioId,
+    name         = excluded.name,
+    number       = excluded.number,
+    type         = excluded.type,
+    currency     = excluded.currency,
+    isActive     = excluded.isActive,
+    balanceTotal = excluded.balanceTotal,
+    customName   = excluded.customName,
+    cashBalance  = excluded.cashBalance,
+    cachedAt     = CURRENT_TIMESTAMP
 `);
+
+// Removes accounts of a portfolio that are no longer returned by the broker.
+// Positions of these stale accounts cascade-delete (intended); surviving accounts keep theirs.
+const stmtDeleteStaleAccounts = db.prepare(
+  "DELETE FROM accounts WHERE portfolioId = ? AND id NOT IN (SELECT value FROM json_each(?))"
+);
 
 const stmtClearAccounts = db.prepare(
   "DELETE FROM accounts"
@@ -135,9 +154,10 @@ export function saveCachedAccounts(portfolioId: number | string, accounts: any[]
   const customNameMap = new Map<string, string | null>(existing.map(r => [r.id, r.customName]));
 
   db.transaction((data: any[]) => {
-    stmtDeleteAccounts.run(portfolioId);
+    // Drop accounts that vanished from the broker (cascades only their positions).
+    stmtDeleteStaleAccounts.run(portfolioId, JSON.stringify(data.map(a => a.id)));
     for (const acc of data) {
-      stmtInsertAccount.run(
+      stmtUpsertAccount.run(
         acc.id,
         portfolioId,
         acc.name || null,
@@ -194,14 +214,19 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
         || (pos.symbol as any)?.description || pos.description || symbol || 'Unknown Asset';
       logger.debug('DB', `  pos: symbol=${symbol} symbolId=${symbolId}`);
 
+      const units = pos.units || 0;
+      const price = pos.price || 0;
+      // SnapTrade's positions API returns units + price but no marketValue, so derive it.
+      const marketValue = pos.marketValue || units * price;
+
       stmtInsertPosition.run(
         accountId,
         symbol || null,
         symbolId || null,
         description || null,
-        pos.units || 0,
-        pos.price || 0,
-        pos.marketValue || 0,
+        units,
+        price,
+        marketValue,
         pos.average_purchase_price ?? null
       );
     }

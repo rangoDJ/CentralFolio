@@ -284,26 +284,44 @@
 
         <!-- Calendar pane -->
         <div id="dividend-calendar-pane" class="pane">
-          <div class="flex-center justify-between mb-3">
-            <div class="flex-center gap-1">
-              <button class="btn btn-outline btn-sm" onclick="App.changeCalendarMonth(-1)">&#8592; Prev</button>
-              <span id="currentCalendarMonth" style="min-width:110px;text-align:center;font-weight:600;font-size:0.9rem;"></span>
-              <button class="btn btn-outline btn-sm" onclick="App.changeCalendarMonth(1)">Next &#8594;</button>
+
+          <!-- Annual income summary + 12-month forecast chart -->
+          <div class="divcal-top">
+            <div class="card divcal-income">
+              <div class="divcal-income-label">Annual income</div>
+              <div id="divcalAnnual" class="divcal-income-value">$0.00</div>
+              <div class="divcal-income-rows">
+                <div class="divcal-income-row"><span>Monthly</span><span id="divcalMonthly">$0.00</span></div>
+                <div class="divcal-income-row"><span>Daily</span><span id="divcalDaily">$0.00</span></div>
+                <div class="divcal-income-row"><span>Yield</span><span id="divcalYield">—</span></div>
+              </div>
             </div>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 280px;gap:1.5rem;align-items:start;">
-            <div class="card" style="padding:0;overflow:hidden;">
-              <div id="dividend-calendar-grid"></div>
-            </div>
-            <div class="card" style="min-height:400px;">
-              <div class="card-header"><span class="card-title">Day Details</span></div>
-              <div id="calendar-day-details">
-                <div class="empty-state" style="padding:1.5rem 0;">
-                  <p>Select a day to view dividends</p>
-                </div>
+            <div class="card divcal-chart-card">
+              <div class="divcal-chart-wrap"><canvas id="divcalChart"></canvas></div>
+              <div class="divcal-legend">
+                <span><span class="divcal-dot" style="background:#6c4ad6;"></span>Paid</span>
+                <span><span class="divcal-dot" style="background:#7fb3e8;"></span>Declared</span>
+                <span><span class="divcal-dot" style="background:#3a7bd5;"></span>Estimated</span>
               </div>
             </div>
           </div>
+
+          <!-- Month nav + view toggle -->
+          <div class="divcal-navrow">
+            <div class="divcal-nav">
+              <button class="divcal-navbtn" onclick="App.changeCalendarMonth(-1)" aria-label="Previous month">&#8249;</button>
+              <span id="currentCalendarMonth" class="divcal-month-label"></span>
+              <button class="divcal-navbtn" onclick="App.changeCalendarMonth(1)" aria-label="Next month">&#8250;</button>
+              <span id="divcalMonthTotal" class="divcal-month-total"></span>
+            </div>
+            <div class="divcal-viewtoggle">
+              <button id="divcalViewCalendar" class="active" onclick="UI.setDivCalView('calendar')">Calendar</button>
+              <button id="divcalViewList" onclick="UI.setDivCalView('list')">List</button>
+            </div>
+          </div>
+
+          <div id="dividend-calendar-grid"></div>
+          <div id="dividend-calendar-list" style="display:none;"></div>
         </div>
 
         <!-- Database pane -->
@@ -485,6 +503,24 @@
 
         <!-- Brokerage Connections pane -->
         <div id="settings-connections-pane" class="pane">
+
+          <!-- Brokerage connections (account ↔ portfolio links) -->
+          <div class="card mb-3">
+            <div class="card-header" style="margin-bottom:1.1rem;">
+              <span class="card-title">Brokerage connections</span>
+              <details class="add-account-menu" id="addAccountMenu">
+                <summary class="btn btn-primary btn-sm add-account-summary">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  Add new account
+                </summary>
+                <div class="add-account-pop" id="addAccountPop"></div>
+              </details>
+            </div>
+            <div id="accountContainer">
+              <div class="empty-state"><p>No accounts loaded.</p></div>
+            </div>
+          </div>
+
           <!-- Security -->
           <div class="card mb-3">
             <div class="card-header" style="margin-bottom:0.75rem;">
@@ -533,15 +569,9 @@
             </div>
           </div>
 
-          <!-- Accounts by brokerage connection -->
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">Accounts by Connection</span>
-              <button id="refreshBtn" class="btn btn-outline btn-sm">Refresh All</button>
-            </div>
-            <div id="accountContainer">
-              <div class="empty-state"><p>No accounts loaded.</p></div>
-            </div>
+          <!-- Refresh-all control (accounts list lives in the Brokerage connections card above) -->
+          <div style="text-align:right;margin-top:0.5rem;">
+            <button id="refreshBtn" class="btn btn-outline btn-sm">Refresh All Connections</button>
           </div>
         </div>
 

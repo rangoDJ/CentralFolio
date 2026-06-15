@@ -478,6 +478,50 @@ const App = {
         }
     },
 
+    // ── Brokerage connection card actions (Snowball-style) ───────────────────
+
+    async connectBrokerageById(id) {
+        try {
+            const loginUrl = await API.getLoginUrl(id);
+            window.open(loginUrl, '_blank');
+            UI.showToast('Connection portal opened. Refresh after linking your account.');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    addNewAccount() {
+        // The "+ Add new account" button is a <details> menu; this is a no-op fallback.
+        const menu = document.getElementById('addAccountMenu');
+        if (menu) menu.open = !menu.open;
+    },
+
+    async syncAccountNow(portfolioId, accountId, btn) {
+        if (btn) btn.classList.add('loading');
+        try {
+            await API.getHoldings(portfolioId, accountId, true);
+            // Position data changed — drop derived caches so other tabs refetch.
+            this.cachedHoldingsData = null;
+            this.cachedDividendsData = null;
+            await this.fetchAccounts();
+            UI.showToast('Account synced');
+        } catch (err) {
+            UI.showToast('Sync failed: ' + err.message, 'error');
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    },
+
+    async disconnectAccount(accountId) {
+        const isInactive = this.inactiveAccountIds.has(accountId);
+        if (!isInactive && !confirm('Disconnect this account? It will be excluded from holdings, dividends, and rebalancing until reconnected. No data is deleted.')) {
+            return;
+        }
+        // toggleAccount flips active state, persists to the DB, and re-renders.
+        await this.toggleAccount(accountId);
+        UI.showToast(isInactive ? 'Account reconnected' : 'Account disconnected');
+    },
+
     async handleListUsers() {
         UI.adminUserList.innerHTML = '<div style="font-size: 0.75rem; padding: 0.5rem;">Listing unique users...</div>';
         try {

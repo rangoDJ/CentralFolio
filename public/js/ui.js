@@ -125,80 +125,169 @@ const UI = {
         portfolios.filter(p => p.userSecret).forEach(p => App.loadConnectionBadge(p.id, !!p.tradingEnabled));
     },
 
-    renderAccountSection(currentGroups, activePortfolioId, inactiveAccountIds) {
-        if (!currentGroups.length) return;
+    /** Format a SQLite UTC timestamp ("YYYY-MM-DD HH:MM:SS") as a local "YYYY-MM-DD HH:MM" string. */
+    formatLastSync(ts) {
+        if (!ts) return 'Never synced';
+        const d = new Date(String(ts).replace(' ', 'T') + (String(ts).includes('Z') ? '' : 'Z'));
+        if (isNaN(d.getTime())) return 'Never synced';
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    },
 
+    renderAccountSection(currentGroups, activePortfolioId, inactiveAccountIds) {
+        // Keep the dashboard widgets fed regardless of how the connections list renders.
         let grandTotal = 0;
-        currentGroups.forEach(g => g.accounts.forEach(acc => {
+        currentGroups.forEach(g => (g.accounts || []).forEach(acc => {
             if (!inactiveAccountIds.has(acc.id)) grandTotal += (acc.balance?.total?.amount || 0);
         }));
-        this.totalBalanceEl.textContent = `$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-        // Portfolio selector tabs
-        let html = '<div class="portfolio-tabs">';
-        currentGroups.forEach(g => {
-            html += `<button class="portfolio-tab ${g.portfolioId === activePortfolioId ? 'active' : ''}"
-                             onclick="App.switchPortfolioTab(${g.portfolioId})">${sanitize(g.portfolioName)}</button>`;
-        });
-        html += '</div>';
-
-        // Active portfolio accounts
-        const active = currentGroups.find(g => g.portfolioId === activePortfolioId) || currentGroups[0];
-        if (active) {
-            const activeTotal = active.accounts.reduce((s, a) => s + (inactiveAccountIds.has(a.id) ? 0 : (a.balance?.total?.amount || 0)), 0);
-            const portTotal   = active.accounts.reduce((s, a) => s + (a.balance?.total?.amount || 0), 0);
-
-            html += '<div class="account-group">';
-            html += `<div class="account-group-header">
-                        <span>${sanitize(active.portfolioName)}</span>
-                        <span style="font-feature-settings:'tnum'">Active $${activeTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} / Total $${portTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                     </div>`;
-
-            if (active.error) {
-                html += `<div class="empty-state" style="padding:1rem;color:var(--danger);">Error: ${sanitize(active.error)}</div>`;
-            } else if (active.accounts.length === 0) {
-                html += '<div class="empty-state" style="padding:1rem;"><p>No accounts found.</p></div>';
-            } else {
-                active.accounts.forEach(acc => {
-                    const inactive = inactiveAccountIds.has(acc.id);
-                    const balance  = acc.balance?.total?.amount;
-                    const displayName = acc.customName || acc.name || 'Unnamed Account';
-                    html += `
-                        <div class="account-row" style="${inactive ? 'opacity:0.5;' : ''}">
-                            <div class="account-row-info">
-                                <div id="acc-name-${acc.id}" style="display:flex;align-items:center;gap:0.3rem;">
-                                    <span class="account-row-name">${sanitize(displayName)}</span>
-                                    <button title="Rename account" onclick="App.startRenameAccount('${acc.id}')"
-                                            style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px 3px;line-height:1;border-radius:3px;opacity:0.45;flex-shrink:0;"
-                                            onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='0.45'">
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                        </svg>
-                                    </button>
-                                </div>
-                                <div class="account-row-meta">${sanitize(acc.brokerage?.name || 'Unknown')} &middot; ${sanitize(acc.number || 'No number')}</div>
-                            </div>
-                            <div class="account-row-right">
-                                ${balance !== undefined ? `
-                                    <div>
-                                        <div class="account-balance-val">$${(balance || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-                                        <div class="account-balance-label">Net Value</div>
-                                    </div>` : ''}
-                                <label class="switch" title="${inactive ? 'Activate' : 'Deactivate'} account">
-                                    <input type="checkbox" ${!inactive ? 'checked' : ''} onchange="App.toggleAccount('${acc.id}')">
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>`;
-                });
-            }
-            html += '</div>';
+        if (this.totalBalanceEl) {
+            this.totalBalanceEl.textContent = `$${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
-
-        this.accountContainer.innerHTML = html;
         this.renderDashboardChart(currentGroups, inactiveAccountIds);
         this.renderDashboardHoldingsTable(currentGroups, inactiveAccountIds);
+
+        // Populate the "Add new account" menu with registered connections.
+        this.renderAddAccountMenu(App.activePortfolios || []);
+
+        const container = this.accountContainer;
+        if (!container) return;
+
+        const userPortfolios = (typeof App !== 'undefined' && App.userPortfolios) ? App.userPortfolios : [];
+
+        // Flatten every brokerage account across all connections into Snowball-style link cards.
+        const cards = [];
+        currentGroups.forEach(g => {
+            if (g.error) {
+                cards.push(`<div class="conn-card conn-card-error">
+                    <div class="conn-error-text">⚠ ${sanitize(g.portfolioName)}: ${sanitize(g.error)}</div>
+                </div>`);
+                return;
+            }
+            (g.accounts || []).forEach(acc => {
+                cards.push(this.renderConnectionCard(g, acc, inactiveAccountIds.has(acc.id), userPortfolios));
+            });
+        });
+
+        if (cards.length === 0) {
+            container.innerHTML = `<div class="empty-state">
+                <div class="empty-icon">🔌</div>
+                <p><strong>No brokerage accounts connected.</strong></p>
+                <p style="margin-top:0.5rem;color:var(--text-secondary);">Use <strong>Add new account</strong> above to link a brokerage, or add a connection under
+                    <a href="#" onclick="App.switchSettingsTab('keys');return false;" style="color:var(--primary);text-decoration:underline;">Keys &amp; Providers</a>.</p>
+            </div>`;
+            return;
+        }
+
+        container.innerHTML = `<div class="conn-list">${cards.join('')}</div>`;
+    },
+
+    renderConnectionCard(group, acc, inactive, userPortfolios) {
+        const displayName = acc.customName || acc.name || 'Unnamed Account';
+        const brokerage   = acc.brokerage?.name || acc.institution_name || 'Wealthsimple Trade';
+        const balance     = acc.balance?.total?.amount;
+        const lastSync     = this.formatLastSync(acc.lastPositionsFetch || acc.cachedAt);
+
+        // Which custom portfolio(s) this account is grouped into.
+        const assigned = userPortfolios.filter(up => (up.accountIds || []).includes(acc.id));
+        let portfolioTitle, portfolioSub, dotColor;
+        if (assigned.length > 0) {
+            dotColor       = assigned[0].color || 'var(--primary)';
+            portfolioTitle = assigned.map(p => sanitize(p.name)).join(', ');
+            portfolioSub   = sanitize(group.portfolioName);
+        } else {
+            dotColor       = 'var(--text-muted)';
+            portfolioTitle = '<span style="color:var(--text-muted);font-style:italic;">Unassigned</span>';
+            portfolioSub   = sanitize(group.portfolioName);
+        }
+
+        return `
+        <div class="conn-card${inactive ? ' conn-card-inactive' : ''}" data-account="${acc.id}">
+            <div class="conn-grid">
+                <!-- Account side -->
+                <div class="conn-box">
+                    <div class="conn-box-label">Account:</div>
+                    <div class="conn-box-body">
+                        <div class="conn-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                        </div>
+                        <div class="conn-box-text" id="acc-name-${acc.id}">
+                            <div class="conn-box-title">${sanitize(displayName)}</div>
+                            <div class="conn-box-sub">${sanitize(brokerage)} (Sync via SnapTrade)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Link / disconnect -->
+                <div class="conn-link">
+                    <div class="conn-link-icon" title="Linked">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    </div>
+                    <button class="conn-disconnect" onclick="App.disconnectAccount('${acc.id}')">${inactive ? 'Reconnect' : 'Disconnect'}</button>
+                </div>
+
+                <!-- Portfolio side -->
+                <div class="conn-box">
+                    <div class="conn-box-label">Portfolio:</div>
+                    <div class="conn-box-body">
+                        <div class="conn-icon"><span class="conn-dot" style="background:${dotColor};"></span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-3V5a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v2H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/><path d="M9 7V5h6v2"/></svg>
+                        </div>
+                        <div class="conn-box-text">
+                            <div class="conn-box-title">${portfolioTitle}</div>
+                            <div class="conn-box-sub">${portfolioSub}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="conn-footer">
+                <div class="conn-sync-meta">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/></svg>
+                    <span>Last sync: ${lastSync}</span>
+                    ${balance !== undefined ? `<span class="conn-balance">· $${(balance || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>` : ''}
+                </div>
+                <div class="conn-actions">
+                    <button class="btn btn-outline btn-sm conn-sync-btn" onclick="App.syncAccountNow(${group.portfolioId}, '${acc.id}', this)">
+                        <span class="loader"></span>
+                        <span class="btn-text">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                            Sync now
+                        </span>
+                    </button>
+                    <details class="conn-menu">
+                        <summary class="conn-menu-btn" title="More actions">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+                        </summary>
+                        <div class="conn-menu-pop">
+                            <button onclick="this.closest('details').open=false;App.startRenameAccount('${acc.id}')">Rename account</button>
+                            <button onclick="this.closest('details').open=false;App.toggleAccount('${acc.id}')">${inactive ? 'Activate' : 'Deactivate'}</button>
+                            <button onclick="this.closest('details').open=false;App.switchMainTab('holdings')">View holdings</button>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>`;
+    },
+
+    renderAddAccountMenu(portfolios) {
+        const pop = document.getElementById('addAccountPop');
+        if (!pop) return;
+        const registered = (portfolios || []).filter(p => p.userSecret);
+        let html = '';
+        if (registered.length === 0) {
+            html = `<div class="add-account-empty">No registered connections.<br>
+                <a href="#" onclick="document.getElementById('addAccountMenu').open=false;App.switchSettingsTab('keys');return false;">Add a connection →</a></div>`;
+        } else {
+            html = registered.map(p => `
+                <button onclick="document.getElementById('addAccountMenu').open=false;App.connectBrokerageById(${p.id})">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                    <span>Connect <strong>${sanitize(p.name)}</strong></span>
+                </button>`).join('');
+            html += `<div class="add-account-divider"></div>
+                <a class="add-account-link" href="#" onclick="document.getElementById('addAccountMenu').open=false;App.switchSettingsTab('keys');return false;">Manage credentials →</a>`;
+        }
+        pop.innerHTML = html;
     },
 
     // ── Dashboard widgets ────────────────────────────────────────────────
@@ -549,224 +638,235 @@ const UI = {
 
     // ────────────────────────────────────────────────────────────────────
 
+    // ── Holdings board (Snowball-style aggregated table) ─────────────────────
+
+    money(n) {
+        return '$' + (Math.abs(Number(n) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
+    pct(n) { return (Number(n) || 0).toFixed(2) + '%'; },
+    arrow(n) { return (Number(n) || 0) >= 0 ? '▲' : '▼'; },
+
     renderAllHoldings(data) {
         const tabsContainer   = document.getElementById('holdings-tabs');
         const tablesContainer = document.getElementById('holdings-tables');
+        if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
+        if (!tablesContainer) return;
 
         if (!data || data.length === 0) {
-            if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
             tablesContainer.innerHTML = '<div class="empty-state"><p>No active accounts found to load holdings.</p></div>';
             return;
         }
 
-        this.holdingsStore.clear();
+        // Aggregate every position by symbol across all visible accounts.
+        const bySymbol = new Map();
+        let hadError = false;
+        data.forEach(acct => {
+            if (acct.error) { hadError = true; return; }
+            (acct.holdings || []).forEach(h => {
+                const symbol      = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '—';
+                const description = h.symbol?.symbol?.description || h.description || symbol;
+                const symbolId    = h.symbolId || h.instrument?.id || h.symbol?.id || '';
+                const units = h.units || 0;
+                const price = h.price || 0;
+                if (units === 0 && price === 0) return;
+                const value = h.marketValue || (units * price) || 0;
+                const avg   = h.average_purchase_price || 0;
+                const cost  = avg > 0 ? units * avg : value;
 
-        if (App.selectedUserPortfolioId === 'all') {
-            // Global selection is All Portfolios, so show tabs for custom user portfolios
-            const portfolios = App.userPortfolios || [];
-            
-            // Check if there are any unassigned accounts
-            const assignedAccountIds = new Set();
-            portfolios.forEach(p => (p.accountIds || []).forEach(aid => assignedAccountIds.add(aid)));
-            const unassignedAccounts = data.filter(h => !assignedAccountIds.has(h.accountId));
-
-            const tabs = portfolios.map(p => ({ id: p.id, name: p.name, color: p.color }));
-            if (unassignedAccounts.length > 0) {
-                tabs.push({ id: 'unassigned', name: 'Unassigned Accounts', color: '#7c8496' });
-            }
-
-            if (tabs.length === 0) {
-                if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
-                tablesContainer.innerHTML = '<div class="empty-state"><p>No user portfolios configured. Create one in Settings → Portfolios.</p></div>';
-                return;
-            }
-
-            if (!App.activeHoldingsTabId || !tabs.some(t => t.id === App.activeHoldingsTabId)) {
-                App.activeHoldingsTabId = tabs[0].id;
-            }
-
-            let tabsHtml = '';
-            tabs.forEach(t => {
-                const isActive = App.activeHoldingsTabId === t.id;
-                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                     onclick="App.switchHoldingsPortfolioTab('${t.id}')"
-                                     style="border-bottom-color: ${isActive ? t.color : 'transparent'};">
-                                 ${sanitize(t.name)}
-                             </button>`;
-            });
-
-            if (tabsContainer) {
-                tabsContainer.innerHTML = tabsHtml;
-                tabsContainer.style.display = 'flex';
-            }
-
-            let activeAccounts = [];
-            if (App.activeHoldingsTabId === 'unassigned') {
-                activeAccounts = unassignedAccounts;
-            } else {
-                const activePort = portfolios.find(p => p.id === App.activeHoldingsTabId);
-                const activePortAccountIds = new Set(activePort ? (activePort.accountIds || []) : []);
-                activeAccounts = data.filter(h => activePortAccountIds.has(h.accountId));
-            }
-
-            if (activeAccounts.length === 0) {
-                tablesContainer.innerHTML = '<div class="empty-state"><p>No active accounts or holdings in this portfolio.</p></div>';
-                return;
-            }
-
-            let tablesHtml = '';
-            activeAccounts.forEach(account => {
-                const tabId = `holdings-pane-${account.accountId}`;
-                const aid = sanitize(account.accountId);
-
-                this.holdingsStore.set(account.accountId, {
-                    holdings: account.holdings,
-                    tradingEnabled: account.tradingEnabled,
-                    portfolioId: account.portfolioId,
-                    accountName: account.accountName
+                if (!bySymbol.has(symbol)) {
+                    bySymbol.set(symbol, { symbol, description, symbolId, shares: 0, cost: 0, value: 0, price, lots: [] });
+                }
+                const row = bySymbol.get(symbol);
+                row.shares += units;
+                row.cost   += cost;
+                row.value  += value;
+                if (price) row.price = price;
+                row.lots.push({
+                    accountId: acct.accountId, accountName: acct.accountName,
+                    portfolioId: acct.portfolioId, tradingEnabled: acct.tradingEnabled,
+                    units, price, symbolId, description
                 });
-
-                const tradeCol = account.tradingEnabled;
-
-                tablesHtml += `<div class="holdings-pane card active" id="${tabId}" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">`;
-                tablesHtml += `<div class="card-header" style="border-bottom:1px solid var(--border); background: var(--surface-2); padding:0.6rem 1rem; display:flex; justify-content:space-between; align-items:center;">
-                    <span class="card-title" style="font-size:0.92rem;font-weight:600;margin:0;">${sanitize(account.accountName)}</span>
-                    <span class="text-muted text-sm" style="font-size:0.75rem;">${sanitize(account.portfolioName || 'Unassigned')}</span>
-                </div>`;
-
-                if (account.error) {
-                    tablesHtml += `
-                        <div class="empty-state" style="padding:2rem 1.5rem;">
-                            <div class="empty-icon" style="color:var(--danger);">⚠</div>
-                            <p style="color:var(--danger);font-weight:600;margin-bottom:0.5rem;">Connection Error</p>
-                            <p>${sanitize(account.error)}</p>
-                        </div></div>`;
-                    return;
-                }
-
-                if (!account.holdings || account.holdings.length === 0) {
-                    tablesHtml += '<div class="empty-state" style="padding:1.5rem;"><p>No holdings found in this account.</p></div></div>';
-                    return;
-                }
-
-                tablesHtml += `
-                    <div style="padding:0.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                        <input type="text" class="holdings-filter" data-account="${aid}" placeholder="Filter positions…"
-                               style="flex:1;min-width:140px;max-width:220px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;">
-                        <select class="holdings-sort" data-account="${aid}"
-                                style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;cursor:pointer;">
-                            <option value="value-desc">Value ↓</option>
-                            <option value="value-asc">Value ↑</option>
-                            <option value="symbol">Symbol A→Z</option>
-                            <option value="symbol-desc">Symbol Z→A</option>
-                            <option value="shares-desc">Shares ↓</option>
-                            <option value="price-desc">Price ↓</option>
-                        </select>
-                    </div>
-                    <table class="data-table"><thead><tr>
-                        <th>Position</th>
-                        <th class="right">Shares</th>
-                        <th class="right">Price</th>
-                        <th class="right">Total Value</th>
-                        ${tradeCol ? '<th></th><th class="right">Quick Buy</th>' : ''}
-                    </tr></thead><tbody id="holdings-tbody-${aid}"></tbody></table>`;
-
-                tablesHtml += '</div>';
             });
+        });
 
-            tablesContainer.innerHTML = tablesHtml;
+        // Forward annual dividend per share from forecast metadata (when dividends are loaded).
+        const divPerShare = new Map();
+        const divData = (typeof App !== 'undefined' && App.getFilteredDividendsData) ? App.getFilteredDividendsData() : null;
+        (divData || []).forEach(acct => (acct.dividends || []).forEach(ev => {
+            if (ev.symbol && !divPerShare.has(ev.symbol) && ev.amountPerShare && ev.frequency) {
+                divPerShare.set(ev.symbol, ev.amountPerShare * ev.frequency);
+            }
+        }));
 
+        const rows = Array.from(bySymbol.values()).map(r => {
+            const profit    = r.value - r.cost;
+            const profitPct = r.cost > 0 ? (profit / r.cost) * 100 : 0;
+            const avgCost   = r.shares > 0 ? r.cost / r.shares : 0;
+            const annualPerShare = divPerShare.get(r.symbol) || 0;
+            const annualDiv = annualPerShare * r.shares;
+            const yieldCur  = r.price > 0   ? (annualPerShare / r.price) * 100   : 0;
+            const yieldCost = avgCost > 0   ? (annualPerShare / avgCost) * 100   : 0;
+            return { ...r, profit, profitPct, avgCost, annualPerShare, annualDiv, yieldCur, yieldCost };
+        });
+
+        this.holdingsRows = rows;
+        if (!this.holdingsView) this.holdingsView = 'holdings';
+        if (!this.holdingsSort) this.holdingsSort = { key: 'value', dir: 'desc' };
+
+        const tot = rows.reduce((a, r) => { a.cost += r.cost; a.value += r.value; a.div += r.annualDiv; return a; }, { cost: 0, value: 0, div: 0 });
+        tot.profit = tot.value - tot.cost;
+        tot.profitPct = tot.cost > 0 ? (tot.profit / tot.cost) * 100 : 0;
+        this.holdingsTotals = tot;
+
+        const errNote = hadError
+            ? `<div style="font-size:0.78rem;color:var(--warning);padding:0 0 0.75rem;">⚠ Some accounts could not be loaded and are excluded.</div>`
+            : '';
+
+        tablesContainer.innerHTML = `
+            <div class="holdings-board card">
+                ${errNote}
+                <div class="hb-toolbar">
+                    <div class="hb-views">
+                        ${[['holdings','My holdings'],['dividends','Dividends'],['returns','Returns']].map(([k,label]) =>
+                            `<button class="hb-view ${this.holdingsView===k?'active':''}" onclick="UI.setHoldingsView('${k}')">${label}</button>`).join('')}
+                    </div>
+                    <div class="hb-search">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input type="text" id="hbSearch" placeholder="Search holdings…" oninput="UI.renderHoldingsRows()">
+                    </div>
+                </div>
+                <div class="hb-scroll">
+                    <table class="hb-table">
+                        <thead><tr id="hbHead"></tr></thead>
+                        <tbody id="hbBody"></tbody>
+                    </table>
+                </div>
+                <div class="hb-summary" id="hbSummary"></div>
+            </div>`;
+
+        this.renderHoldingsRows();
+    },
+
+    setHoldingsView(view) {
+        this.holdingsView = view;
+        document.querySelectorAll('.hb-view').forEach(b => b.classList.toggle('active', b.getAttribute('onclick').includes(`'${view}'`)));
+        if (view === 'dividends')    this.holdingsSort = { key: 'yieldCur',  dir: 'desc' };
+        else if (view === 'returns') this.holdingsSort = { key: 'profitPct', dir: 'desc' };
+        else                         this.holdingsSort = { key: 'value',     dir: 'desc' };
+        this.renderHoldingsRows();
+    },
+
+    sortHoldings(key) {
+        const s = this.holdingsSort || { key: 'value', dir: 'desc' };
+        if (s.key === key) s.dir = s.dir === 'desc' ? 'asc' : 'desc';
+        else { s.key = key; s.dir = (key === 'symbol') ? 'asc' : 'desc'; }
+        this.holdingsSort = s;
+        this.renderHoldingsRows();
+    },
+
+    holdingsColumns(view) {
+        const cols = [{ key: 'symbol', label: 'Holding', cls: 'left' }, { key: 'shares', label: 'Shares', cls: 'right' }];
+        if (view === 'dividends') {
+            cols.push({ key: 'annualDiv', label: 'Annual income', cls: 'right' },
+                      { key: 'yieldCur',  label: 'Yield',         cls: 'right' },
+                      { key: 'yieldCost', label: 'Yield on cost', cls: 'right' },
+                      { key: 'value',     label: 'Current value', cls: 'right' });
+        } else if (view === 'returns') {
+            cols.push({ key: 'cost',      label: 'Cost basis',    cls: 'right' },
+                      { key: 'value',     label: 'Current value', cls: 'right' },
+                      { key: 'profit',    label: 'Total profit',  cls: 'right' },
+                      { key: 'profitPct', label: 'Return %',      cls: 'right' });
         } else {
-            // Global selection is a specific portfolio, so show account tabs inside it
-            let tabsHtml = '', tablesHtml = '';
-
-            data.forEach((account, index) => {
-                const isActive = index === 0;
-                const tabId = `holdings-pane-${account.accountId}`;
-                const aid = sanitize(account.accountId);
-
-                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                     onclick="App.switchHoldingsPageTab('${aid}')"
-                                     id="holdings-tabbtn-${aid}">
-                                 ${sanitize(account.accountName || 'Unnamed')}
-                             </button>`;
-
-                tablesHtml += `<div class="holdings-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
-
-                if (account.error) {
-                    tablesHtml += `
-                        <div class="empty-state" style="padding:2.5rem 1.5rem;">
-                            <div class="empty-icon" style="color:var(--danger);">⚠</div>
-                            <p style="color:var(--danger);font-weight:600;margin-bottom:0.5rem;">Connection Error</p>
-                            <p>${sanitize(account.error)}</p>
-                            <button class="btn btn-outline btn-sm mt-2" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios')">Go to Settings</button>
-                        </div></div>`;
-                    return;
-                }
-
-                if (!account.holdings || account.holdings.length === 0) {
-                    tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No holdings found in this account.</p></div></div>';
-                    return;
-                }
-
-                this.holdingsStore.set(account.accountId, {
-                    holdings: account.holdings,
-                    tradingEnabled: account.tradingEnabled,
-                    portfolioId: account.portfolioId,
-                    accountName: account.accountName
-                });
-
-                const tradeCol = account.tradingEnabled;
-
-                tablesHtml += `
-                    <div style="padding:0.6rem 1rem;border-bottom:1px solid var(--border);display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                        <input type="text" class="holdings-filter" data-account="${aid}" placeholder="Filter positions…"
-                               style="flex:1;min-width:140px;max-width:220px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;">
-                        <select class="holdings-sort" data-account="${aid}"
-                                style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.28rem 0.6rem;font-size:0.78rem;cursor:pointer;">
-                            <option value="value-desc">Value ↓</option>
-                            <option value="value-asc">Value ↑</option>
-                            <option value="symbol">Symbol A→Z</option>
-                            <option value="symbol-desc">Symbol Z→A</option>
-                            <option value="shares-desc">Shares ↓</option>
-                            <option value="price-desc">Price ↓</option>
-                        </select>
-                    </div>
-                    <table class="data-table"><thead><tr>
-                        <th>Position</th>
-                        <th class="right">Shares</th>
-                        <th class="right">Price</th>
-                        <th class="right">Total Value</th>
-                        ${tradeCol ? '<th></th><th class="right">Quick Buy</th>' : ''}
-                    </tr></thead><tbody id="holdings-tbody-${aid}"></tbody></table>`;
-
-                tablesHtml += '</div>';
-            });
-
-            if (tabsContainer) {
-                tabsContainer.innerHTML = tabsHtml;
-                tabsContainer.style.display = 'flex';
-            }
-            tablesContainer.innerHTML = tablesHtml;
-        }aid}"></tbody></table>`;
-
-            tablesHtml += '</div>';
-        });
-
-        if (tabsContainer) {
-            tabsContainer.innerHTML = tabsHtml;
-            tabsContainer.style.display = 'flex';
+            cols.push({ key: 'cost',      label: 'Cost basis',    cls: 'right' },
+                      { key: 'value',     label: 'Current value', cls: 'right' },
+                      { key: 'annualDiv', label: 'Dividends',     cls: 'right' },
+                      { key: 'yieldCur',  label: 'Div yield',     cls: 'right' },
+                      { key: 'profit',    label: 'Total profit',  cls: 'right' });
         }
-        tablesContainer.innerHTML = tablesHtml;
+        return cols;
+    },
 
-        // Wire up filter/sort listeners and render each table body
-        this.holdingsStore.forEach((_, accountId) => {
-            this.renderHoldingsTableBody(accountId);
-            const filterEl = document.querySelector(`.holdings-filter[data-account="${sanitize(accountId)}"]`);
-            const sortEl   = document.querySelector(`.holdings-sort[data-account="${sanitize(accountId)}"]`);
-            filterEl?.addEventListener('input',  () => this.renderHoldingsTableBody(accountId));
-            sortEl?.addEventListener('change',   () => this.renderHoldingsTableBody(accountId));
-        });
+    renderHoldingsRows() {
+        const head = document.getElementById('hbHead');
+        const body = document.getElementById('hbBody');
+        if (!head || !body) return;
+
+        const rows = this.holdingsRows || [];
+        const view = this.holdingsView || 'holdings';
+        const sort = this.holdingsSort || { key: 'value', dir: 'desc' };
+        const q    = (document.getElementById('hbSearch')?.value || '').toLowerCase();
+        const cols = this.holdingsColumns(view);
+
+        head.innerHTML = cols.map(c => {
+            const active = sort.key === c.key;
+            const arrow  = active ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '';
+            return `<th class="${c.cls}" onclick="UI.sortHoldings('${c.key}')" style="cursor:pointer;${active ? 'color:var(--primary);' : ''}">${c.label}${arrow}</th>`;
+        }).join('') + '<th class="right" style="width:44px;"></th>';
+
+        let list = rows.filter(r => !q || r.symbol.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q));
+        const dir = sort.dir === 'desc' ? -1 : 1;
+        list.sort((a, b) => sort.key === 'symbol'
+            ? dir * a.symbol.localeCompare(b.symbol)
+            : dir * ((a[sort.key] || 0) - (b[sort.key] || 0)));
+
+        body.innerHTML = list.length === 0
+            ? `<tr><td colspan="${cols.length + 1}" style="text-align:center;color:var(--text-muted);padding:2rem;">No holdings match your search.</td></tr>`
+            : list.map(r => this.renderHoldingRow(r, cols)).join('');
+
+        const t = this.holdingsTotals || { value: 0, cost: 0, profit: 0, profitPct: 0, div: 0 };
+        const sumEl = document.getElementById('hbSummary');
+        if (sumEl) {
+            sumEl.innerHTML = `
+                <span>${list.length} holding${list.length === 1 ? '' : 's'}</span>
+                <span>Value <strong>${this.money(t.value)}</strong></span>
+                <span>Cost <strong>${this.money(t.cost)}</strong></span>
+                <span>Profit <strong class="${t.profit >= 0 ? 'pos' : 'neg'}">${t.profit < 0 ? '-' : '+'}${this.money(t.profit)} (${this.pct(t.profitPct)})</strong></span>
+                <span>Annual income <strong style="color:var(--primary);">${this.money(t.div)}</strong></span>`;
+        }
+    },
+
+    renderHoldingRow(r, cols) {
+        const initials = (r.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || '?';
+        const cell = {
+            shares:    `<td class="right">${r.shares.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>`,
+            cost:      `<td class="right">${this.money(r.cost)}<div class="hb-sub">${this.money(r.avgCost)}</div></td>`,
+            value:     `<td class="right">${this.money(r.value)}<div class="hb-sub">${this.money(r.price)}</div></td>`,
+            annualDiv: `<td class="right">${r.annualDiv > 0 ? this.money(r.annualDiv) : '—'}<div class="hb-sub">${r.annualPerShare > 0 ? this.money(r.annualPerShare) : ''}</div></td>`,
+            yieldCur:  `<td class="right">${r.yieldCur  > 0 ? this.pct(r.yieldCur)  : '—'}</td>`,
+            yieldCost: `<td class="right">${r.yieldCost > 0 ? this.pct(r.yieldCost) : '—'}</td>`,
+            profit:    `<td class="right ${r.profit >= 0 ? 'pos' : 'neg'}">${r.profit < 0 ? '-' : '+'}${this.money(r.profit)}<div class="hb-sub ${r.profit >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profit)} ${this.pct(Math.abs(r.profitPct))}</div></td>`,
+            profitPct: `<td class="right ${r.profitPct >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profitPct)} ${this.pct(Math.abs(r.profitPct))}</td>`,
+        };
+        const cells = cols.slice(1).map(c => cell[c.key] || '<td class="right">—</td>').join('');
+        return `<tr>
+            <td>
+                <div class="hb-holding">
+                    <div class="hb-avatar">${sanitize(initials)}</div>
+                    <div class="hb-names">
+                        <div class="hb-name" title="${sanitize(r.description)}">${sanitize(r.description)}</div>
+                        <div class="hb-ticker">${sanitize(r.symbol)}</div>
+                    </div>
+                </div>
+            </td>
+            ${cells}
+            <td class="right">${this.renderHoldingMenu(r)}</td>
+        </tr>`;
+    },
+
+    renderHoldingMenu(r) {
+        const tradable = (r.lots || []).filter(l => l.tradingEnabled);
+        const items = tradable.map(l => {
+            const d = `data-account-id="${sanitize(l.accountId)}" data-portfolio-id="${sanitize(l.portfolioId)}" data-symbol="${sanitize(r.symbol)}" data-symbol-id="${sanitize(l.symbolId || r.symbolId)}" data-description="${sanitize(r.description)}" data-price="${l.price || r.price}"`;
+            const label = tradable.length > 1 ? ` · ${sanitize(l.accountName || 'Account')}` : '';
+            return `<button class="trade-btn-buy" ${d} data-action="BUY">Buy${label}</button>
+                    <button class="trade-btn-sell" ${d} data-action="SELL">Sell${label}</button>`;
+        }).join('');
+        return `<details class="conn-menu hb-menu">
+            <summary class="conn-menu-btn" title="Actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></summary>
+            <div class="conn-menu-pop">
+                ${items || '<div class="hb-menu-empty">Enable trading on the connection to buy or sell.</div>'}
+            </div>
+        </details>`;
     },
 
     renderHoldingsTableBody(accountId) {
@@ -867,143 +967,202 @@ const UI = {
         }).join('');
     },
 
+    // ── Transactions board (Snowball-style ledger) ───────────────────────────
+
     renderAllTransactions(data) {
         const tabsContainer   = document.getElementById('transactions-tabs');
         const tablesContainer = document.getElementById('transactions-tables');
+        if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
+        if (!tablesContainer) return;
 
         if (!data || data.length === 0) {
-            if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
             tablesContainer.innerHTML = '<div class="empty-state"><p>No active accounts found to load transactions.</p></div>';
             return;
         }
 
-        this.txStore.clear();
+        // Flatten every transaction across the visible accounts.
+        const all = [];
+        data.forEach(acct => (acct.transactions || []).forEach(t => all.push({ ...t, accountName: t.accountName || acct.accountName })));
+        all.sort((a, b) => new Date(b.date) - new Date(a.date));
+        this.txAll = all;
+        if (!this.txTab) this.txTab = 'trades';
 
-        if (App.selectedUserPortfolioId === 'all') {
-            const portfolios = App.userPortfolios || [];
-            const assignedAccountIds = new Set();
-            portfolios.forEach(p => (p.accountIds || []).forEach(aid => assignedAccountIds.add(aid)));
-            const unassignedAccounts = data.filter(h => !assignedAccountIds.has(h.accountId));
+        // Current price per symbol from holdings → lets us show unrealised profit per trade.
+        this.txPriceMap = new Map();
+        const hd = (typeof App !== 'undefined' && App.cachedHoldingsData) ? App.cachedHoldingsData : [];
+        hd.forEach(acct => (acct.holdings || []).forEach(h => {
+            const sym = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol;
+            if (sym && h.price) this.txPriceMap.set(sym, h.price);
+        }));
 
-            const tabs = portfolios.map(p => ({ id: p.id, name: p.name, color: p.color }));
-            if (unassignedAccounts.length > 0) {
-                tabs.push({ id: 'unassigned', name: 'Unassigned Accounts', color: '#7c8496' });
-            }
-
-            if (tabs.length === 0) {
-                if (tabsContainer) { tabsContainer.innerHTML = ''; tabsContainer.style.display = 'none'; }
-                tablesContainer.innerHTML = '<div class="empty-state"><p>No user portfolios configured. Create one in Settings → Portfolios.</p></div>';
-                return;
-            }
-
-            if (!App.activeTransactionsTabId || !tabs.some(t => t.id === App.activeTransactionsTabId)) {
-                App.activeTransactionsTabId = tabs[0].id;
-            }
-
-            let tabsHtml = '';
-            tabs.forEach(t => {
-                const isActive = App.activeTransactionsTabId === t.id;
-                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                     onclick="App.switchTransactionsPortfolioTab('${t.id}')"
-                                     style="border-bottom-color: ${isActive ? t.color : 'transparent'};">
-                                 ${sanitize(t.name)}
-                             </button>`;
-            });
-
-            if (tabsContainer) {
-                tabsContainer.innerHTML = tabsHtml;
-                tabsContainer.style.display = 'flex';
-            }
-
-            let activeAccounts = [];
-            if (App.activeTransactionsTabId === 'unassigned') {
-                activeAccounts = unassignedAccounts;
-            } else {
-                const activePort = portfolios.find(p => p.id === App.activeTransactionsTabId);
-                const activePortAccountIds = new Set(activePort ? (activePort.accountIds || []) : []);
-                activeAccounts = data.filter(h => activePortAccountIds.has(h.accountId));
-            }
-
-            // Merge transactions and positions
-            let combinedTxns = [];
-            let combinedPositions = {};
-            activeAccounts.forEach(account => {
-                combinedTxns.push(...(account.transactions || []));
-                Object.assign(combinedPositions, account.positionsBySymbol || {});
-            });
-            combinedTxns.sort((a, b) => new Date(b.date) - new Date(a.date));
-
-            const aid = sanitize(App.activeTransactionsTabId);
-            this.txStore.set(App.activeTransactionsTabId, { transactions: combinedTxns, positionsBySymbol: combinedPositions, page: 0 });
-
-            let tablesHtml = `<div class="transactions-pane card active" id="transactions-pane-${aid}" style="padding:0; overflow:hidden;">`;
-            if (combinedTxns.length === 0) {
-                tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No transactions found in this portfolio.</p></div></div>';
-            } else {
-                tablesHtml += `
-                    <table class="data-table"><thead><tr>
-                        <th>Security</th><th>Date</th><th>Type</th>
-                        <th class="right">Quantity</th><th class="right">Amount</th>
-                    </tr></thead><tbody id="tx-tbody-${aid}"></tbody></table>
-                    <div class="tx-pagination" id="tx-pagination-${aid}" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;border-top:1px solid var(--border);font-size:0.78rem;color:var(--text-muted);">
-                        <span id="tx-page-info-${aid}"></span>
-                        <div style="display:flex;gap:0.4rem;">
-                            <button class="btn btn-outline btn-sm" id="tx-prev-${aid}" onclick="UI.txPageChange('${aid}',-1)">← Prev</button>
-                            <button class="btn btn-outline btn-sm" id="tx-next-${aid}" onclick="UI.txPageChange('${aid}',1)">Next →</button>
+        tablesContainer.innerHTML = `
+            <div class="tx-board card">
+                <div class="tx-toolbar">
+                    <div class="tx-tabs">
+                        ${[['trades','Trades'],['incomes','Incomes'],['cash','Cash'],['all','All']].map(([k,l]) =>
+                            `<button class="tx-tab ${this.txTab===k?'active':''}" onclick="UI.setTxTab('${k}')">${l}</button>`).join('')}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <div class="hb-search" style="min-width:170px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="txSearch" placeholder="Search…" oninput="UI.renderTxRows()">
                         </div>
-                    </div>`;
-                tablesHtml += '</div>';
-            }
-            tablesContainer.innerHTML = tablesHtml;
-            this.renderTransactionPage(App.activeTransactionsTabId);
+                        <button class="btn btn-outline btn-sm" onclick="UI.exportTransactions()">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Export
+                        </button>
+                    </div>
+                </div>
+                <div id="txSummary" class="tx-summary"></div>
+                <div class="hb-scroll">
+                    <table class="hb-table tx-table">
+                        <thead><tr>
+                            <th>Operation</th><th>Holding</th><th>Date</th>
+                            <th class="right">Shares</th><th class="right">Price</th>
+                            <th class="right">Fee / Tax</th><th class="right">Summ</th>
+                            <th class="right">Total profit</th><th>Note</th>
+                        </tr></thead>
+                        <tbody id="txBody"></tbody>
+                    </table>
+                </div>
+            </div>`;
+        this.renderTxRows();
+    },
 
-        } else {
-            let tabsHtml = '', tablesHtml = '';
+    txCategory(t) {
+        const op = (t.type || t.action || '').toUpperCase();
+        if (op === 'BUY' || op === 'SELL') return 'trades';
+        if (['DIVIDEND', 'INTEREST', 'DISTRIBUTION', 'INCOME'].includes(op)) return 'incomes';
+        if (['DEPOSIT', 'WITHDRAWAL', 'TRANSFER_IN', 'TRANSFER_OUT', 'CONTRIBUTION', 'CASH'].includes(op)) return 'cash';
+        return 'other';
+    },
 
-            data.forEach((account, index) => {
-                const isActive = index === 0;
-                const tabId = `transactions-pane-${account.accountId}`;
-                const aid = sanitize(account.accountId);
+    setTxTab(tab) {
+        this.txTab = tab;
+        document.querySelectorAll('.tx-tab').forEach(b => b.classList.toggle('active', b.getAttribute('onclick').includes(`'${tab}'`)));
+        this.renderTxRows();
+    },
 
-                tabsHtml += `<button class="pill-tab ${isActive ? 'active' : ''}"
-                                     onclick="App.switchTransactionsPageTab('${aid}')"
-                                     id="transactions-tabbtn-${aid}">
-                                 ${sanitize(account.accountName || 'Unnamed')}
-                             </button>`;
+    curSym(code) {
+        const c = (code || '').toUpperCase();
+        if (c === 'CAD') return 'CA$';
+        if (c === 'USD' || c === '') return '$';
+        return c + ' ';
+    },
 
-                tablesHtml += `<div class="transactions-pane card ${isActive ? 'active' : ''}" id="${tabId}" style="display:${isActive ? 'block' : 'none'}; padding:0; overflow:hidden;">`;
+    renderTxRows() {
+        const body = document.getElementById('txBody');
+        if (!body) return;
+        const tab = this.txTab || 'trades';
+        const q = (document.getElementById('txSearch')?.value || '').toLowerCase();
 
-                if (!account.transactions || account.transactions.length === 0) {
-                    tablesHtml += '<div class="empty-state" style="padding:2rem;"><p>No transactions found in this account.</p></div></div>';
-                    return;
-                }
+        let list = (this.txAll || []).filter(t => tab === 'all' || this.txCategory(t) === tab);
+        if (q) list = list.filter(t => (t.symbol || '').toLowerCase().includes(q)
+            || (t.description || '').toLowerCase().includes(q) || (t.accountName || '').toLowerCase().includes(q));
 
-                this.txStore.set(account.accountId, { transactions: account.transactions, positionsBySymbol: account.positionsBySymbol || {}, page: 0 });
-
-                tablesHtml += `
-                    <table class="data-table"><thead><tr>
-                        <th>Security</th><th>Date</th><th>Type</th>
-                        <th class="right">Quantity</th><th class="right">Amount</th>
-                    </tr></thead><tbody id="tx-tbody-${aid}"></tbody></table>
-                    <div class="tx-pagination" id="tx-pagination-${aid}" style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 1rem;border-top:1px solid var(--border);font-size:0.78rem;color:var(--text-muted);">
-                        <span id="tx-page-info-${aid}"></span>
-                        <div style="display:flex;gap:0.4rem;">
-                            <button class="btn btn-outline btn-sm" id="tx-prev-${aid}" onclick="UI.txPageChange('${aid}',-1)">← Prev</button>
-                            <button class="btn btn-outline btn-sm" id="tx-next-${aid}" onclick="UI.txPageChange('${aid}',1)">Next →</button>
-                        </div>
-                    </div>`;
-
-                tablesHtml += '</div>';
-            });
-
-            if (tabsContainer) {
-                tabsContainer.innerHTML = tabsHtml;
-                tabsContainer.style.display = 'flex';
-            }
-            tablesContainer.innerHTML = tablesHtml;
-
-            this.txStore.forEach((_, accountId) => this.renderTransactionPage(accountId));
+        // Buy/Sell totals (grouped by currency) for the summary box.
+        const sums = {};
+        (this.txAll || []).forEach(t => {
+            const op = (t.type || t.action || '').toUpperCase();
+            if (op !== 'BUY' && op !== 'SELL') return;
+            const cur = (t.currencyCode || 'USD').toUpperCase();
+            sums[cur] = sums[cur] || { buy: 0, sell: 0 };
+            sums[cur][op === 'BUY' ? 'buy' : 'sell'] += Math.abs(t.amount || 0);
+        });
+        const sumEl = document.getElementById('txSummary');
+        if (sumEl) {
+            const curs = Object.keys(sums);
+            const money = n => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            sumEl.innerHTML = curs.length === 0 ? '' : `
+                <div class="tx-sum-col"><div class="tx-sum-label"><span class="tx-dot pos"></span> Buy</div>
+                    ${curs.map(c => `<div class="tx-sum-val">${this.curSym(c)}${money(sums[c].buy)}</div>`).join('')}</div>
+                <div class="tx-sum-col"><div class="tx-sum-label"><span class="tx-dot neg"></span> Sell</div>
+                    ${curs.map(c => `<div class="tx-sum-val">${this.curSym(c)}${money(sums[c].sell)}</div>`).join('')}</div>`;
         }
+
+        body.innerHTML = list.length === 0
+            ? `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No transactions in this view.</td></tr>`
+            : list.map(t => this.renderTxRow(t)).join('');
+    },
+
+    renderTxRow(t) {
+        const op  = (t.type || t.action || '').toUpperCase();
+        const cur = this.curSym(t.currencyCode);
+        const symbol = t.symbol || '';
+        const name   = t.description || symbol || (op ? op[0] + op.slice(1).toLowerCase() : '—');
+        const date   = t.date ? new Date(t.date).toLocaleDateString('en-CA') : '—';
+        const units  = t.units;
+        const price  = t.price;
+        const amount = t.amount || 0;
+        const cat    = this.txCategory(t);
+        const pretty = s => s ? s[0] + s.slice(1).toLowerCase().replace(/_/g, ' ') : '—';
+
+        let badge;
+        if (op === 'BUY')       badge = `<span class="op-badge op-buy">Buy</span>`;
+        else if (op === 'SELL') badge = `<span class="op-badge op-sell">Sell</span>`;
+        else if (cat === 'incomes') badge = `<span class="op-badge op-income">${sanitize(pretty(op))}</span>`;
+        else                    badge = `<span class="op-badge op-cash">${sanitize(pretty(op))}</span>`;
+
+        const summNeg = op === 'BUY' || op === 'WITHDRAWAL' || op === 'TRANSFER_OUT' || amount < 0;
+        const summ = `<span class="${summNeg ? 'neg' : 'pos'}">${summNeg ? '-' : '+'}${cur}${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
+
+        let profitCell = '<td class="right">—</td>';
+        if ((op === 'BUY' || op === 'SELL') && symbol && units) {
+            const curPrice = this.txPriceMap.get(symbol);
+            if (curPrice && price) {
+                const profit = (curPrice - price) * Math.abs(units);
+                const pctv   = price > 0 ? ((curPrice - price) / price) * 100 : 0;
+                const cls    = profit >= 0 ? 'pos' : 'neg';
+                profitCell = `<td class="right"><div class="${cls}">${this.arrow(pctv)} ${this.pct(Math.abs(pctv))}</div><div class="hb-sub ${cls}">${profit < 0 ? '-' : '+'}${cur}${Math.abs(profit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></td>`;
+            }
+        }
+
+        let note = t.note || '';
+        if (!note) {
+            if (op === 'BUY' || op === 'SELL') {
+                note = `${op === 'BUY' ? 'Bought' : 'Sold'} ${units != null ? Number(units).toLocaleString(undefined, { maximumFractionDigits: 6 }) : ''} of ${symbol || '—'}${price != null ? ` at ${cur}${Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : ''}`;
+            } else if (cat === 'incomes') {
+                note = `${name}${symbol ? ` (${symbol})` : ''}`;
+            }
+        }
+
+        return `<tr>
+            <td>${badge}</td>
+            <td>
+                <div class="hb-names">
+                    <div class="hb-name" title="${sanitize(name)}">${sanitize(name)}</div>
+                    ${symbol ? `<div class="hb-ticker">${sanitize(symbol)}</div>` : ''}
+                </div>
+            </td>
+            <td style="white-space:nowrap;color:var(--text-muted);">${sanitize(date)}</td>
+            <td class="right">${units != null ? Number(units).toLocaleString(undefined, { maximumFractionDigits: 6 }) : '—'}</td>
+            <td class="right">${price != null ? cur + Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}</td>
+            <td class="right" style="color:var(--text-muted);">${cur}0.00</td>
+            <td class="right" style="font-weight:600;">${summ}</td>
+            ${profitCell}
+            <td style="color:var(--text-muted);font-size:0.8rem;max-width:240px;white-space:normal;line-height:1.35;">${sanitize(note)} <span style="opacity:0.6;">${sanitize(t.accountName || '')}</span></td>
+        </tr>`;
+    },
+
+    exportTransactions() {
+        const rows = this.txAll || [];
+        if (rows.length === 0) { this.showToast('No transactions to export', 'error'); return; }
+        const header = ['Operation', 'Symbol', 'Holding', 'Date', 'Shares', 'Price', 'Amount', 'Currency', 'Account'];
+        const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const lines = [header.join(',')];
+        rows.forEach(t => lines.push([
+            (t.type || t.action || ''), t.symbol || '', t.description || '',
+            t.date ? new Date(t.date).toISOString().slice(0, 10) : '',
+            t.units ?? '', t.price ?? '', t.amount ?? '', t.currencyCode || '', t.accountName || ''
+        ].map(esc).join(',')));
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `centralfolio-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+        this.showToast('Transactions exported');
     },
 
     txPageChange(accountId, delta) {
@@ -1596,102 +1755,167 @@ const UI = {
     },
 
     renderDividendCalendar(cachedDividendsData, targetDate, selectedAccountId = 'all') {
-        const gridEl   = document.getElementById('dividend-calendar-grid');
-        const monthEl  = document.getElementById('currentCalendarMonth');
+        const gridEl  = document.getElementById('dividend-calendar-grid');
+        const monthEl = document.getElementById('currentCalendarMonth');
         if (!gridEl || !monthEl) return;
 
         monthEl.textContent = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-
         this.renderDividendAccountTabs(cachedDividendsData, selectedAccountId);
 
-        let allEvents  = [];
+        // Gather events for the selected account scope.
+        let allEvents = [];
         let annualTotal = 0;
-        if (cachedDividendsData) {
-            cachedDividendsData.forEach(acct => {
-                if (acct.error) return;
-
-                let include = false;
-                if (selectedAccountId === 'all') {
-                    include = true;
-                } else if (selectedAccountId === 'unassigned') {
-                    const isAssigned = (App.userPortfolios || []).some(p => (p.accountIds || []).includes(acct.accountId));
-                    include = !isAssigned;
-                } else if (String(selectedAccountId).startsWith('portfolio-')) {
-                    const pid = parseInt(selectedAccountId.split('-')[1], 10);
-                    const port = (App.userPortfolios || []).find(p => p.id === pid);
-                    include = port && (port.accountIds || []).includes(acct.accountId);
-                } else {
-                    include = acct.accountId === selectedAccountId;
-                }
-
-                if (include) {
-                    (acct.dividends || []).forEach(e => {
-                        allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
-                        annualTotal += (e.amount || 0);
-                    });
-                }
+        (cachedDividendsData || []).forEach(acct => {
+            if (acct.error) return;
+            let include;
+            if (selectedAccountId === 'all') include = true;
+            else if (selectedAccountId === 'unassigned') include = !(App.userPortfolios || []).some(p => (p.accountIds || []).includes(acct.accountId));
+            else if (String(selectedAccountId).startsWith('portfolio-')) {
+                const pid = parseInt(selectedAccountId.split('-')[1], 10);
+                const port = (App.userPortfolios || []).find(p => p.id === pid);
+                include = port && (port.accountIds || []).includes(acct.accountId);
+            } else include = acct.accountId === selectedAccountId;
+            if (include) (acct.dividends || []).forEach(e => {
+                allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
+                annualTotal += (e.amount || 0);
             });
-        }
-
-        const summaryEl = document.getElementById('dividend-tracker-summary');
-        if (summaryEl) summaryEl.style.display = 'grid';
-        const annualEl  = document.getElementById('unified-annual-income');
-        const monthAvgEl = document.getElementById('unified-monthly-average');
-        const monthTotalEl = document.getElementById('unified-month-total');
-        const monthLabelEl = document.getElementById('unified-month-label');
-
-        if (annualEl)   annualEl.textContent   = `$${annualTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-        if (monthAvgEl) monthAvgEl.textContent = `$${(annualTotal / 12).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-        if (monthLabelEl) monthLabelEl.textContent = `${targetDate.toLocaleString('default',{month:'short'})} Total`;
-
-        const year  = targetDate.getFullYear();
-        const month = targetDate.getMonth();
-        const firstDow    = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
-        const prevLast    = new Date(year, month, 0).getDate();
-        const today       = new Date();
-
-        let html = '<div class="calendar-header-row">';
-        ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
-            html += `<div class="calendar-day-name">${d}</div>`;
         });
-        html += '</div><div class="calendar-grid">';
+        this.divCalEvents = allEvents;
 
-        for (let i = firstDow - 1; i >= 0; i--) {
-            html += `<div class="calendar-cell other-month"><div class="calendar-date-num">${prevLast - i}</div></div>`;
-        }
+        // Per-holding yield (annual dividend / current price) for the event cards.
+        const priceMap = new Map();
+        const hd = (typeof App !== 'undefined' && App.cachedHoldingsData) ? App.cachedHoldingsData : [];
+        hd.forEach(a => (a.holdings || []).forEach(h => {
+            const s = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol;
+            if (s && h.price) priceMap.set(s, h.price);
+        }));
+        const yieldFor = e => {
+            const p = priceMap.get(e.symbol);
+            if (!p || !e.amountPerShare || !e.frequency) return null;
+            return (e.amountPerShare * e.frequency / p) * 100;
+        };
 
-        let viewingMonthTotal = 0;
+        // Summary card.
+        const portVal = (typeof App !== 'undefined' && App.totalPortfolioValue) ? App.totalPortfolioValue() : 0;
+        const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        setTxt('divcalAnnual',  this.money(annualTotal));
+        setTxt('divcalMonthly', this.money(annualTotal / 12));
+        setTxt('divcalDaily',   this.money(annualTotal / 365));
+        setTxt('divcalYield',   portVal > 0 ? this.pct((annualTotal / portVal) * 100) : '—');
+        setTxt('unified-annual-income', this.money(annualTotal));
+
+        this.renderDivCalChart(allEvents);
+
+        // Calendar grid for the viewed month.
+        const year = targetDate.getFullYear(), month = targetDate.getMonth();
+        const firstDow = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const today = new Date();
+
+        let html = '<div class="divcal-weekrow">' + ['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d => `<div class="divcal-weekday">${d}</div>`).join('') + '</div><div class="divcal-grid">';
+        for (let i = 0; i < firstDow; i++) html += '<div class="divcal-cell empty"></div>';
+
+        let monthTotal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
-            const dateStr  = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-            const isToday  = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
             const dayEvents = allEvents.filter(e => {
                 const d = new Date(e.date);
                 return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
             });
             const dayTotal = dayEvents.reduce((s, e) => s + (e.amount || 0), 0);
-            viewingMonthTotal += dayTotal;
-            const hasEvents = dayEvents.length > 0;
-            const eventsJson = JSON.stringify(dayEvents).replace(/"/g, '&quot;');
+            monthTotal += dayTotal;
+            const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
 
-            html += `<div class="calendar-cell${isToday ? ' today' : ''}${hasEvents ? ' has-events' : ''}"
-                         onclick="${hasEvents ? `UI.renderCalendarDayDetails(${eventsJson}, '${dateStr}')` : ''}">
-                        <div class="calendar-date-num">${day}</div>
-                        ${hasEvents ? `<div class="calendar-event-dot"></div>
-                                       <span class="calendar-event-amount">+$${dayTotal.toFixed(2)}</span>` : ''}
-                     </div>`;
+            const cards = dayEvents.map(e => {
+                const y = yieldFor(e);
+                const badge = (e.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4);
+                return `<div class="divcal-event" title="${sanitize(e.name || e.symbol)}">
+                    <div class="divcal-event-top"><span class="divcal-event-badge">${sanitize(badge)}</span><span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong> ${sanitize((e.name || '').slice(0, 20))}</span></div>
+                    <div class="divcal-event-bot"><span class="divcal-event-amt">$${(e.amount || 0).toFixed(2)}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>
+                </div>`;
+            }).join('');
+
+            html += `<div class="divcal-cell${isToday ? ' today' : ''}">
+                <div class="divcal-cell-head"><span class="divcal-daynum${isToday ? ' today' : ''}">${day}</span>${dayTotal > 0 ? `<span class="divcal-daytotal">+$${dayTotal.toFixed(2)}</span>` : ''}</div>
+                <div class="divcal-cell-events">${cards}</div>
+            </div>`;
         }
-
-        if (monthTotalEl) monthTotalEl.textContent = `$${viewingMonthTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-
-        const totalCells = firstDow + daysInMonth;
-        const remaining  = (Math.ceil(totalCells / 7) * 7) - totalCells;
-        for (let i = 1; i <= remaining; i++) {
-            html += `<div class="calendar-cell other-month"><div class="calendar-date-num">${i}</div></div>`;
-        }
-
         html += '</div>';
         gridEl.innerHTML = html;
+
+        const mt = document.getElementById('divcalMonthTotal');
+        if (mt) mt.textContent = monthTotal > 0 ? `+$${monthTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+        setTxt('unified-month-total', this.money(monthTotal));
+
+        this.renderDivCalList(allEvents);
+        this.setDivCalView(this.divCalView || 'calendar');
+    },
+
+    renderDivCalChart(events) {
+        const canvas = document.getElementById('divcalChart');
+        if (!canvas || typeof Chart === 'undefined') return;
+        const now = new Date();
+        const labels = [], totals = [], keys = [];
+        for (let i = 0; i < 12; i++) {
+            const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+            labels.push(d.toLocaleString('default', { month: 'short' }));
+            keys.push(`${d.getFullYear()}-${d.getMonth()}`);
+            totals.push(0);
+        }
+        const idx = new Map(keys.map((k, i) => [k, i]));
+        (events || []).forEach(e => {
+            const d = new Date(e.date);
+            const k = `${d.getFullYear()}-${d.getMonth()}`;
+            if (idx.has(k)) totals[idx.get(k)] += (e.amount || 0);
+        });
+        const max = Math.max(1, ...totals);
+        if (this.divcalChartInst) this.divcalChartInst.destroy();
+        this.divcalChartInst = new Chart(canvas, {
+            type: 'bar',
+            data: { labels, datasets: [{ data: totals, backgroundColor: '#3a7bd5', borderRadius: 4, maxBarThickness: 26 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: c => '$' + c.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 0 }) } }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: '#888', font: { size: 11 } } },
+                    y: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#888', maxTicksLimit: 4, callback: v => max >= 1000 ? '$' + (v / 1000).toFixed(0) + 'K' : '$' + v.toFixed(0) } }
+                }
+            }
+        });
+    },
+
+    renderDivCalList(events) {
+        const el = document.getElementById('dividend-calendar-list');
+        if (!el) return;
+        const now = new Date();
+        const floor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const upcoming = (events || []).filter(e => new Date(e.date) >= floor)
+            .sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 250);
+        if (upcoming.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No upcoming dividends.</div>'; return; }
+        const byDate = {};
+        upcoming.forEach(e => { const k = new Date(e.date).toLocaleDateString('en-CA'); (byDate[k] = byDate[k] || []).push(e); });
+        el.innerHTML = '<div class="card" style="padding:0;overflow:hidden;">' + Object.keys(byDate).map(k => {
+            const evs = byDate[k];
+            const tot = evs.reduce((s, e) => s + (e.amount || 0), 0);
+            return `<div class="divcal-listday">
+                <div class="divcal-listday-head"><span>${sanitize(k)}</span><span class="pos">+$${tot.toFixed(2)}</span></div>
+                ${evs.map(e => `<div class="divcal-listrow"><span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span><span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span><span class="divcal-listrow-amt">$${(e.amount || 0).toFixed(2)}</span></div>`).join('')}
+            </div>`;
+        }).join('') + '</div>';
+    },
+
+    setDivCalView(view) {
+        this.divCalView = view;
+        const grid = document.getElementById('dividend-calendar-grid');
+        const list = document.getElementById('dividend-calendar-list');
+        const cb = document.getElementById('divcalViewCalendar');
+        const lb = document.getElementById('divcalViewList');
+        if (grid) grid.style.display = view === 'calendar' ? 'block' : 'none';
+        if (list) list.style.display = view === 'list' ? 'block' : 'none';
+        if (cb) cb.classList.toggle('active', view === 'calendar');
+        if (lb) lb.classList.toggle('active', view === 'list');
     },
 
     renderCalendarDayDetails(events, dateStr) {

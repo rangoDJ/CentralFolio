@@ -73,6 +73,8 @@ export const listAccounts = async (req: Request, res: Response) => {
             ...live,
             isActive: row.isActive === 1 || row.isActive === true,
             customName: row.customName || null,
+            lastPositionsFetch: row.lastPositionsFetch ?? null,
+            cachedAt: row.cachedAt ?? null,
             balance: { total: { amount: positionTotal, currency: live.balance?.total?.currency || 'CAD' } },
           };
         });

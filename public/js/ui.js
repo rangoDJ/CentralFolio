@@ -749,7 +749,7 @@ const UI = {
                     </div>
                     <div class="hb-search">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                        <input type="text" id="hbSearch" placeholder="Search holdings…" oninput="UI.renderHoldingsRows()">
+                        <input type="text" id="hbSearch" placeholder="Search holdings…" oninput="UI.hbSearchInput()">
                     </div>
                 </div>
                 <div class="hb-scroll">
@@ -762,6 +762,11 @@ const UI = {
             </div>`;
 
         this.renderHoldingsRows();
+    },
+
+    hbSearchInput() {
+        clearTimeout(this._hbSearchTimer);
+        this._hbSearchTimer = setTimeout(() => this.renderHoldingsRows(), 180);
     },
 
     setHoldingsView(view) {

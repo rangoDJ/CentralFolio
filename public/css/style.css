@@ -59,6 +59,9 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  /* Allow the flex child to shrink below its content width so wide tables
+     scroll inside their own containers instead of pushing the whole page wide. */
+  min-width: 0;
 }
 
 /* ── Sidebar ──────────────────────────────────── */
@@ -217,7 +220,17 @@ body {
 .tab-content { display: none; }
 .tab-content.active { display: block; animation: fadeIn 0.2s ease-out; }
 
-.container { padding: 2rem; max-width: 1400px; }
+.container { padding: 2rem; width: 100%; max-width: 100%; }
+
+/* Two-column splits that stay shrinkable (minmax 0) and collapse to a single
+   column on narrow screens, so they never force horizontal page scroll. */
+.split-cols { display: grid; gap: 1.5rem; align-items: start; }
+.split-cols.left-fixed  { grid-template-columns: minmax(0, 350px) minmax(0, 1fr); }
+.split-cols.right-fixed { grid-template-columns: minmax(0, 1fr) minmax(0, 340px); }
+@media (max-width: 880px) {
+  .split-cols.left-fixed,
+  .split-cols.right-fixed { grid-template-columns: 1fr; }
+}
 
 /* ── Cards ────────────────────────────────────── */
 
@@ -806,6 +819,51 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .dividend-event-amount { font-size: 0.95rem; font-weight: 700; color: var(--success); font-feature-settings: "tnum"; }
 .dividend-event-portfolio { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
 
+/* ── Stock detail page ─────────────────────────── */
+.stock-link { cursor: pointer; }
+.stock-link:hover .hb-ticker,
+.dividend-event-symbol.stock-link:hover,
+.divcal-event.stock-link:hover { text-decoration: underline; }
+.divcal-event.stock-link:hover { outline: 1px solid var(--border); }
+
+#stock-detail-content .pos { color: var(--success); }
+#stock-detail-content .neg { color: var(--danger); }
+
+.sd-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+.sd-id { display: flex; align-items: center; gap: 0.85rem; min-width: 0; }
+.sd-logo { width: 44px; height: 44px; border-radius: 8px; object-fit: contain; background: #fff; flex-shrink: 0; }
+.sd-logo-fallback { width: 44px; height: 44px; border-radius: 8px; background: var(--surface-2); color: var(--primary);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; flex-shrink: 0; }
+.sd-id-text { min-width: 0; }
+.sd-name { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; }
+.sd-sub { font-size: 0.8rem; color: var(--text-muted); margin-top: 2px; }
+.sd-head-right { display: flex; align-items: flex-start; gap: 1.75rem; flex-wrap: wrap; }
+.sd-price { font-size: 1.35rem; font-weight: 700; font-feature-settings: "tnum"; }
+.sd-daychange { font-size: 0.8rem; font-weight: 600; margin-left: 0.4rem; }
+.sd-daychange.pos { color: var(--success); }
+.sd-daychange.neg { color: var(--danger); }
+.sd-yield-label { font-size: 0.72rem; color: var(--text-muted); }
+.sd-yield-val { font-size: 1.1rem; font-weight: 700; color: var(--primary); }
+
+.sd-body { margin-bottom: 1.25rem; }
+.sd-card { max-width: 420px; }
+.sd-divrow { display: flex; justify-content: space-between; gap: 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+.sd-divrow:last-child { border-bottom: none; }
+.sd-divrow span { color: var(--text-muted); }
+
+.sd-pos-title { font-size: 1.05rem; font-weight: 700; margin: 0.5rem 0 0.85rem; }
+.sd-pos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+.sd-poscard { padding: 1rem 1.15rem; }
+.sd-poscard-total { border: 1px solid var(--primary); }
+.sd-poshead { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.sd-posacct { font-size: 0.85rem; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-posshares { font-size: 0.72rem; color: var(--text-muted); flex-shrink: 0; }
+.sd-posvalue { font-size: 1.15rem; font-weight: 700; margin: 0.25rem 0 0.65rem; font-feature-settings: "tnum"; }
+.sd-posrow { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.3rem 0; font-size: 0.82rem; }
+.sd-posrow > span:first-child { color: var(--text-muted); }
+.sd-posval { font-weight: 600; font-feature-settings: "tnum"; text-align: right; }
+
 /* ── Dividend status: expected vs received vs overdue ───────────── */
 /* A coloured left accent + amount colour distinguishes the three states.
    Applied to forecast rows (.dividend-event-row) and calendar cards. */
@@ -912,6 +970,10 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   gap: 1rem;
   margin-bottom: 1rem;
 }
+
+/* Let grid cells shrink below their content so inner tables/charts scroll
+   within their own scroll containers rather than widening the whole page. */
+.dash-main-row > *, .dash-bottom-row > *, .stats-row > *, .dash-stats > * { min-width: 0; }
 
 /* ── Upcoming dividend event cards ────────────── */
 

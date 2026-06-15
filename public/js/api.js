@@ -176,6 +176,13 @@ const API = {
         return data;
     },
 
+    async getStockDetail(symbol) {
+        const res = await this._fetch(`/api/stock/${encodeURIComponent(symbol)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || `Failed to load detail for ${symbol}`);
+        return data;
+    },
+
     async getJobs() {
         const res = await this._fetch('/api/jobs');
         const data = await this._json(res);

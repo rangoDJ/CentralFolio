@@ -106,6 +106,15 @@ const App = {
             if (e.target === document.getElementById('userPortfolioModal')) UI.closeUserPortfolioModal();
         };
 
+        // Clicking any element tagged with data-stock opens the stock detail page.
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest('[data-stock]');
+            if (link) {
+                e.preventDefault();
+                this.openStockDetail(link.getAttribute('data-stock'));
+            }
+        });
+
         UI.portfolioForm.onsubmit = (e) => this.handlePortfolioSubmit(e);
 
         document.getElementById('refreshBtn').onclick = () => this.fetchAccounts(true);
@@ -861,8 +870,8 @@ const App = {
     },
 
     onJobStatusEvent(job) {
-        // Keep the Settings → Background Jobs panel live while it's on screen.
-        if (localStorage.getItem('activeMainTab') === 'settings') {
+        // Keep the Scheduler → Background Jobs panel live while it's on screen.
+        if (localStorage.getItem('activeMainTab') === 'scheduler') {
             API.getJobs().then(jobs => UI.renderJobsPanel(jobs)).catch(() => {});
         }
         // The dividend-fetch finishing also flips the "Fetching…" loader to real
@@ -1334,7 +1343,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', rebalance: 'Rebalancing', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', rebalance: 'Rebalancing', scheduler: 'Scheduler', settings: 'Settings' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -1360,9 +1369,114 @@ const App = {
             }
         } else if (tabId === 'rebalance') {
             this.loadRebalanceTab();
-        } else if (tabId === 'settings') {
+        } else if (tabId === 'scheduler') {
             this.loadJobsPanel();
         }
+    },
+
+    // ── Stock detail page ────────────────────────────────────────────────────
+    // Opened by clicking a symbol; a contextual full-page view (not a sidebar
+    // tab) reached over the current page, with a Back button to return.
+    async openStockDetail(symbol) {
+        if (!symbol) return;
+        symbol = String(symbol).toUpperCase().trim();
+        // Remember where to return (in memory only, so a reload won't get stuck here).
+        this._returnTab = localStorage.getItem('activeMainTab') || 'dashboard';
+
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        const view = document.getElementById('stock-detail-tab');
+        if (view) view.classList.add('active');
+        const pageTitleEl = document.getElementById('pageTitle');
+        if (pageTitleEl) pageTitleEl.textContent = symbol;
+        this.closeSidebarOnMobile();
+
+        // Positions come from already-cached data (ensure transactions for dividends-received).
+        await this.ensureTransactionsLoaded();
+        const positions = this.buildStockPositions(symbol);
+
+        // Render immediately with positions + a loading header, then fill in Snowball detail.
+        UI.renderStockDetail(symbol, null, positions, 'loading');
+        try {
+            const detail = await API.getStockDetail(symbol);
+            UI.renderStockDetail(symbol, detail, positions, 'ready');
+        } catch (_) {
+            UI.renderStockDetail(symbol, null, positions, 'error');
+        }
+    },
+
+    closeStockDetail() {
+        this.switchMainTab(this._returnTab || 'dashboard');
+    },
+
+    // Build the "My positions" breakdown for a symbol from cached holdings +
+    // transactions. Returns { rows: [...per account], total: {...aggregate} }.
+    buildStockPositions(symbol) {
+        const want = String(symbol).toUpperCase().trim();
+        const norm = s => String(s || '').toUpperCase().trim();
+        const symOf = h => norm(h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol);
+
+        // Dividends received per account for this symbol.
+        const txData = this.getFilteredTransactionsData() || [];
+        const divByAccount = new Map();
+        txData.forEach(acct => {
+            (acct.transactions || []).forEach(t => {
+                if (!UI._DIV_TYPES.includes(norm(t.type))) return;
+                if (norm(t.symbol) !== want) return;
+                divByAccount.set(acct.accountId, (divByAccount.get(acct.accountId) || 0) + Math.abs(t.amount || 0));
+            });
+        });
+
+        // Per-account totals (for "% in portfolio").
+        const acctTotal = new Map();
+        (this.currentGroups || []).forEach(g => (g.accounts || []).forEach(a => {
+            if (!this.inactiveAccountIds?.has(a.id)) acctTotal.set(a.id, a.balance?.total?.amount || 0);
+        }));
+
+        const rows = [];
+        (this.cachedHoldingsData || []).forEach(acct => {
+            if (this.inactiveAccountIds?.has(acct.accountId)) return;
+            (acct.holdings || []).forEach(h => {
+                if (symOf(h) !== want) return;
+                const units = h.units || 0;
+                const price = h.price || 0;
+                const value = h.marketValue || (units * price) || 0;
+                const avgCost = h.average_purchase_price || 0;
+                const cost = avgCost > 0 ? avgCost * units : value;
+                const capitalGain = value - cost;
+                const dividends = divByAccount.get(acct.accountId) || 0;
+                const profit = capitalGain + dividends;
+                const portTotal = acctTotal.get(acct.accountId) || 0;
+                rows.push({
+                    accountId: acct.accountId,
+                    accountName: acct.accountName,
+                    currency: h.currency || 'CAD',
+                    units, price, value, avgCost, cost,
+                    capitalGain,
+                    capitalGainPct: cost > 0 ? (capitalGain / cost) * 100 : 0,
+                    dividends,
+                    profit,
+                    profitPct: cost > 0 ? (profit / cost) * 100 : 0,
+                    pctInPortfolio: portTotal > 0 ? (value / portTotal) * 100 : 0,
+                });
+            });
+        });
+
+        // Aggregate across all accounts holding the symbol.
+        const sum = (k) => rows.reduce((s, r) => s + (r[k] || 0), 0);
+        const tUnits = sum('units'), tValue = sum('value'), tCost = sum('cost');
+        const tCap = tValue - tCost, tDiv = sum('dividends'), tProfit = tCap + tDiv;
+        const total = rows.length ? {
+            accountName: `${rows.length} ${rows.length === 1 ? 'account' : 'accounts'}`,
+            currency: rows[0].currency,
+            units: tUnits,
+            avgCost: tUnits > 0 ? tCost / tUnits : 0,
+            value: tValue, cost: tCost,
+            capitalGain: tCap, capitalGainPct: tCost > 0 ? (tCap / tCost) * 100 : 0,
+            dividends: tDiv,
+            profit: tProfit, profitPct: tCost > 0 ? (tProfit / tCost) * 100 : 0,
+        } : null;
+
+        return { rows, total };
     },
 
     async switchSettingsTab(paneId, btnElement) {

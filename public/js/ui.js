@@ -866,10 +866,10 @@ const UI = {
         const cells = cols.slice(1).map(c => cell[c.key] || '<td class="right">—</td>').join('');
         return `<tr>
             <td>
-                <div class="hb-holding">
+                <div class="hb-holding stock-link" data-stock="${sanitize(r.symbol)}" title="View ${sanitize(r.symbol)} detail">
                     <div class="hb-avatar">${sanitize(initials)}</div>
                     <div class="hb-names">
-                        <div class="hb-name" title="${sanitize(r.description)}">${sanitize(r.description)}</div>
+                        <div class="hb-name">${sanitize(r.description)}</div>
                         <div class="hb-ticker">${sanitize(r.symbol)}</div>
                     </div>
                 </div>
@@ -1501,6 +1501,105 @@ const UI = {
         </div>`;
     },
 
+    _freqName(f) {
+        return ({ 1: 'Annual', 2: 'Semi-annual', 4: 'Quarterly', 6: 'Bi-monthly', 12: 'Monthly', 24: 'Semi-monthly', 26: 'Bi-weekly', 52: 'Weekly' })[f] || '—';
+    },
+
+    _fmtDate(s) {
+        if (!s) return '—';
+        const d = new Date(s);
+        return isNaN(d) ? sanitize(s) : d.toLocaleDateString('default', { day: 'numeric', month: 'short', year: 'numeric' });
+    },
+
+    // Snowball-style stock detail page: header, dividends panel, my positions.
+    // `state`: 'loading' | 'ready' | 'error' — controls the Snowball-derived panel.
+    renderStockDetail(symbol, asset, positions, state = 'ready') {
+        const host = document.getElementById('stock-detail-content');
+        if (!host) return;
+        const cur = (asset && asset.currency) || (positions?.total?.currency) || 'CAD';
+        const initials = (symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase();
+
+        // ── Header ──
+        const logo = asset && asset.logoURL
+            ? `<img src="${sanitize(asset.logoURL)}" alt="" class="sd-logo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+               <div class="sd-logo-fallback" style="display:none;">${sanitize(initials)}</div>`
+            : `<div class="sd-logo-fallback">${sanitize(initials)}</div>`;
+        const name = (asset && asset.name) || symbol;
+        const sub = asset && (asset.ticker || asset.exchange)
+            ? `${sanitize(asset.ticker || symbol)}${asset.exchange ? ' · ' + sanitize(asset.exchange) : ''}${asset.sector && asset.sector !== 'Other' ? ' · ' + sanitize(asset.sector) : ''}`
+            : sanitize(symbol);
+
+        let priceBlock = '';
+        if (asset && asset.price != null) {
+            const dc = asset.dayChange || 0, dcp = asset.dayChangePct || 0;
+            const cls = dc >= 0 ? 'pos' : 'neg';
+            priceBlock = `<div class="sd-price">${this.moneyC(asset.price, cur)}
+                <span class="sd-daychange ${cls}">${dc >= 0 ? '+' : '-'}${this.moneyC(dc, cur)} (${this.arrow(dc)} ${this.pct(Math.abs(dcp))})</span>
+            </div>`;
+        } else if (state === 'loading') {
+            priceBlock = `<div class="sd-price text-muted">Loading…</div>`;
+        }
+        const yieldBlock = asset && asset.dividendYield != null
+            ? `<div class="sd-yield"><div class="sd-yield-label">Dividend yield</div><div class="sd-yield-val">${this.pct(asset.dividendYield)}</div></div>`
+            : '';
+
+        const header = `<div class="sd-header">
+            <div class="sd-id">${logo}<div class="sd-id-text"><div class="sd-name">${sanitize(name)}</div><div class="sd-sub">${sub}</div></div></div>
+            <div class="sd-head-right">${priceBlock}${yieldBlock}</div>
+        </div>`;
+
+        // ── Dividends panel ──
+        let divPanel;
+        if (state === 'error' || (state === 'ready' && !asset)) {
+            divPanel = `<div class="card sd-card"><div class="card-title mb-2">Dividends</div><p class="text-muted text-sm">Details unavailable from Snowball Analytics for this symbol.</p></div>`;
+        } else if (asset) {
+            const row = (label, val) => `<div class="sd-divrow"><span>${label}</span><strong>${val}</strong></div>`;
+            divPanel = `<div class="card sd-card">
+                <div class="card-title mb-2">Dividends</div>
+                ${row('Dividend yield', asset.dividendYield != null ? this.pct(asset.dividendYield) : '—')}
+                ${row('Annual payout', asset.annualPayout != null ? this.moneyC(asset.annualPayout, cur) : '—')}
+                ${row('Frequency', this._freqName(asset.frequency))}
+                ${row('Next ex-div date', this._fmtDate(asset.exDividendDate))}
+                ${row('Next pay date', this._fmtDate(asset.nextDividendDate))}
+                ${row('Dividend growth streak', asset.growthStreak != null ? `${asset.growthStreak} y` : '—')}
+                ${row('5Y dividend growth', asset.growth5Y != null ? this.pct(asset.growth5Y) : '—')}
+            </div>`;
+        } else {
+            divPanel = `<div class="card sd-card"><div class="card-title mb-2">Dividends</div><p class="text-muted text-sm"><span class="loader" style="display:inline-block;width:14px;height:14px;border-top-color:var(--primary);"></span> Loading…</p></div>`;
+        }
+
+        // ── My positions ──
+        const posCard = (r, isTotal) => {
+            const m = n => this.moneyC(n, r.currency || cur);
+            const signed = (n, p) => `<span class="${n >= 0 ? 'pos' : 'neg'}">${n < 0 ? '-' : '+'}${m(n)}${p != null ? ` (${this.arrow(n)} ${this.pct(Math.abs(p))})` : ''}</span>`;
+            const line = (label, val) => `<div class="sd-posrow"><span>${label}</span><span class="sd-posval">${val}</span></div>`;
+            return `<div class="card sd-poscard${isTotal ? ' sd-poscard-total' : ''}">
+                <div class="sd-poshead">
+                    <span class="sd-posacct">${sanitize(r.accountName || 'Account')}</span>
+                    <span class="sd-posshares">${(r.units || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} shares</span>
+                </div>
+                <div class="sd-posvalue">${m(r.value)}</div>
+                ${line('Cost per share', m(r.avgCost))}
+                ${line('Profit', signed(r.profit, r.profitPct))}
+                ${line('Capital gain', signed(r.capitalGain, r.capitalGainPct))}
+                ${line('Dividends received', `<span style="color:var(--primary);">+${m(r.dividends)}</span>`)}
+                ${r.pctInPortfolio != null ? line('% in portfolio', this.pct(r.pctInPortfolio)) : ''}
+            </div>`;
+        };
+
+        let posSection;
+        if (positions && positions.rows && positions.rows.length) {
+            const cards = [];
+            if (positions.total && positions.rows.length > 1) cards.push(posCard({ ...positions.total, accountName: 'All positions' }, true));
+            positions.rows.forEach(r => cards.push(posCard(r, false)));
+            posSection = `<div class="sd-pos-title">My positions</div><div class="sd-pos-grid">${cards.join('')}</div>`;
+        } else {
+            posSection = `<div class="sd-pos-title">My positions</div><div class="empty-state" style="padding:1.5rem;"><p>You don't hold ${sanitize(symbol)} in any active account.</p></div>`;
+        }
+
+        host.innerHTML = `${header}<div class="sd-body">${divPanel}</div>${posSection}`;
+    },
+
     renderDividends(cachedDividendsData, selectedAccountId = 'all') {
         const container  = document.getElementById('dividends-page-content');
         const summaryRow = document.getElementById('dividendSummaryRow');
@@ -1623,7 +1722,7 @@ const UI = {
                         </div>
                         <div class="dividend-event-info">
                             <div>
-                                <span class="dividend-event-symbol">${sanitize(e.symbol)}</span>
+                                <span class="dividend-event-symbol stock-link" data-stock="${sanitize(e.symbol)}">${sanitize(e.symbol)}</span>
                                 <span class="dividend-event-name">${sanitize(e.name)}</span>
                             </div>
                             <div class="dividend-event-meta">${(e.units || 0).toLocaleString()} shares &middot; $${(e.amountPerShare || 0).toFixed(4)}/share</div>
@@ -1796,7 +1895,7 @@ const UI = {
                 const tip = status === 'received'
                     ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}`
                     : status === 'overdue' ? 'Projected — no matching transaction yet' : (e.name || e.symbol);
-                return `<div class="divcal-event div-${status}" title="${sanitize(tip)}">
+                return `<div class="divcal-event div-${status} stock-link" data-stock="${sanitize(e.symbol)}" title="${sanitize(tip)}">
                     <div class="divcal-event-top"><span class="divcal-event-badge">${sanitize(badge)}</span><span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong> ${sanitize((e.name || '').slice(0, 20))}</span></div>
                     <div class="divcal-event-bot"><span class="divcal-event-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>
                 </div>`;

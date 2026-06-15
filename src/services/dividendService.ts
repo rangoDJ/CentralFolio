@@ -100,12 +100,15 @@ async function rateLimitSnowball() {
   lastSnowballRequestTime = Date.now();
 }
 
-async function fetchFromSnowball(symbol: string): Promise<any> {
-  await rateLimitSnowball();
+// Fetch and return the raw Snowball `asset` JSON object for a symbol, or null.
+// `applyRateLimit` gates the background dividend job (3 req/min); user-initiated
+// lookups (the stock detail page) pass false to stay responsive.
+async function fetchSnowballAsset(symbol: string, applyRateLimit = true): Promise<any | null> {
+  if (applyRateLimit) await rateLimitSnowball();
   const urls = getSnowballUrls(symbol);
   for (const url of urls) {
     try {
-      logger.info('Snowball', `Fetching dividend data for ${symbol} from ${url}...`);
+      logger.info('Snowball', `Fetching ${symbol} from ${url}...`);
 
       const res = await fetch(url, {
         headers: {
@@ -128,20 +131,7 @@ async function fetchFromSnowball(symbol: string): Promise<any> {
         logger.debug('Snowball', `${symbol} -> asset details not found in JSON on ${url}`);
         continue;
       }
-
-      const frequency = asset.divFrequency ?? 0;
-      const annualPayout = asset.divPerYearFWD ?? 0;
-      const amountPerShare = (frequency > 0 && annualPayout > 0) ? (annualPayout / frequency) : 0;
-      const lastExDate = asset.exDividendDate ? asset.exDividendDate.split("T")[0] : null;
-
-      logger.info('Snowball', `${symbol} -> found dividend data (annualPayout=${annualPayout}, freq=${frequency}, lastEx=${lastExDate})`);
-      return {
-        frequency,
-        lastExDate,
-        amountPerShare,
-        name: asset.description || asset.name || symbol,
-        timestamp: Date.now(),
-      };
+      return asset;
     } catch (err: any) {
       logger.warn('Snowball', `Error fetching ${symbol} from ${url}: ${err.message}`);
     }
@@ -149,9 +139,93 @@ async function fetchFromSnowball(symbol: string): Promise<any> {
   return null;
 }
 
+async function fetchFromSnowball(symbol: string): Promise<any> {
+  const asset = await fetchSnowballAsset(symbol, true);
+  if (!asset) return null;
+
+  const frequency = asset.divFrequency ?? 0;
+  const annualPayout = asset.divPerYearFWD ?? 0;
+  const amountPerShare = (frequency > 0 && annualPayout > 0) ? (annualPayout / frequency) : 0;
+  const lastExDate = asset.exDividendDate ? asset.exDividendDate.split("T")[0] : null;
+
+  logger.info('Snowball', `${symbol} -> found dividend data (annualPayout=${annualPayout}, freq=${frequency}, lastEx=${lastExDate})`);
+  return {
+    frequency,
+    lastExDate,
+    amountPerShare,
+    name: asset.description || asset.name || symbol,
+    timestamp: Date.now(),
+  };
+}
+
 // Exported so controllers can trigger a manual Snowball lookup for a specific symbol
 export async function lookupDividendWithAI(symbol: string): Promise<any> {
   return fetchFromSnowball(symbol);
+}
+
+// ── Stock detail (Snowball-style asset page) ────────────────────────────────
+export interface StockDetail {
+  symbol: string;
+  name: string;
+  ticker: string | null;
+  exchange: string | null;
+  currency: string | null;
+  price: number | null;
+  dayChange: number | null;
+  dayChangePct: number | null;
+  dividendYield: number | null;
+  annualPayout: number | null;
+  exDividendDate: string | null;
+  nextDividendDate: string | null;
+  frequency: number | null;
+  growthStreak: number | null;
+  growth5Y: number | null;
+  sector: string | null;
+  logoURL: string | null;
+  description: string | null;
+}
+
+const STOCK_DETAIL_TTL_MS = 15 * 60 * 1000;
+const stockDetailCache = new Map<string, { data: StockDetail, ts: number }>();
+
+function mapAssetToStockDetail(symbol: string, asset: any): StockDetail {
+  const dateOnly = (s: any) => (typeof s === 'string' && s) ? s.split('T')[0] : null;
+  return {
+    symbol,
+    name: asset.description || asset.name || symbol,
+    ticker: asset.ticker ?? null,
+    exchange: asset.exchange ?? null,
+    currency: asset.divCurrency || asset.currency || null,
+    price: asset.currentPrice ?? null,
+    dayChange: asset.lastDayGainsAmount ?? null,
+    dayChangePct: asset.lastDayGainsPercent ?? null,
+    dividendYield: asset.divYieldFWD ?? null,
+    annualPayout: asset.divPerYearFWD ?? null,
+    exDividendDate: dateOnly(asset.exDividendDate),
+    nextDividendDate: dateOnly(asset.nextDividendDate),
+    frequency: asset.divFrequency ?? null,
+    growthStreak: asset.divGrowthStreak ?? asset.divStreak ?? null,
+    growth5Y: asset.divGrowth5Y ?? null,
+    sector: asset.sector ?? null,
+    logoURL: asset.primaryLogoURL || asset.logoURL || null,
+    description: asset.companyDescription || null,
+  };
+}
+
+// Rich asset detail for the stock detail page. Cached ~15 min; user-initiated
+// so it skips the background rate-limiter to keep the click responsive.
+export async function getStockDetail(symbol: string): Promise<StockDetail | null> {
+  const key = symbol.toUpperCase().trim();
+  const cached = stockDetailCache.get(key);
+  if (cached && Date.now() - cached.ts < STOCK_DETAIL_TTL_MS) {
+    logger.debug('Snowball', `getStockDetail(${key}) → cache HIT`);
+    return cached.data;
+  }
+  const asset = await fetchSnowballAsset(key, false);
+  if (!asset) return null;
+  const detail = mapAssetToStockDetail(key, asset);
+  stockDetailCache.set(key, { data: detail, ts: Date.now() });
+  return detail;
 }
 
 /**

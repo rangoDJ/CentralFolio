@@ -719,6 +719,19 @@ const App = {
         const container = document.getElementById('dividends-page-content');
         if (!container) return;
 
+        this.resolveDividendAccountId();
+        if (this.currentDividendAccountId === 'none') {
+            container.innerHTML = `<div class="empty-state">
+                <div class="empty-icon">📂</div>
+                <p><strong>No custom portfolios found.</strong></p>
+                <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to create a custom portfolio first.</p>
+            </div>`;
+            const summaryRow = document.getElementById('dividendSummaryRow');
+            if (summaryRow) summaryRow.style.display = 'none';
+            UI.renderDividendAccountTabs([], 'none');
+            return;
+        }
+
         try {
             const response = await API.getAllDividends(forceRefresh);
             if (response.data && response.data.length > 0) {
@@ -860,10 +873,32 @@ const App = {
             // expected → received in the forecast/calendar without a reload.
             const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
             const filtered = this.getFilteredDividendsData();
-            if (subTab === 'forecast') {
-                UI.renderDividends(filtered, this.currentDividendAccountId);
+            
+            this.resolveDividendAccountId();
+            if (this.currentDividendAccountId === 'none') {
+                const containerId = subTab === 'forecast' ? 'dividends-page-content' : 'dividend-calendar-grid';
+                const container = document.getElementById(containerId);
+                if (container) {
+                    container.innerHTML = `<div class="empty-state">
+                        <div class="empty-icon">📂</div>
+                        <p><strong>No custom portfolios found.</strong></p>
+                        <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to create a custom portfolio first.</p>
+                    </div>`;
+                }
+                if (subTab === 'forecast') {
+                    const summaryRow = document.getElementById('dividendSummaryRow');
+                    if (summaryRow) summaryRow.style.display = 'none';
+                } else {
+                    const listEl = document.getElementById('dividend-calendar-list');
+                    if (listEl) listEl.innerHTML = '';
+                }
+                UI.renderDividendAccountTabs([], 'none');
             } else {
-                UI.renderDividendCalendar(filtered, this.currentCalendarDate, this.currentDividendAccountId);
+                if (subTab === 'forecast') {
+                    UI.renderDividends(filtered, this.currentDividendAccountId);
+                } else {
+                    UI.renderDividendCalendar(filtered, this.currentCalendarDate, this.currentDividendAccountId);
+                }
             }
             this.updateDividendsTimestamp();
         }
@@ -931,6 +966,19 @@ const App = {
     async loadDividendCalendar(forceRefresh = false) {
         const container = document.getElementById('dividend-calendar-grid');
         if (!container) return;
+
+        this.resolveDividendAccountId();
+        if (this.currentDividendAccountId === 'none') {
+            container.innerHTML = `<div class="empty-state">
+                <div class="empty-icon">📂</div>
+                <p><strong>No custom portfolios found.</strong></p>
+                <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to create a custom portfolio first.</p>
+            </div>`;
+            const listEl = document.getElementById('dividend-calendar-list');
+            if (listEl) listEl.innerHTML = '';
+            UI.renderDividendAccountTabs([], 'none');
+            return;
+        }
 
         if (!forceRefresh && this.cachedDividendsData && this.dividendsLastUpdated) {
             await this.ensureTransactionsLoaded();
@@ -1343,7 +1391,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', rebalance: 'Rebalancing', scheduler: 'Scheduler', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', rebalance: 'Rebalancing', settings: 'Settings' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -1792,10 +1840,32 @@ const App = {
         } else if (activeTab === 'dividend-tracker') {
             const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
             const filteredDivs = this.getFilteredDividendsData();
-            if (subTab === 'forecast') {
-                UI.renderDividends(filteredDivs, this.currentDividendAccountId);
-            } else if (subTab === 'calendar') {
-                UI.renderDividendCalendar(filteredDivs, this.currentCalendarDate, this.currentDividendAccountId);
+            
+            this.resolveDividendAccountId();
+            if (this.currentDividendAccountId === 'none') {
+                const containerId = subTab === 'forecast' ? 'dividends-page-content' : 'dividend-calendar-grid';
+                const container = document.getElementById(containerId);
+                if (container) {
+                    container.innerHTML = `<div class="empty-state">
+                        <div class="empty-icon">📂</div>
+                        <p><strong>No custom portfolios found.</strong></p>
+                        <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to create a custom portfolio first.</p>
+                    </div>`;
+                }
+                if (subTab === 'forecast') {
+                    const summaryRow = document.getElementById('dividendSummaryRow');
+                    if (summaryRow) summaryRow.style.display = 'none';
+                } else {
+                    const listEl = document.getElementById('dividend-calendar-list');
+                    if (listEl) listEl.innerHTML = '';
+                }
+                UI.renderDividendAccountTabs([], 'none');
+            } else {
+                if (subTab === 'forecast') {
+                    UI.renderDividends(filteredDivs, this.currentDividendAccountId);
+                } else if (subTab === 'calendar') {
+                    UI.renderDividendCalendar(filteredDivs, this.currentCalendarDate, this.currentDividendAccountId);
+                }
             }
         }
     },
@@ -1846,6 +1916,30 @@ const App = {
         const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
         
         return this.cachedTransactionsData.filter(t => accountIds.has(t.accountId));
+    },
+
+    resolveDividendAccountId() {
+        if (this.selectedUserPortfolioId === 'all') {
+            const portfolios = this.userPortfolios || [];
+            if (portfolios.length > 0) {
+                const isUserPort = String(this.currentDividendAccountId).startsWith('portfolio-');
+                const portId = isUserPort ? parseInt(String(this.currentDividendAccountId).split('-')[1], 10) : null;
+                const exists = portId !== null && portfolios.some(p => p.id === portId);
+                
+                if (!exists) {
+                    this.currentDividendAccountId = `portfolio-${portfolios[0].id}`;
+                }
+            } else {
+                this.currentDividendAccountId = 'none';
+            }
+        } else {
+            const portfolio = this.getSelectedUserPortfolio();
+            const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+            if (this.currentDividendAccountId !== 'all' && !accountIds.has(this.currentDividendAccountId)) {
+                this.currentDividendAccountId = 'all';
+            }
+        }
+        return this.currentDividendAccountId;
     },
 
     // ── User Portfolio Management ─────────────────────────────────────────────

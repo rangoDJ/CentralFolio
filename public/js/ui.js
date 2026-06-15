@@ -1398,22 +1398,16 @@ const UI = {
             // Global selection is All Portfolios
             const portfolios = App.userPortfolios || [];
             
-            // Check if there are any unassigned accounts
-            const assignedAccountIds = new Set();
-            portfolios.forEach(p => (p.accountIds || []).forEach(aid => assignedAccountIds.add(aid)));
-            const hasUnassigned = activeAccounts.some(acct => !assignedAccountIds.has(acct.accountId));
+            if (portfolios.length === 0) {
+                tabsContainer.style.display = 'none';
+                tabsContainer.innerHTML = '';
+                return;
+            }
 
-            tabsHtml += `<button class="pill-tab ${selectedAccountId === 'all' ? 'active' : ''}" onclick="App.switchDividendAccountTab('all')">All Portfolios</button>`;
-            
             portfolios.forEach(p => {
                 const isSelected = selectedAccountId === `portfolio-${p.id}`;
                 tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('portfolio-${p.id}')">${sanitize(p.name)}</button>`;
             });
-
-            if (hasUnassigned) {
-                const isSelected = selectedAccountId === 'unassigned';
-                tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('unassigned')">Unassigned Accounts</button>`;
-            }
         } else {
             // Global selection is a specific user portfolio
             tabsHtml += `<button class="pill-tab ${selectedAccountId === 'all' ? 'active' : ''}" onclick="App.switchDividendAccountTab('all')">All Accounts</button>`;

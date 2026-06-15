@@ -99,8 +99,10 @@ const server = app.listen(port, () => {
         return;
       }
       const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
-      logger.info('Scheduler', `Running transactions refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh})`);
-      await refreshAllTransactions(forceRefresh, hours * hourMs);
+      // A manual "Run now" pulls full history (backfill); automatic runs are incremental.
+      const fullHistory = (trigger === 'manual');
+      logger.info('Scheduler', `Running transactions refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh}, fullHistory: ${fullHistory})`);
+      await refreshAllTransactions(forceRefresh, hours * hourMs, fullHistory);
     },
     false
   );

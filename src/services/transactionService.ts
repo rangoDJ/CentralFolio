@@ -39,9 +39,11 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
     // through all results (default page size 1000).
     const activities: any[] = [];
     let offset = 0;
-    let total = Infinity;
 
-    while (offset < total && activities.length < TXN_MAX_RECORDS) {
+    // Keep paging while each page comes back full; a short/empty page is the end.
+    // Driven by page fullness (not pagination.total) so a missing total can't
+    // truncate the history.
+    while (activities.length < TXN_MAX_RECORDS) {
       const response = await client.accountInformation.getAccountActivities({
         accountId,
         userId,
@@ -55,12 +57,12 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
       const raw = response.data as any;
       const page = Array.isArray(raw) ? raw : (raw?.data ?? raw?.activities ?? []);
       activities.push(...page);
-      total = raw?.pagination?.total ?? raw?.pagination?.total_count ?? activities.length;
+      const total = raw?.pagination?.total ?? raw?.pagination?.total_count;
 
-      logger.info('Transactions', `  account ${accountId}: fetched ${activities.length}/${Number.isFinite(total) ? total : '?'}`);
+      logger.info('Transactions', `  account ${accountId}: fetched ${activities.length}${total != null ? '/' + total : ''}`);
 
       // Stop on the last (short/empty) page; otherwise advance and keep paging.
-      if (page.length === 0 || page.length < TXN_PAGE_LIMIT) break;
+      if (page.length < TXN_PAGE_LIMIT) break;
       offset += page.length;
       await sleep(150); // be gentle with the API between pages
     }
@@ -100,9 +102,9 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
   }
 }
 
-export async function refreshAllTransactions(forceRefresh: boolean = false, intervalMs: number = 24 * 60 * 60 * 1000): Promise<void> {
+export async function refreshAllTransactions(forceRefresh: boolean = false, intervalMs: number = 24 * 60 * 60 * 1000, fullHistory: boolean = false): Promise<void> {
   try {
-    logger.info('Transactions', 'Starting transaction refresh cycle...');
+    logger.info('Transactions', `Starting transaction refresh cycle${fullHistory ? ' (full history)' : ''}...`);
 
     const portfolios = listPortfolios();
     let activeAccountIds = getActiveAccountIds();
@@ -165,14 +167,17 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
 
             // Incremental: if we already have history cached, only fetch since the
             // most recent cached transaction (minus a 7-day overlap for late-posted
-            // items). First sync (no cache) pulls the full history.
+            // items). First sync (no cache) — or an explicit fullHistory request
+            // (the manual Refresh) — pulls the entire history.
             let sinceDate: string | undefined;
-            const latest = getCachedTransactions(account.id, 1)[0];
-            if (latest?.date) {
-              const d = new Date(latest.date);
-              if (!isNaN(d.getTime())) {
-                d.setUTCDate(d.getUTCDate() - 7);
-                sinceDate = d.toISOString().split('T')[0];
+            if (!fullHistory) {
+              const latest = getCachedTransactions(account.id, 1)[0];
+              if (latest?.date) {
+                const d = new Date(latest.date);
+                if (!isNaN(d.getTime())) {
+                  d.setUTCDate(d.getUTCDate() - 7);
+                  sinceDate = d.toISOString().split('T')[0];
+                }
               }
             }
 

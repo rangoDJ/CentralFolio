@@ -76,7 +76,9 @@ export const getTransactions = async (req: Request, res: Response) => {
     }
 
     if (shouldRefresh) {
-      await refreshAllTransactions(true);
+      // Manual refresh → pull the full history (backfills accounts whose cache
+      // predates max-history support); scheduled runs stay incremental.
+      await refreshAllTransactions(true, undefined, true);
     }
 
     const portfolios = listPortfolios();

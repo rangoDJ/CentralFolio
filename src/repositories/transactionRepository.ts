@@ -56,8 +56,11 @@ const stmtClearForAccount = db.prepare(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function getCachedTransactions(accountId: string, limit = 500): any[] {
-  const rows = stmtGetTransactions.all(accountId, limit);
+// limit omitted / <= 0 → return ALL rows (SQLite treats LIMIT -1 as unbounded).
+// Pass a positive limit only when you explicitly want to cap (e.g. 1 for "latest").
+export function getCachedTransactions(accountId: string, limit?: number): any[] {
+  const effective = (limit == null || limit <= 0) ? -1 : limit;
+  const rows = stmtGetTransactions.all(accountId, effective);
   logger.debug('DB', `getCachedTransactions(account=${accountId}) → ${rows.length} transaction(s)`);
   return rows;
 }

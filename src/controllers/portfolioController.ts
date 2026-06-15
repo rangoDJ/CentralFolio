@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio, getAllCachedDividendMetadata, listSettings, saveCachedDividendMetadata, deleteCachedDividendMetadata } from "../models/db.js";
-import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches, lookupDividendWithAI, getAllDividendsFromCacheOnly } from "../services/dividendService.js";
+import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches, clearDividendMemoryCache, lookupDividendWithAI, getAllDividendsFromCacheOnly } from "../services/dividendService.js";
 import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
@@ -152,6 +152,10 @@ export const manualSaveDividendMetadataHandler = (req: Request, res: Response) =
     name: name ? String(name).trim() : symbol,
   }, 'manual');
 
+  // Dividend metadata changed — drop the in-memory forecast snapshot so the next
+  // all-dividends request recomputes income stats from the updated DB data.
+  clearDividendMemoryCache();
+
   res.json({ success: true, symbol });
 };
 
@@ -163,6 +167,11 @@ export const deleteDividendMetadataHandler = (req: Request, res: Response) => {
   const deleted = deleteCachedDividendMetadata(symbol);
   if (!deleted) return res.status(404).json({ error: `No cached entry for "${symbol}"` });
   logger.info('Portfolio', `DELETE /api/portfolios/dividend-metadata/${symbol}`);
+
+  // Dividend metadata changed — drop the in-memory forecast snapshot so the next
+  // all-dividends request recomputes income stats from the updated DB data.
+  clearDividendMemoryCache();
+
   res.json({ success: true, symbol });
 };
 

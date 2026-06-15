@@ -58,14 +58,6 @@
           <span>Rebalancing</span>
         </button>
 
-        <button class="sidebar-item" data-tab="scheduler" onclick="App.switchMainTab('scheduler', this)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9"/>
-            <polyline points="12 7 12 12 15 14"/>
-          </svg>
-          <span>Scheduler</span>
-        </button>
-
         <button class="sidebar-item" data-tab="settings" onclick="App.switchMainTab('settings', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
@@ -487,21 +479,6 @@
         </div>
       </div>
 
-      <!-- Scheduler -->
-      <div class="container tab-content" id="scheduler-tab">
-        <div class="page-header">
-          <h1 class="page-heading">Scheduler</h1>
-        </div>
-
-        <div class="card" style="max-width:640px;">
-          <div class="card-header" style="margin-bottom:0.75rem;">
-            <span class="card-title">Background Jobs</span>
-          </div>
-          <p class="text-muted text-sm mb-3">Scheduled tasks that run automatically. Trigger manually to force an immediate run.</p>
-          <div id="jobsPanel"><div class="empty-state" style="padding:1rem;">Loading jobs…</div></div>
-        </div>
-      </div>
-
       <!-- Settings -->
       <div class="container tab-content" id="settings-tab">
         <div class="page-header">
@@ -512,6 +489,18 @@
           <button class="underline-tab active" data-tab="portfolios" onclick="App.switchSettingsTab('portfolios', this)">Portfolios</button>
           <button class="underline-tab" data-tab="connections" onclick="App.switchSettingsTab('connections', this)">Brokerage Connections</button>
           <button class="underline-tab" data-tab="keys" onclick="App.switchSettingsTab('keys', this)">Keys &amp; Providers</button>
+          <button class="underline-tab" data-tab="scheduler" onclick="App.switchSettingsTab('scheduler', this)">Scheduler</button>
+        </div>
+
+        <!-- Scheduler pane (background jobs) -->
+        <div id="settings-scheduler-pane" class="pane">
+          <div class="card" style="max-width:640px;">
+            <div class="card-header" style="margin-bottom:0.75rem;">
+              <span class="card-title">Background Jobs</span>
+            </div>
+            <p class="text-muted text-sm mb-3">Scheduled tasks that run automatically. Trigger manually to force an immediate run.</p>
+            <div id="jobsPanel"><div class="empty-state" style="padding:1rem;">Loading jobs…</div></div>
+          </div>
         </div>
 
         <!-- Portfolios pane (custom grouping) -->

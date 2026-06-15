@@ -1474,12 +1474,12 @@ const App = {
 
         // Per-account totals (for "% in portfolio").
         const acctTotal = new Map();
-        (this.currentGroups || []).forEach(g => (g.accounts || []).forEach(a => {
+        (this.getFilteredGroups() || []).forEach(g => (g.accounts || []).forEach(a => {
             if (!this.inactiveAccountIds?.has(a.id)) acctTotal.set(a.id, a.balance?.total?.amount || 0);
         }));
 
         const rows = [];
-        (this.cachedHoldingsData || []).forEach(acct => {
+        (this.getFilteredHoldingsData() || []).forEach(acct => {
             if (this.inactiveAccountIds?.has(acct.accountId)) return;
             (acct.holdings || []).forEach(h => {
                 if (symOf(h) !== want) return;
@@ -1875,12 +1875,27 @@ const App = {
         return (this.userPortfolios || []).find(p => p.id === this.selectedUserPortfolioId) || null;
     },
 
+    getFilterAccountIds() {
+        if (this.selectedUserPortfolioId === 'all') {
+            if (!this.userPortfolios || this.userPortfolios.length === 0) {
+                return null;
+            }
+            const ids = new Set();
+            this.userPortfolios.forEach(p => {
+                (p.accountIds || []).forEach(id => ids.add(id));
+            });
+            return ids;
+        } else {
+            const portfolio = this.getSelectedUserPortfolio();
+            if (!portfolio) return new Set();
+            return new Set(portfolio.accountIds || []);
+        }
+    },
+
     getFilteredGroups() {
         if (!this.currentGroups) return [];
-        if (this.selectedUserPortfolioId === 'all') return this.currentGroups;
-        
-        const portfolio = this.getSelectedUserPortfolio();
-        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        const accountIds = this.getFilterAccountIds();
+        if (accountIds === null) return this.currentGroups;
         
         return this.currentGroups.map(g => {
             const filteredAccounts = (g.accounts || []).filter(a => accountIds.has(a.id));
@@ -1890,30 +1905,24 @@ const App = {
 
     getFilteredHoldingsData() {
         if (!this.cachedHoldingsData) return null;
-        if (this.selectedUserPortfolioId === 'all') return this.cachedHoldingsData;
-        
-        const portfolio = this.getSelectedUserPortfolio();
-        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        const accountIds = this.getFilterAccountIds();
+        if (accountIds === null) return this.cachedHoldingsData;
         
         return this.cachedHoldingsData.filter(h => accountIds.has(h.accountId));
     },
 
     getFilteredDividendsData() {
         if (!this.cachedDividendsData) return null;
-        if (this.selectedUserPortfolioId === 'all') return this.cachedDividendsData;
-        
-        const portfolio = this.getSelectedUserPortfolio();
-        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        const accountIds = this.getFilterAccountIds();
+        if (accountIds === null) return this.cachedDividendsData;
         
         return this.cachedDividendsData.filter(d => accountIds.has(d.accountId));
     },
 
     getFilteredTransactionsData() {
         if (!this.cachedTransactionsData) return null;
-        if (this.selectedUserPortfolioId === 'all') return this.cachedTransactionsData;
-        
-        const portfolio = this.getSelectedUserPortfolio();
-        const accountIds = new Set(portfolio ? (portfolio.accountIds || []) : []);
+        const accountIds = this.getFilterAccountIds();
+        if (accountIds === null) return this.cachedTransactionsData;
         
         return this.cachedTransactionsData.filter(t => accountIds.has(t.accountId));
     },

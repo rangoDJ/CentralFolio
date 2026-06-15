@@ -32,15 +32,7 @@ The database is persisted to `./data` on the host (`DATA_DIR=/data` inside the c
 
 On first visit you'll be prompted to set a password; all later logins use it.
 
-### Linking a brokerage (one-time)
-
-Register your SnapTrade user and generate a connection URL by running the management scripts inside the container:
-
-```bash
-docker compose exec app npm run register    # creates user-credentials.json under ./data (do not delete)
-docker compose exec app npm run login       # prints a Connection Portal URL — open it to link a brokerage
-docker compose exec app npm run list-users  # list registered SnapTrade users
-```
+Everything else is done from the web UI: add your SnapTrade API credentials and register under **Settings → Keys & Providers**, then link and manage brokerage accounts under **Settings → Brokerage Connections**.
 
 ## Configuration
 

@@ -19,48 +19,37 @@ A self-hosted portfolio and dividend tracking app. Connect brokerage accounts th
 
 ## Requirements
 
-- Node.js 18, 20, or 22 LTS (prebuilt `better-sqlite3` binaries are available for these)
+- Docker and Docker Compose
 - A [SnapTrade](https://snaptrade.com) partner account (free) for brokerage connectivity
 
-## Setup
-
-```bash
-npm install
-```
-
-### First run
-
-Register your SnapTrade user and link a brokerage (one-time):
-
-```bash
-npm run register    # creates user-credentials.json (gitignored — do not delete)
-npm run login       # prints a Connection Portal URL — open it to link a brokerage
-```
-
-Start the server:
-
-```bash
-npm start           # http://localhost:3000
-```
-
-On first visit you'll be prompted to set a password; all later logins use it.
-
-### Docker
+## Running
 
 ```bash
 docker compose up -d   # serves on http://localhost:3000
 ```
 
-The database is persisted to `./data` on the host (`DATA_DIR=/data` in the container). A prebuilt image is published at `ghcr.io/rangodj/centralfolio`.
+The database is persisted to `./data` on the host (`DATA_DIR=/data` inside the container). A prebuilt image is published at `ghcr.io/rangodj/centralfolio`; `docker compose` pulls it (or builds locally from the `Dockerfile`).
 
-## Environment variables
+On first visit you'll be prompted to set a password; all later logins use it.
 
-All optional. Set in a `.env` file or the shell before starting.
+### Linking a brokerage (one-time)
+
+Register your SnapTrade user and generate a connection URL by running the management scripts inside the container:
+
+```bash
+docker compose exec app npm run register    # creates user-credentials.json under ./data (do not delete)
+docker compose exec app npm run login       # prints a Connection Portal URL — open it to link a brokerage
+docker compose exec app npm run list-users  # list registered SnapTrade users
+```
+
+## Configuration
+
+Set in the `environment:` block of `docker-compose.yml`.
 
 | Variable | Default | Description |
 |---|---|---|
 | `PORT` | `3000` | HTTP port the server listens on |
-| `DATA_DIR` | project root | Directory where `snaptrade.db` is stored |
+| `DATA_DIR` | `/data` | Directory where `snaptrade.db` is stored (mapped to `./data`) |
 | `LOG_LEVEL` | `info` | Set to `debug` for verbose output |
 
 ## Dividend data
@@ -71,7 +60,7 @@ Dividend metadata (frequency, ex-date, amount per share) is fetched exclusively 
 
 CentralFolio is single-user and protected by a password (bcrypt-hashed) with a JWT session secret, both stored in the local SQLite database. **No secrets ever leave your server.**
 
-The database and credentials are gitignored and must **never** be committed: `snaptrade.db` and its WAL sidecars (`snaptrade.db-shm`, `snaptrade.db-wal`), `user-credentials.json`, and `.env`. These hold SnapTrade API keys, the password hash, and the JWT secret.
+The database and credentials live under the mounted `./data` volume and must **never** be committed to source control: `snaptrade.db` and its WAL sidecars (`snaptrade.db-shm`, `snaptrade.db-wal`), `user-credentials.json`, and `.env`. These hold SnapTrade API keys, the password hash, and the JWT secret.
 
 ## Project layout
 
@@ -102,17 +91,5 @@ CentralFolio/
 │   │   └── schedulerService.ts   # Cron-based background jobs
 │   └── server.ts             # Entry point
 ├── Dockerfile
-├── docker-compose.yml
-├── snaptrade.db              # SQLite database (gitignored)
-└── user-credentials.json     # SnapTrade user secret (gitignored — do not delete)
-```
-
-## Scripts
-
-```bash
-npm start                # Start the server
-npm test                 # Run unit tests (node:test via tsx)
-npm run register         # Register SnapTrade user (one-time)
-npm run login            # Generate a brokerage connection URL
-npm run list-users       # List registered SnapTrade users
+└── docker-compose.yml
 ```

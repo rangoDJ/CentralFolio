@@ -58,20 +58,26 @@ function getSnowballUrls(symbol: string): string[] {
   const dotIndex = mapped.lastIndexOf('.');
   if (dotIndex !== -1) {
     let ticker = mapped.slice(0, dotIndex);
-    let exchange = mapped.slice(dotIndex + 1);
+    const exchange = mapped.slice(dotIndex + 1);
     ticker = ticker.replace(/\./g, '-');
-    if (exchange === 'TO') {
-      exchange = 'CA';
-    } else if (exchange === 'VN') {
-      exchange = 'V';
-    } else if (exchange === 'NE') {
-      exchange = 'NEO';
-    }
-    const base = `${ticker}.${exchange}`;
-    return [
+
+    // Snowball now uses native exchange codes (e.g. .TO for the TSX) rather than
+    // its older remapped codes (.CA / .V / .NEO). Probe the native suffix first,
+    // then fall back to the legacy remapped suffix for backward compatibility.
+    const legacyExchange =
+      exchange === 'TO' ? 'CA' :
+      exchange === 'VN' ? 'V' :
+      exchange === 'NE' ? 'NEO' :
+      exchange;
+
+    const bases = legacyExchange === exchange
+      ? [`${ticker}.${exchange}`]
+      : [`${ticker}.${exchange}`, `${ticker}.${legacyExchange}`];
+
+    return bases.flatMap((base) => [
       `https://snowball-analytics.com/public/asset/${base}`,
       `https://snowball-analytics.com/public/asset/${base}.CAD`,
-    ];
+    ]);
   } else {
     return [
       `https://snowball-analytics.com/public/asset/${mapped}.US`,

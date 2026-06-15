@@ -1800,6 +1800,7 @@ const UI = {
         const curByAcct = this.accountCurrencyMap();
         let allEvents = [];
         let annualTotal = 0;
+        const includedAccountIds = new Set();
         (cachedDividendsData || []).forEach(acct => {
             if (acct.error) return;
             let include;
@@ -1810,13 +1811,25 @@ const UI = {
                 const port = (App.userPortfolios || []).find(p => p.id === pid);
                 include = port && (port.accountIds || []).includes(acct.accountId);
             } else include = acct.accountId === selectedAccountId;
-            if (include) (acct.dividends || []).forEach(e => {
-                allEvents.push({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: curByAcct.get(acct.accountId) || 'USD' });
-                annualTotal += (e.amount || 0);
-            });
+            if (include) {
+                includedAccountIds.add(acct.accountId);
+                (acct.dividends || []).forEach(e => {
+                    allEvents.push({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: curByAcct.get(acct.accountId) || 'USD' });
+                    annualTotal += (e.amount || 0);
+                });
+            }
         });
-        this.tagDividendStatus(allEvents, (typeof App !== 'undefined' && App.getFilteredTransactionsData) ? App.getFilteredTransactionsData() : null);
-        this.divCalEvents = allEvents;
+
+        // Tag forecast events, and backfill the last 6 months of dividends that
+        // were actually received (computed from transactions) so past months in
+        // the calendar aren't empty. These don't affect the forward-looking
+        // income summary/chart — only the day grid below.
+        const allTx = (typeof App !== 'undefined' && App.getFilteredTransactionsData) ? (App.getFilteredTransactionsData() || []) : [];
+        const scopedTx = allTx.filter(a => includedAccountIds.has(a.accountId));
+        const received = DivMath.collectReceivedDividends(allEvents, scopedTx, { divTypes: this._DIV_TYPES, monthsBack: 6 });
+        received.forEach(e => { e._cur = curByAcct.get(e.accountId) || 'USD'; });
+        const displayEvents = allEvents.concat(received);
+        this.divCalEvents = displayEvents;
 
         // Per-holding current price for the yield figure on each event card.
         const priceMap = new Map();
@@ -1860,7 +1873,7 @@ const UI = {
 
         let monthTotal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
-            const dayEvents = allEvents.filter(e => {
+            const dayEvents = displayEvents.filter(e => {
                 const d = new Date(e.date);
                 return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
             });
@@ -1894,7 +1907,7 @@ const UI = {
         if (mt) mt.textContent = monthTotal > 0 ? `+${this.moneyC(monthTotal, primaryCur)}` : '';
         setTxt('unified-month-total', this.moneyC(monthTotal, primaryCur));
 
-        this.renderDivCalList(allEvents);
+        this.renderDivCalList(displayEvents);
         this.setDivCalView(this.divCalView || 'calendar');
     },
 
@@ -1943,13 +1956,13 @@ const UI = {
     renderDivCalList(events) {
         const el = document.getElementById('dividend-calendar-list');
         if (!el) return;
-        const now = new Date();
-        const floor = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const upcoming = (events || []).filter(e => new Date(e.date) >= floor)
-            .sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 250);
-        if (upcoming.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No upcoming dividends.</div>'; return; }
+        // Timeline: the last 6 months of received dividends through upcoming ones.
+        const floor = new Date(); floor.setMonth(floor.getMonth() - 6); floor.setHours(0, 0, 0, 0);
+        const rows = (events || []).filter(e => new Date(e.date) >= floor)
+            .sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 400);
+        if (rows.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No dividends in the last 6 months or upcoming.</div>'; return; }
         const byDate = {};
-        upcoming.forEach(e => { const k = new Date(e.date).toLocaleDateString('en-CA'); (byDate[k] = byDate[k] || []).push(e); });
+        rows.forEach(e => { const k = new Date(e.date).toLocaleDateString('en-CA'); (byDate[k] = byDate[k] || []).push(e); });
         const curOf = e => e._cur || 'USD';
 
         el.innerHTML = '<div class="card" style="padding:0;overflow:hidden;">' + Object.keys(byDate).map(k => {

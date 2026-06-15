@@ -13,6 +13,7 @@ vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
 const DivMath = sandbox.module.exports as {
   tagDividendStatus: (events: any[], txData: any[], divTypes?: string[]) => any[];
+  collectReceivedDividends: (events: any[], txData: any[], opts?: any) => any[];
   buildStockPositions: (symbol: string, ctx: any) => { rows: any[]; total: any };
 };
 
@@ -77,6 +78,26 @@ test('buildStockPositions: per-account + aggregate math', () => {
   approx(total.units, 150); approx(total.value, 7500); approx(total.cost, 7000);
   approx(total.capitalGain, 500); approx(total.dividends, 65); approx(total.profit, 565);
   approx(total.avgCost, 7000 / 150);
+});
+
+test('collectReceivedDividends: backfills unmatched past payouts within the window', () => {
+  const events: any[] = [{ accountId: 'A', symbol: 'ENB.TO', frequency: 12, date: dayOffset(10) }]; // future expected
+  const txData = [{
+    accountId: 'A', transactions: [
+      { type: 'DIVIDEND', symbol: 'ENB.TO', date: dayOffset(8), amount: -21 },    // matches the forecast event → consumed
+      { type: 'DIVIDEND', symbol: 'ENB.TO', date: dayOffset(-150), amount: -20 }, // ~5mo ago, no match → backlog
+      { type: 'DIVIDEND', symbol: 'ENB.TO', date: dayOffset(-240), amount: -18 }, // ~8mo ago → outside 6mo window
+      { type: 'BUY', symbol: 'ENB.TO', date: dayOffset(-100), amount: -500 },     // not a dividend → ignored
+    ],
+  }];
+
+  const received = DivMath.collectReceivedDividends(events, txData, { monthsBack: 6 });
+  assert.equal(events[0]._status, 'received', 'forecast event consumed the near-dated txn');
+  assert.equal(received.length, 1, 'only the unmatched in-window payout is backfilled');
+  assert.equal(received[0].symbol, 'ENB.TO');
+  approx(received[0].amount, 20);
+  assert.equal(received[0]._status, 'received');
+  assert.equal(received[0]._fromTxn, true);
 });
 
 test('buildStockPositions: inactive accounts excluded', () => {

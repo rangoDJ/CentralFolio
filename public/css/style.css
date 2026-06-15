@@ -5,23 +5,54 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 :root {
-  --bg:          #0a0a0a;
-  --surface:     #111111;
-  --surface-2:   #1a1a1a;
-  --border:      rgba(255,255,255,0.09);
-  --primary:     #00d09c;
-  --primary-dim: #00a87d;
-  --text:        #e6e6e6;
-  --text-muted:  #777777;
-  --success:     #00d09c;
-  --danger:      #f55252;
-  --warning:     #f5a623;
-  --div-expected: #f5a623;
-  --div-received: #00d09c;
-  --div-overdue:  #f55252;
-  --sidebar-w:   240px;
-  --radius:      16px;
-  --radius-sm:   8px;
+  --bg:                  #0a0a0a;
+  --surface:             #111111;
+  --surface-2:           #1a1a1a;
+  --border:              rgba(255,255,255,0.09);
+  --border-hover:        rgba(255,255,255,0.16);
+  --primary:             #00d09c;
+  --primary-dim:         #00a87d;
+  --text:                #e6e6e6;
+  --text-muted:          #777777;
+  --success:             #00d09c;
+  --danger:              #f55252;
+  --warning:             #f5a623;
+  --div-expected:        #f5a623;
+  --div-received:        #00d09c;
+  --div-overdue:         #f55252;
+  --sidebar-w:           240px;
+  --radius:              16px;
+  --radius-sm:           8px;
+  --hover-overlay:       rgba(255,255,255,0.06);
+  --hover-subtle:        rgba(255,255,255,0.025);
+  --status-inactive-bg:  rgba(255,255,255,0.05);
+  --loader-track:        rgba(255,255,255,0.15);
+  --divcal-empty-bg:     rgba(255,255,255,0.012);
+  --shadow:              0 12px 28px rgba(0,0,0,0.5);
+}
+
+:root.light-theme {
+  --bg:                  #f4f6f8;
+  --surface:             #ffffff;
+  --surface-2:           #eceef1;
+  --border:              rgba(0,0,0,0.08);
+  --border-hover:        rgba(0,0,0,0.16);
+  --primary:             #00a87d;
+  --primary-dim:         #008764;
+  --text:                #1a1a1a;
+  --text-muted:          #64748b;
+  --success:             #00a87d;
+  --danger:              #dc2626;
+  --warning:             #d97706;
+  --div-expected:        #d97706;
+  --div-received:        #00a87d;
+  --div-overdue:         #dc2626;
+  --hover-overlay:       rgba(0,0,0,0.06);
+  --hover-subtle:        rgba(0,0,0,0.02);
+  --status-inactive-bg:  rgba(0,0,0,0.05);
+  --loader-track:        rgba(0,0,0,0.1);
+  --divcal-empty-bg:     rgba(0,0,0,0.012);
+  --shadow:              0 12px 28px rgba(0,0,0,0.08);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -213,7 +244,7 @@ body {
 }
 
 .status-active   { color: var(--success); background: rgba(0,208,156,0.1); }
-.status-inactive { color: var(--text-muted); background: rgba(255,255,255,0.05); }
+.status-inactive { color: var(--text-muted); background: var(--status-inactive-bg); }
 
 /* ── Tab content ──────────────────────────────── */
 
@@ -321,7 +352,7 @@ body {
 }
 
 .pill-tab.active { background: var(--primary); color: #000; font-weight: 600; }
-.pill-tab:not(.active):hover { background: rgba(255,255,255,0.06); color: var(--text); }
+.pill-tab:not(.active):hover { background: var(--hover-overlay); color: var(--text); }
 
 /* ── Underline tabs (settings) ────────────────── */
 
@@ -381,7 +412,7 @@ body {
 
 .data-table td.right { text-align: right; font-feature-settings: "tnum"; }
 .data-table tbody tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover td { background: rgba(255,255,255,0.02); }
+.data-table tbody tr:hover td { background: var(--hover-subtle); }
 
 .ticker-cell { font-weight: 600; font-size: 0.9rem; line-height: 1.2; }
 .ticker-desc { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; line-height: 1.3; }
@@ -434,7 +465,7 @@ body {
 .btn-primary:hover { background: var(--primary-dim); }
 
 .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-.btn-outline:hover { background: var(--surface-2); border-color: rgba(255,255,255,0.12); }
+.btn-outline:hover { background: var(--surface-2); border-color: var(--border-hover); }
 
 .btn-success { background: var(--primary); color: #000; }
 .btn-success:hover { background: var(--primary-dim); }
@@ -451,7 +482,7 @@ body {
 
 .loader {
   width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,0.15);
+  border: 2px solid var(--loader-track);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.65s linear infinite;
@@ -472,7 +503,7 @@ body {
   cursor: pointer;
   inset: 0;
   background: var(--surface-2);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--border);
   border-radius: 999px;
   transition: background 0.2s, border-color 0.2s;
 }
@@ -736,7 +767,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 }
 
 .portfolio-tab.active { background: var(--primary); color: #000; font-weight: 600; }
-.portfolio-tab:not(.active):hover { background: rgba(255,255,255,0.06); color: var(--text); }
+.portfolio-tab:not(.active):hover { background: var(--hover-overlay); color: var(--text); }
 
 /* ── Dividend event cards ─────────────────────── */
 
@@ -1336,7 +1367,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   padding: 1.1rem 1.25rem 0.9rem;
   transition: border-color 0.15s, opacity 0.15s;
 }
-.conn-card:hover { border-color: rgba(255,255,255,0.16); }
+.conn-card:hover { border-color: var(--border-hover); }
 .conn-card-inactive { opacity: 0.55; }
 .conn-card-error { border-color: rgba(245,82,82,0.4); }
 .conn-error-text { color: var(--danger); font-size: 0.85rem; }
@@ -1461,7 +1492,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   color: var(--text-muted);
   display: flex; align-items: center; justify-content: center;
 }
-.conn-menu-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.18); }
+.conn-menu-btn:hover { color: var(--text); border-color: var(--border-hover); }
 
 .conn-menu-pop, .add-account-pop {
   position: absolute;
@@ -1472,7 +1503,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow);
   padding: 0.35rem;
   display: flex;
   flex-direction: column;
@@ -1594,7 +1625,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   font-feature-settings: "tnum";
 }
 .hb-table td.right { text-align: right; }
-.hb-table tbody tr:hover td { background: rgba(255,255,255,0.025); }
+.hb-table tbody tr:hover td { background: var(--hover-subtle); }
 .hb-table tbody tr:last-child td { border-bottom: none; }
 
 .hb-holding { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
@@ -1763,7 +1794,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   font-size: 1.1rem;
   line-height: 1;
 }
-.divcal-navbtn:hover { border-color: rgba(255,255,255,0.2); }
+.divcal-navbtn:hover { border-color: var(--border-hover); }
 .divcal-month-label { font-size: 1rem; font-weight: 600; min-width: 130px; }
 .divcal-month-total { color: var(--success); font-weight: 600; font-size: 0.86rem; background: rgba(0,208,156,0.12); padding: 0.25rem 0.6rem; border-radius: var(--radius-sm); }
 
@@ -1784,7 +1815,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   flex-direction: column;
   gap: 0.35rem;
 }
-.divcal-cell.empty { background: rgba(255,255,255,0.012); }
+.divcal-cell.empty { background: var(--divcal-empty-bg); }
 .divcal-cell.today { background: rgba(58,123,213,0.06); }
 .divcal-cell-head { display: flex; align-items: center; justify-content: space-between; }
 .divcal-daynum { font-size: 0.8rem; color: var(--text-muted); }

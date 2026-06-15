@@ -37,6 +37,20 @@ const UI = {
     dashFutureChartInstance: null,
     dashReceivedChartInstance: null,
 
+    getChartTheme() {
+        if (typeof document === 'undefined') return { textColor: '#7c8496', gridColor: 'rgba(255,255,255,0.06)', tooltipBg: '#1e2640', tooltipBorder: 'rgba(255,255,255,0.08)' };
+        const style = getComputedStyle(document.documentElement);
+        const textMuted = style.getPropertyValue('--text-muted').trim() || '#7c8496';
+        const border = style.getPropertyValue('--border').trim() || 'rgba(255,255,255,0.06)';
+        const surface2 = style.getPropertyValue('--surface-2').trim() || '#1e2640';
+        return {
+            textColor: textMuted,
+            gridColor: border,
+            tooltipBg: surface2,
+            tooltipBorder: border
+        };
+    },
+
     showToast(msg, type = 'success') {
         this.toast.textContent = msg;
         this.toast.className = `toast visible ${type}`;
@@ -553,15 +567,16 @@ const UI = {
         if (ftEl) ftEl.textContent = `${fmt(totalNext12)} next 12m`;
         if (fmEl) fmEl.textContent = `${fmt(totalNext12 / 12)} monthly avg`;
 
+        const theme = this.getChartTheme();
         const chartCfg = {
             type: 'bar',
             data: { labels, datasets: [{ data, backgroundColor: 'rgba(0,208,156,0.28)', borderColor: '#00d09c', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(0,208,156,0.55)' }] },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: '#1e2640', padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1 } },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: theme.tooltipBg, padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: theme.tooltipBorder, borderWidth: 1 } },
                 scales: {
-                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#7c8496', font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
-                    x: { grid: { display: false }, ticks: { color: '#7c8496', font: { size: 10 } } }
+                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: theme.gridColor }, ticks: { color: theme.textColor, font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
+                    x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 10 } } }
                 }
             }
         };
@@ -570,6 +585,11 @@ const UI = {
             this.dashFutureChartInstance.data.labels = labels;
             this.dashFutureChartInstance.data.datasets[0].data = data;
             this.dashFutureChartInstance.options.scales.y.max = maxVal * 1.25;
+            this.dashFutureChartInstance.options.scales.y.grid.color = theme.gridColor;
+            this.dashFutureChartInstance.options.scales.y.ticks.color = theme.textColor;
+            this.dashFutureChartInstance.options.scales.x.ticks.color = theme.textColor;
+            this.dashFutureChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
+            this.dashFutureChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
             this.dashFutureChartInstance.update();
         } else {
             this.dashFutureChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
@@ -610,15 +630,16 @@ const UI = {
         const totalEl = document.getElementById('dashReceivedTotal');
         if (totalEl) totalEl.textContent = total12m > 0 ? `${fmt(total12m)} received` : 'No data yet';
 
+        const theme = this.getChartTheme();
         const chartCfg = {
             type: 'bar',
             data: { labels, datasets: [{ data, backgroundColor: 'rgba(79,142,247,0.28)', borderColor: '#4f8ef7', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(79,142,247,0.55)' }] },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: '#1e2640', padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1 } },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: theme.tooltipBg, padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: theme.tooltipBorder, borderWidth: 1 } },
                 scales: {
-                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#7c8496', font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
-                    x: { grid: { display: false }, ticks: { color: '#7c8496', font: { size: 10 } } }
+                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: theme.gridColor }, ticks: { color: theme.textColor, font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
+                    x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 10 } } }
                 }
             }
         };
@@ -627,6 +648,11 @@ const UI = {
             this.dashReceivedChartInstance.data.labels = labels;
             this.dashReceivedChartInstance.data.datasets[0].data = data;
             this.dashReceivedChartInstance.options.scales.y.max = maxVal * 1.25;
+            this.dashReceivedChartInstance.options.scales.y.grid.color = theme.gridColor;
+            this.dashReceivedChartInstance.options.scales.y.ticks.color = theme.textColor;
+            this.dashReceivedChartInstance.options.scales.x.ticks.color = theme.textColor;
+            this.dashReceivedChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
+            this.dashReceivedChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
             this.dashReceivedChartInstance.update();
         } else {
             this.dashReceivedChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
@@ -1214,6 +1240,7 @@ const UI = {
         const area = document.getElementById('dashboardChartArea');
         if (!area) return;
 
+        const theme = this.getChartTheme();
         if (!holdingsData && typeof App !== 'undefined') {
             holdingsData = App.getFilteredHoldingsData();
         }
@@ -1308,13 +1335,15 @@ const UI = {
             this.accountsChartInstance.data.labels                         = labels;
             this.accountsChartInstance.data.datasets[0].data               = data;
             this.accountsChartInstance.data.datasets[0].backgroundColor    = bgColors;
+            this.accountsChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
+            this.accountsChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
             this.accountsChartInstance.update();
             return;
         }
 
         if (typeof Chart === 'undefined') return;
 
-        Chart.defaults.color       = '#7c8496';
+        Chart.defaults.color       = theme.textColor;
         Chart.defaults.font.family = "'Inter', system-ui, sans-serif";
 
         this.accountsChartInstance = new Chart(ctx, {
@@ -1346,12 +1375,12 @@ const UI = {
                                 return ` ${ctx.label}: ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(ctx.parsed)}`;
                             }
                         },
-                        backgroundColor: '#1e2640',
+                        backgroundColor: theme.tooltipBg,
                         titleFont: { size: 13 },
                         bodyFont:  { size: 13 },
                         padding: 12,
                         cornerRadius: 8,
-                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderColor: theme.tooltipBorder,
                         borderWidth: 1
                     }
                 },
@@ -1742,10 +1771,17 @@ const UI = {
         const data   = Object.values(monthlyData).map(d => d.total);
         const maxVal = Math.max(...data, 1);
 
+        const theme = this.getChartTheme();
+
         if (this.dividendChartInstance) {
             this.dividendChartInstance.data.labels            = labels;
             this.dividendChartInstance.data.datasets[0].data  = data;
             this.dividendChartInstance.options.scales.y.max   = maxVal * 1.2;
+            this.dividendChartInstance.options.scales.y.grid.color = theme.gridColor;
+            this.dividendChartInstance.options.scales.y.ticks.color = theme.textColor;
+            this.dividendChartInstance.options.scales.x.ticks.color = theme.textColor;
+            this.dividendChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
+            this.dividendChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
             this.dividendChartInstance.update();
             return;
         }
@@ -1773,12 +1809,12 @@ const UI = {
                         callbacks: {
                             label: c => ` $${c.parsed.y.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`
                         },
-                        backgroundColor: '#1e2640',
+                        backgroundColor: theme.tooltipBg,
                         titleFont: { size: 12 },
                         bodyFont:  { size: 13, weight: '600' },
                         padding: 10,
                         cornerRadius: 8,
-                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderColor: theme.tooltipBorder,
                         borderWidth: 1
                     }
                 },
@@ -1786,15 +1822,15 @@ const UI = {
                     y: {
                         beginAtZero: true,
                         max: maxVal * 1.2,
-                        grid:  { color: 'rgba(255,255,255,0.04)' },
+                        grid:  { color: theme.gridColor },
                         ticks: {
-                            color: '#7c8496',
+                            color: theme.textColor,
                             callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}`
                         }
                     },
                     x: {
                         grid:  { display: false },
-                        ticks: { color: '#7c8496', font: { size: 11 } }
+                        ticks: { color: theme.textColor, font: { size: 11 } }
                     }
                 }
             }
@@ -1914,6 +1950,7 @@ const UI = {
     renderDivCalChart(events) {
         const canvas = document.getElementById('divcalChart');
         if (!canvas || typeof Chart === 'undefined') return;
+        const theme = this.getChartTheme();
         const now = new Date();
         const labels = [], totals = [], keys = [];
         for (let i = 0; i < 12; i++) {
@@ -1937,11 +1974,16 @@ const UI = {
                 responsive: true, maintainAspectRatio: false,
                 plugins: {
                     legend: { display: false },
-                    tooltip: { callbacks: { label: c => '$' + c.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 0 }) } }
+                    tooltip: { 
+                        callbacks: { label: c => '$' + c.parsed.y.toLocaleString(undefined, { maximumFractionDigits: 0 }) },
+                        backgroundColor: theme.tooltipBg,
+                        borderColor: theme.tooltipBorder,
+                        borderWidth: 1
+                    }
                 },
                 scales: {
-                    x: { grid: { display: false }, ticks: { color: '#888', font: { size: 11 } } },
-                    y: { grid: { color: 'rgba(255,255,255,0.06)' }, ticks: { color: '#888', maxTicksLimit: 4, callback: v => max >= 1000 ? '$' + (v / 1000).toFixed(0) + 'K' : '$' + v.toFixed(0) } }
+                    x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 11 } } },
+                    y: { grid: { color: theme.gridColor }, ticks: { color: theme.textColor, maxTicksLimit: 4, callback: v => max >= 1000 ? '$' + (v / 1000).toFixed(0) + 'K' : '$' + v.toFixed(0) } }
                 }
             }
         });

@@ -20,6 +20,9 @@ RUN npm ci
 # Copy application source
 COPY . .
 
+# Fail the build on type errors (tsx runs untyped at runtime, so this is the gate).
+RUN npx tsc --noEmit
+
 # Expose the application port
 EXPOSE 3000
 

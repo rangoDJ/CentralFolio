@@ -9,6 +9,7 @@
     "login": "tsx src/scripts/login.ts",
     "list-users": "tsx src/scripts/list-users.ts",
     "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {

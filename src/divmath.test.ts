@@ -1,0 +1,92 @@
+import { test } from 'node:test';
+import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import vm from 'node:vm';
+
+// Load the actual shipped public/js/divmath.js so the tests cover the real code.
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const code = readFileSync(path.join(root, 'public', 'js', 'divmath.js'), 'utf8');
+const sandbox: any = { module: { exports: {} } };
+vm.createContext(sandbox);
+vm.runInContext(code, sandbox);
+const DivMath = sandbox.module.exports as {
+  tagDividendStatus: (events: any[], txData: any[], divTypes?: string[]) => any[];
+  buildStockPositions: (symbol: string, ctx: any) => { rows: any[]; total: any };
+};
+
+const approx = (a: number, b: number, msg?: string) => assert.ok(Math.abs(a - b) < 1e-6, `${msg ?? ''} expected ${b}, got ${a}`);
+const dayOffset = (n: number) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return d.toISOString(); };
+
+test('tagDividendStatus: received / overdue / expected + base-symbol fallback', () => {
+  const events: any[] = [
+    { accountId: 'A', symbol: 'ENB.TO', frequency: 12, date: dayOffset(-35) }, // tx ~5d away -> received
+    { accountId: 'A', symbol: 'ENB.TO', frequency: 12, date: dayOffset(-5) },  // past, no tx -> overdue
+    { accountId: 'A', symbol: 'XYZ.TO', frequency: 4, date: dayOffset(20) },   // future -> expected
+    { accountId: 'A', symbol: 'BAS', frequency: 4, date: dayOffset(-10) },     // base-symbol match -> received
+  ];
+  const txData = [{
+    accountId: 'A', transactions: [
+      { type: 'DIVIDEND', symbol: 'ENB.TO', date: dayOffset(-30), amount: -12.34 },
+      { type: 'Distribution', symbol: 'BAS.TO', date: dayOffset(-12), amount: 9.5 },
+      { type: 'BUY', symbol: 'ENB.TO', date: dayOffset(-5), amount: -100 }, // not a dividend → ignored
+    ],
+  }];
+
+  DivMath.tagDividendStatus(events, txData);
+  assert.deepEqual(events.map(e => e._status), ['received', 'overdue', 'expected', 'received']);
+  approx(events[0]._recvAmount, 12.34, 'received amount uses abs(txn.amount)');
+});
+
+test('tagDividendStatus: monthly payer does not match an adjacent month', () => {
+  // freq 12 → tolerance ~13.7d; a tx 25 days from the event must NOT match.
+  const events: any[] = [{ accountId: 'A', symbol: 'HMAX.TO', frequency: 12, date: dayOffset(-40) }];
+  const txData = [{ accountId: 'A', transactions: [{ type: 'DIVIDEND', symbol: 'HMAX.TO', date: dayOffset(-15), amount: 5 }] }];
+  DivMath.tagDividendStatus(events, txData);
+  assert.equal(events[0]._status, 'overdue');
+});
+
+test('buildStockPositions: per-account + aggregate math', () => {
+  const ctx = {
+    holdings: [
+      { accountId: 'A', accountName: 'TFSA', holdings: [{ symbol: 'ENB.TO', units: 100, price: 50, marketValue: 5000, average_purchase_price: 40, currency: 'CAD' }] },
+      { accountId: 'B', accountName: 'RRSP', holdings: [{ symbol: 'ENB.TO', units: 50, price: 50, marketValue: 2500, average_purchase_price: 60, currency: 'CAD' }] },
+      { accountId: 'B', accountName: 'RRSP', holdings: [{ symbol: 'OTHER.TO', units: 10, price: 1, marketValue: 10, average_purchase_price: 1, currency: 'CAD' }] },
+    ],
+    txData: [
+      { accountId: 'A', transactions: [{ type: 'DIVIDEND', symbol: 'ENB.TO', amount: -30 }, { type: 'DIVIDEND', symbol: 'ENB.TO', amount: 20 }] },
+      { accountId: 'B', transactions: [{ type: 'DIVIDEND', symbol: 'ENB.TO', amount: 15 }] },
+    ],
+    groups: [{ accounts: [{ id: 'A', balance: { total: { amount: 10000 } } }, { id: 'B', balance: { total: { amount: 5000 } } }] }],
+    inactiveIds: new Set<string>(),
+  };
+
+  const { rows, total } = DivMath.buildStockPositions('ENB.TO', ctx);
+  assert.equal(rows.length, 2, 'only ENB.TO positions, OTHER.TO excluded');
+
+  const a = rows.find(r => r.accountId === 'A');
+  approx(a.cost, 4000); approx(a.capitalGain, 1000); approx(a.capitalGainPct, 25);
+  approx(a.dividends, 50, 'abs(-30)+abs(20)'); approx(a.profit, 1050); approx(a.profitPct, 26.25);
+  approx(a.pctInPortfolio, 50, '5000 / 10000');
+
+  const b = rows.find(r => r.accountId === 'B');
+  approx(b.capitalGain, -500, '2500 - 3000'); approx(b.dividends, 15); approx(b.profit, -485);
+  approx(b.pctInPortfolio, 50, '2500 / 5000');
+
+  approx(total.units, 150); approx(total.value, 7500); approx(total.cost, 7000);
+  approx(total.capitalGain, 500); approx(total.dividends, 65); approx(total.profit, 565);
+  approx(total.avgCost, 7000 / 150);
+});
+
+test('buildStockPositions: inactive accounts excluded', () => {
+  const ctx = {
+    holdings: [{ accountId: 'A', accountName: 'TFSA', holdings: [{ symbol: 'ENB.TO', units: 100, price: 50, marketValue: 5000, average_purchase_price: 40 }] }],
+    txData: [],
+    groups: [{ accounts: [{ id: 'A', balance: { total: { amount: 10000 } } }] }],
+    inactiveIds: new Set(['A']),
+  };
+  const { rows, total } = DivMath.buildStockPositions('ENB.TO', ctx);
+  assert.equal(rows.length, 0);
+  assert.equal(total, null);
+});

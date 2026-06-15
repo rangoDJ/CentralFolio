@@ -1462,57 +1462,8 @@ const UI = {
     // transaction within a frequency-aware date tolerance so monthly payers do
     // not match an adjacent month. `events` are tagged in place and returned.
     tagDividendStatus(events, txData) {
-        const norm = s => String(s || '').toUpperCase().trim();
-        const base = s => { const u = norm(s); const i = u.lastIndexOf('.'); return i > 0 ? u.slice(0, i) : u; };
-
-        // Index dividend transactions: accountId → symbol key → sorted [{t, amount, used}]
-        const index = new Map();
-        (txData || []).forEach(acct => {
-            (acct.transactions || []).forEach(txn => {
-                if (!this._DIV_TYPES.includes(norm(txn.type))) return;
-                if (!txn.symbol || !txn.date) return;
-                const accMap = index.get(acct.accountId) || new Map();
-                for (const key of new Set([norm(txn.symbol), base(txn.symbol)])) {
-                    const list = accMap.get(key) || [];
-                    list.push({ t: new Date(txn.date).getTime(), amount: Math.abs(txn.amount || 0) });
-                    accMap.set(key, list);
-                }
-                index.set(acct.accountId, accMap);
-            });
-        });
-        index.forEach(accMap => accMap.forEach(list => list.sort((a, b) => a.t - b.t)));
-
-        const todayTs = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
-        const DAY = 86400000;
-
-        // Process in date order so greedy nearest-match claims sensibly.
-        const ordered = [...events].sort((a, b) => new Date(a.date) - new Date(b.date));
-        ordered.forEach(e => {
-            const evTs = new Date(e.date).getTime();
-            const freq = e.frequency || 4;
-            const tolDays = Math.min(30, (365 / freq) * 0.45);
-            const accMap = index.get(e.accountId);
-            const list = accMap && (accMap.get(norm(e.symbol)) || accMap.get(base(e.symbol)));
-
-            let matchIdx = -1, bestDelta = Infinity;
-            if (list) {
-                for (let i = 0; i < list.length; i++) {
-                    if (list[i].used) continue;
-                    const delta = Math.abs(list[i].t - evTs);
-                    if (delta <= tolDays * DAY && delta < bestDelta) { bestDelta = delta; matchIdx = i; }
-                }
-            }
-
-            if (matchIdx >= 0) {
-                list[matchIdx].used = true;
-                e._status = 'received';
-                e._recvAmount = list[matchIdx].amount;
-                e._recvDate = new Date(list[matchIdx].t).toLocaleDateString('en-CA');
-            } else {
-                e._status = evTs >= todayTs ? 'expected' : 'overdue';
-            }
-        });
-        return events;
+        // Delegates to the pure, unit-tested implementation in divmath.js.
+        return DivMath.tagDividendStatus(events, txData, this._DIV_TYPES);
     },
 
     // Small 3-state legend shown above the forecast list and the calendar.

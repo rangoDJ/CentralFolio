@@ -781,11 +781,11 @@ const App = {
                     this._livePending.add(domain);
                     this.scheduleLiveUpdate();
                 }
-            } catch (_) {}
+            } catch (err) { console.warn('liveSync: bad data-changed event', err); }
         });
 
         es.addEventListener('job-status', (e) => {
-            try { this.onJobStatusEvent(JSON.parse(e.data).job); } catch (_) {}
+            try { this.onJobStatusEvent(JSON.parse(e.data).job); } catch (err) { console.warn('liveSync: bad job-status event', err); }
         });
 
         es.onopen = () => { this._sseErrors = 0; };
@@ -828,7 +828,7 @@ const App = {
             try {
                 this.currentGroups = await API.getAccounts();
                 await this.fetchHoldingsDataSilently();
-            } catch (_) {}
+            } catch (err) { console.warn('liveUpdate: holdings refresh failed', err); }
         }
         if (dividendsChanged) {
             try {
@@ -840,7 +840,7 @@ const App = {
                     }));
                     this.dividendsLastUpdated = new Date();
                 }
-            } catch (_) {}
+            } catch (err) { console.warn('liveUpdate: dividends refresh failed', err); }
         }
         if (transactionsChanged) {
             try {
@@ -855,7 +855,7 @@ const App = {
                         transactions: group.transactions
                     }));
                 this.transactionsLastUpdated = new Date();
-            } catch (_) {}
+            } catch (err) { console.warn('liveUpdate: transactions refresh failed', err); }
         }
 
         // 2. Re-render the active page; dependent figures recompute from fresh caches.
@@ -1011,7 +1011,8 @@ const App = {
                 }));
             this.transactionsLastUpdated = new Date();
             return true;
-        } catch (_) {
+        } catch (err) {
+            console.warn('ensureTransactionsLoaded failed', err);
             return false;
         }
     },
@@ -1167,35 +1168,39 @@ const App = {
             this.currentGroups = await API.getAccounts();
         }
 
-        let allHoldingsData = [];
+        // Flatten active accounts into a task list.
+        const tasks = [];
         for (const group of this.currentGroups) {
             const portfolio = this.activePortfolios.find(p => p.id === group.portfolioId);
             const tradingEnabled = portfolio?.tradingEnabled ? true : false;
             for (const acc of group.accounts) {
-                if (!this.inactiveAccountIds.has(acc.id)) {
-                    try {
-                        const data = await API.getHoldings(group.portfolioId, acc.id, false);
-                        allHoldingsData.push({
-                            portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
-                            accountName: acc.customName || acc.name,
-                            accountId: acc.id,
-                            portfolioId: group.portfolioId,
-                            tradingEnabled,
-                            holdings: data
-                        });
-                    } catch (err) {
-                        if (err.message !== 'Account is disabled') {
-                            allHoldingsData.push({
-                                portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
-                                accountName: acc.customName || acc.name,
-                                accountId: acc.id,
-                                error: err.message
-                            });
-                        }
-                    }
-                }
+                if (!this.inactiveAccountIds.has(acc.id)) tasks.push({ group, acc, tradingEnabled });
             }
         }
+
+        const fetchOne = async ({ group, acc, tradingEnabled }) => {
+            const base = {
+                portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
+                accountName: acc.customName || acc.name,
+                accountId: acc.id,
+            };
+            try {
+                const data = await API.getHoldings(group.portfolioId, acc.id, false);
+                return { ...base, portfolioId: group.portfolioId, tradingEnabled, holdings: data };
+            } catch (err) {
+                if (err.message === 'Account is disabled') return null;
+                return { ...base, error: err.message };
+            }
+        };
+
+        // Bounded concurrency — fetch a few accounts at a time instead of one-by-one.
+        const CONCURRENCY = 4;
+        const allHoldingsData = [];
+        for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+            const batch = await Promise.all(tasks.slice(i, i + CONCURRENCY).map(fetchOne));
+            batch.forEach(r => { if (r) allHoldingsData.push(r); });
+        }
+
         this.cachedHoldingsData = allHoldingsData;
         this.holdingsLastUpdated = new Date();
     },
@@ -1459,72 +1464,14 @@ const App = {
     // Build the "My positions" breakdown for a symbol from cached holdings +
     // transactions. Returns { rows: [...per account], total: {...aggregate} }.
     buildStockPositions(symbol) {
-        const want = String(symbol).toUpperCase().trim();
-        const norm = s => String(s || '').toUpperCase().trim();
-        const symOf = h => norm(h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol);
-
-        // Dividends received per account for this symbol.
-        const txData = this.getFilteredTransactionsData() || [];
-        const divByAccount = new Map();
-        txData.forEach(acct => {
-            (acct.transactions || []).forEach(t => {
-                if (!UI._DIV_TYPES.includes(norm(t.type))) return;
-                if (norm(t.symbol) !== want) return;
-                divByAccount.set(acct.accountId, (divByAccount.get(acct.accountId) || 0) + Math.abs(t.amount || 0));
-            });
+        // Delegates to the pure, unit-tested implementation in divmath.js.
+        return DivMath.buildStockPositions(symbol, {
+            holdings: this.getFilteredHoldingsData(),
+            txData: this.getFilteredTransactionsData(),
+            groups: this.getFilteredGroups(),
+            inactiveIds: this.inactiveAccountIds,
+            divTypes: UI._DIV_TYPES,
         });
-
-        // Per-account totals (for "% in portfolio").
-        const acctTotal = new Map();
-        (this.getFilteredGroups() || []).forEach(g => (g.accounts || []).forEach(a => {
-            if (!this.inactiveAccountIds?.has(a.id)) acctTotal.set(a.id, a.balance?.total?.amount || 0);
-        }));
-
-        const rows = [];
-        (this.getFilteredHoldingsData() || []).forEach(acct => {
-            if (this.inactiveAccountIds?.has(acct.accountId)) return;
-            (acct.holdings || []).forEach(h => {
-                if (symOf(h) !== want) return;
-                const units = h.units || 0;
-                const price = h.price || 0;
-                const value = h.marketValue || (units * price) || 0;
-                const avgCost = h.average_purchase_price || 0;
-                const cost = avgCost > 0 ? avgCost * units : value;
-                const capitalGain = value - cost;
-                const dividends = divByAccount.get(acct.accountId) || 0;
-                const profit = capitalGain + dividends;
-                const portTotal = acctTotal.get(acct.accountId) || 0;
-                rows.push({
-                    accountId: acct.accountId,
-                    accountName: acct.accountName,
-                    currency: h.currency || 'CAD',
-                    units, price, value, avgCost, cost,
-                    capitalGain,
-                    capitalGainPct: cost > 0 ? (capitalGain / cost) * 100 : 0,
-                    dividends,
-                    profit,
-                    profitPct: cost > 0 ? (profit / cost) * 100 : 0,
-                    pctInPortfolio: portTotal > 0 ? (value / portTotal) * 100 : 0,
-                });
-            });
-        });
-
-        // Aggregate across all accounts holding the symbol.
-        const sum = (k) => rows.reduce((s, r) => s + (r[k] || 0), 0);
-        const tUnits = sum('units'), tValue = sum('value'), tCost = sum('cost');
-        const tCap = tValue - tCost, tDiv = sum('dividends'), tProfit = tCap + tDiv;
-        const total = rows.length ? {
-            accountName: `${rows.length} ${rows.length === 1 ? 'account' : 'accounts'}`,
-            currency: rows[0].currency,
-            units: tUnits,
-            avgCost: tUnits > 0 ? tCost / tUnits : 0,
-            value: tValue, cost: tCost,
-            capitalGain: tCap, capitalGainPct: tCost > 0 ? (tCap / tCost) * 100 : 0,
-            dividends: tDiv,
-            profit: tProfit, profitPct: tCost > 0 ? (tProfit / tCost) * 100 : 0,
-        } : null;
-
-        return { rows, total };
     },
 
     async switchSettingsTab(paneId, btnElement) {
@@ -1575,24 +1522,29 @@ const App = {
             if (btn) btn.classList.add('active');
         }
 
+        // 'calendar' and 'list' are two views of the same calendar pane.
+        const paneKey = (subTabId === 'list') ? 'calendar' : subTabId;
+
         // Update pane visibility — CSS handles display via .pane.active
         document.querySelectorAll('#dividend-tracker-tab .pane').forEach(pane => pane.classList.remove('active'));
 
-        const activePane = document.getElementById('dividend-' + subTabId + '-pane');
+        const activePane = document.getElementById('dividend-' + paneKey + '-pane');
         if (activePane) activePane.classList.add('active');
 
-        // Show/hide account selector tabs container
+        // Show/hide account selector tabs container (hidden only on the Database view)
         const tabsContainer = document.getElementById('dividend-account-tabs');
         if (tabsContainer) {
-            tabsContainer.style.display = (subTabId === 'forecast' || subTabId === 'calendar') ? 'flex' : 'none';
+            tabsContainer.style.display = (subTabId === 'database') ? 'none' : 'flex';
         }
 
         if (subTabId === 'forecast') {
             this.loadAllDividends();
-        } else if (subTabId === 'calendar') {
-            this.loadDividendCalendar();
         } else if (subTabId === 'database') {
             this.loadDividendDatabase();
+        } else {
+            // calendar or list — same pane, different inner view
+            UI.divCalView = subTabId;
+            this.loadDividendCalendar();
         }
     },
 
@@ -1607,14 +1559,11 @@ const App = {
 
         // Check which subtab is active and re-render that subtab
         const activeSubTab = document.querySelector('#dividend-sub-tabs .pill-tab.active')?.getAttribute('data-subtab');
+        if (!filteredDivs) return;
         if (activeSubTab === 'forecast' || !activeSubTab) {
-            if (filteredDivs) {
-                UI.renderDividends(filteredDivs, this.currentDividendAccountId);
-            }
-        } else if (activeSubTab === 'calendar') {
-            if (filteredDivs) {
-                UI.renderDividendCalendar(filteredDivs, this.currentCalendarDate, this.currentDividendAccountId);
-            }
+            UI.renderDividends(filteredDivs, this.currentDividendAccountId);
+        } else if (activeSubTab === 'calendar' || activeSubTab === 'list') {
+            UI.renderDividendCalendar(filteredDivs, this.currentCalendarDate, this.currentDividendAccountId);
         }
     },
 
@@ -1865,7 +1814,7 @@ const App = {
             } else {
                 if (subTab === 'forecast') {
                     UI.renderDividends(filteredDivs, this.currentDividendAccountId);
-                } else if (subTab === 'calendar') {
+                } else if (subTab === 'calendar' || subTab === 'list') {
                     UI.renderDividendCalendar(filteredDivs, this.currentCalendarDate, this.currentDividendAccountId);
                 }
             }

@@ -185,8 +185,14 @@ export interface StockDetail {
   description: string | null;
 }
 
-const STOCK_DETAIL_TTL_MS = 15 * 60 * 1000;
-const stockDetailCache = new Map<string, { data: StockDetail, ts: number }>();
+const STOCK_DETAIL_TTL_MS = 15 * 60 * 1000;       // cache successful lookups 15 min
+const STOCK_DETAIL_NEG_TTL_MS = 5 * 60 * 1000;    // cache "not found" 5 min to avoid refetching
+const STOCK_DETAIL_MIN_INTERVAL_MS = 1500;        // floor between live Snowball detail fetches
+// `data: null` is a negative-cache entry (Snowball had nothing for this symbol).
+const stockDetailCache = new Map<string, { data: StockDetail | null, ts: number }>();
+// Coalesce concurrent requests for the same symbol so rapid clicks hit Snowball once.
+const stockDetailInflight = new Map<string, Promise<StockDetail | null>>();
+let lastStockDetailFetch = 0;
 
 function mapAssetToStockDetail(symbol: string, asset: any): StockDetail {
   const dateOnly = (s: any) => (typeof s === 'string' && s) ? s.split('T')[0] : null;
@@ -212,20 +218,46 @@ function mapAssetToStockDetail(symbol: string, asset: any): StockDetail {
   };
 }
 
-// Rich asset detail for the stock detail page. Cached ~15 min; user-initiated
-// so it skips the background rate-limiter to keep the click responsive.
+// Rich asset detail for the stock detail page. User-initiated, so it doesn't use
+// the 20s background rate-limiter; instead it relies on caching (incl. a negative
+// cache), request coalescing, and a small min-interval so a burst of clicks can't
+// hammer Snowball and get the server IP throttled/banned.
 export async function getStockDetail(symbol: string): Promise<StockDetail | null> {
   const key = symbol.toUpperCase().trim();
+
   const cached = stockDetailCache.get(key);
-  if (cached && Date.now() - cached.ts < STOCK_DETAIL_TTL_MS) {
-    logger.debug('Snowball', `getStockDetail(${key}) → cache HIT`);
-    return cached.data;
+  if (cached) {
+    const ttl = cached.data ? STOCK_DETAIL_TTL_MS : STOCK_DETAIL_NEG_TTL_MS;
+    if (Date.now() - cached.ts < ttl) {
+      logger.debug('Snowball', `getStockDetail(${key}) → cache HIT (${cached.data ? 'found' : 'not found'})`);
+      return cached.data;
+    }
   }
-  const asset = await fetchSnowballAsset(key, false);
-  if (!asset) return null;
-  const detail = mapAssetToStockDetail(key, asset);
-  stockDetailCache.set(key, { data: detail, ts: Date.now() });
-  return detail;
+
+  // Coalesce concurrent requests for the same symbol.
+  const inflight = stockDetailInflight.get(key);
+  if (inflight) return inflight;
+
+  const work = (async (): Promise<StockDetail | null> => {
+    // Throttle: keep a minimum gap between live detail fetches.
+    const elapsed = Date.now() - lastStockDetailFetch;
+    if (elapsed < STOCK_DETAIL_MIN_INTERVAL_MS) {
+      await sleep(STOCK_DETAIL_MIN_INTERVAL_MS - elapsed);
+    }
+    lastStockDetailFetch = Date.now();
+
+    const asset = await fetchSnowballAsset(key, false);
+    const detail = asset ? mapAssetToStockDetail(key, asset) : null;
+    stockDetailCache.set(key, { data: detail, ts: Date.now() });
+    return detail;
+  })();
+
+  stockDetailInflight.set(key, work);
+  try {
+    return await work;
+  } finally {
+    stockDetailInflight.delete(key);
+  }
 }
 
 /**

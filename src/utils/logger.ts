@@ -68,9 +68,16 @@ export const logger = {
 /** Express middleware: logs every incoming request and its response status+duration. */
 import type { Request, Response, NextFunction } from 'express';
 
+// Redact secrets that may appear in query strings (e.g. the SSE ?token= used by
+// EventSource, which can't send an Authorization header) so they never hit logs.
+function redactUrl(url: string): string {
+  return url.replace(/([?&](?:token|userSecret|secret|password)=)[^&]+/gi, '$1[redacted]');
+}
+
 export function requestLogger(req: Request, res: Response, next: NextFunction) {
   const start = Date.now();
-  const { method, originalUrl } = req;
+  const { method } = req;
+  const safeUrl = redactUrl(req.originalUrl);
 
   res.on('finish', () => {
     const ms = Date.now() - start;
@@ -81,7 +88,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction) {
       COLORS.green;
     const status = `${statusColor}${res.statusCode}${COLORS.reset}`;
     const duration = `${COLORS.dim}${ms}ms${COLORS.reset}`;
-    logger.info('API', `${method} ${originalUrl} → ${status} (${duration})`);
+    logger.info('API', `${method} ${safeUrl} → ${status} (${duration})`);
   });
 
   next();

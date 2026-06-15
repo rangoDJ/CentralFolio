@@ -21,28 +21,51 @@ export interface Transaction {
   accountId_unused?: string; // naming fix or whatever is needed
 }
 
-export async function fetchTransactionsForAccount(accountId: string, portfolioId: number | string, userId: string, userSecret: string): Promise<Transaction[]> {
+// Page size and an absolute safety cap so a misbehaving broker can't loop forever.
+const TXN_PAGE_LIMIT = 1000;
+const TXN_MAX_RECORDS = 100_000;
+
+export async function fetchTransactionsForAccount(accountId: string, portfolioId: number | string, userId: string, userSecret: string, sinceDate?: string): Promise<Transaction[]> {
   try {
-    logger.info('Transactions', `Fetching transactions for account=${accountId}...`);
+    logger.info('Transactions', sinceDate
+      ? `Fetching transactions for account=${accountId} since ${sinceDate} (incremental)...`
+      : `Fetching full transaction history for account=${accountId}...`);
 
     const client = getSnapTradeClientForPortfolio(portfolioId);
 
-    // Use date range: last 2 years — SnapTrade recommends providing startDate/endDate
-    const endDate = new Date().toISOString().split('T')[0];
-    const startDate = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // First sync: omit start/end dates — per the SnapTrade API the range then
+    // defaults to the first/last transaction it knows (max history). On later
+    // syncs we pass `sinceDate` to fetch only the recent delta. Either way we page
+    // through all results (default page size 1000).
+    const activities: any[] = [];
+    let offset = 0;
+    let total = Infinity;
 
-    const response = await client.accountInformation.getAccountActivities({
-      accountId,
-      userId,
-      userSecret,
-      startDate,
-      endDate,
-    });
+    while (offset < total && activities.length < TXN_MAX_RECORDS) {
+      const response = await client.accountInformation.getAccountActivities({
+        accountId,
+        userId,
+        userSecret,
+        ...(sinceDate ? { startDate: sinceDate } : {}),
+        offset,
+        limit: TXN_PAGE_LIMIT,
+      });
 
-    // Response shape: { data: [...], pagination: { total_count, limit, offset } }
-    const raw = response.data as any;
-    const activities = Array.isArray(raw) ? raw : (raw?.data ?? raw?.activities ?? []);
-    logger.info('Transactions', `Got ${activities.length} activities for account ${accountId} (startDate=${startDate}, endDate=${endDate}, total=${raw?.pagination?.total_count ?? raw?.totalCount ?? 'N/A'})`);
+      // Response shape: { data: [...], pagination: { offset, limit, total } }
+      const raw = response.data as any;
+      const page = Array.isArray(raw) ? raw : (raw?.data ?? raw?.activities ?? []);
+      activities.push(...page);
+      total = raw?.pagination?.total ?? raw?.pagination?.total_count ?? activities.length;
+
+      logger.info('Transactions', `  account ${accountId}: fetched ${activities.length}/${Number.isFinite(total) ? total : '?'}`);
+
+      // Stop on the last (short/empty) page; otherwise advance and keep paging.
+      if (page.length === 0 || page.length < TXN_PAGE_LIMIT) break;
+      offset += page.length;
+      await sleep(150); // be gentle with the API between pages
+    }
+
+    logger.info('Transactions', `Got ${activities.length} total activities for account ${accountId}`);
 
     const transactions: Transaction[] = activities.map((activity: any) => {
       // symbol is a nested object: { symbol: "HHIS.TO", description: "...", ... }
@@ -140,11 +163,25 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
               continue;
             }
 
+            // Incremental: if we already have history cached, only fetch since the
+            // most recent cached transaction (minus a 7-day overlap for late-posted
+            // items). First sync (no cache) pulls the full history.
+            let sinceDate: string | undefined;
+            const latest = getCachedTransactions(account.id, 1)[0];
+            if (latest?.date) {
+              const d = new Date(latest.date);
+              if (!isNaN(d.getTime())) {
+                d.setUTCDate(d.getUTCDate() - 7);
+                sinceDate = d.toISOString().split('T')[0];
+              }
+            }
+
             const transactions = await fetchTransactionsForAccount(
               account.id,
               portfolio.id!,
               portfolio.userId,
-              portfolio.userSecret
+              portfolio.userSecret,
+              sinceDate
             );
 
             saveCachedTransactions(account.id, transactions);

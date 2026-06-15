@@ -239,6 +239,7 @@
             <div id="dividend-sub-tabs" class="pill-tabs">
               <button class="pill-tab active" data-subtab="forecast" onclick="App.switchDividendSubTab('forecast', this)">Forecast</button>
               <button class="pill-tab" data-subtab="calendar" onclick="App.switchDividendSubTab('calendar', this)">Calendar</button>
+              <button class="pill-tab" data-subtab="list" onclick="App.switchDividendSubTab('list', this)">List</button>
               <button class="pill-tab" data-subtab="database" onclick="App.switchDividendSubTab('database', this)">Database</button>
             </div>
           </div>
@@ -322,17 +323,13 @@
             </div>
           </div>
 
-          <!-- Month nav + view toggle -->
+          <!-- Month nav (Calendar/List/Forecast views are selected via the top pills) -->
           <div class="divcal-navrow">
             <div class="divcal-nav">
               <button class="divcal-navbtn" onclick="App.changeCalendarMonth(-1)" aria-label="Previous month">&#8249;</button>
               <span id="currentCalendarMonth" class="divcal-month-label"></span>
               <button class="divcal-navbtn" onclick="App.changeCalendarMonth(1)" aria-label="Next month">&#8250;</button>
               <span id="divcalMonthTotal" class="divcal-month-total"></span>
-            </div>
-            <div class="divcal-viewtoggle">
-              <button id="divcalViewCalendar" class="active" onclick="UI.setDivCalView('calendar')">Calendar</button>
-              <button id="divcalViewList" onclick="UI.setDivCalView('list')">List</button>
             </div>
           </div>
 
@@ -810,6 +807,7 @@
 
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/js/divmath.js"></script>
   <script src="/js/api.js"></script>
   <script src="/js/ui.js"></script>
   <script src="/js/app.js"></script>

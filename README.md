@@ -9,7 +9,7 @@ A self-hosted portfolio and dividend tracking app. Connect brokerage accounts th
 - **Dividend tracker** — three sub-views:
   - *Forecast* — projected annual/monthly/daily income and yield.
   - *Calendar* — month grid of upcoming payouts with a 12-month forecast chart, plus a list view.
-  - *Database* — cached dividend metadata with a manual Snowball lookup tool.
+  - *Database* — cached dividend metadata with a manual per-symbol lookup tool.
 - **Transactions** — a ledger with *Trades / Incomes / Cash / All* tabs, buy/sell totals by currency, per-trade unrealised profit, search, and CSV export.
 - **Rebalancing** — define target allocations per portfolio and get suggested buy-only or full-rebalance trades; execute them where trading is enabled.
 - **Custom portfolios** — group accounts from multiple brokerage connections into named, colour-labelled portfolios.
@@ -46,42 +46,10 @@ Set in the `environment:` block of `docker-compose.yml`.
 
 ## Dividend data
 
-Dividend metadata (frequency, ex-date, amount per share) is fetched exclusively from **[Snowball Analytics](https://snowball-analytics.com)** and cached in the local database. Lookups are rate-limited to ~3/min; results are cached for up to 7 days (24h for symbols with no dividend data). You can toggle automatic background sync and run manual per-symbol lookups in **Settings → Keys & Providers** and the **Dividend Tracker → Database** tab.
+Dividend metadata (frequency, ex-date, amount per share) is fetched automatically and cached in the local database. Results are cached for up to 7 days (24h for symbols with no dividend data). You can toggle automatic background sync and run manual per-symbol lookups in **Settings → Keys & Providers** and the **Dividend Tracker → Database** tab.
 
 ## Security
 
 CentralFolio is single-user and protected by a password (bcrypt-hashed) with a JWT session secret, both stored in the local SQLite database. **No secrets ever leave your server.**
 
 The database and credentials live under the mounted `./data` volume and must **never** be committed to source control: `snaptrade.db` and its WAL sidecars (`snaptrade.db-shm`, `snaptrade.db-wal`), `user-credentials.json`, and `.env`. These hold SnapTrade API keys, the password hash, and the JWT secret.
-
-## Project layout
-
-```
-CentralFolio/
-├── public/                   # Static frontend (HTML, JS, CSS)
-│   ├── index.html
-│   ├── login.html
-│   ├── css/style.css
-│   └── js/
-│       ├── api.js            # API client
-│       ├── app.js            # App logic and event handlers
-│       └── ui.js             # DOM rendering helpers
-├── src/
-│   ├── controllers/          # Express request handlers
-│   ├── middleware/           # JWT auth middleware
-│   ├── models/               # DB connection, schema, and migrations
-│   ├── repositories/         # SQLite data-access layer
-│   ├── routes/               # Express routers
-│   ├── scripts/              # One-off CLI scripts (register, login, etc.)
-│   ├── services/
-│   │   ├── snaptrade.ts          # SnapTrade SDK client factory
-│   │   ├── holdingsService.ts    # Positions refresh
-│   │   ├── transactionService.ts # Transactions refresh
-│   │   ├── dividendService.ts    # Snowball dividend fetch + forecast
-│   │   ├── rebalanceService.ts   # Rebalance trade computation
-│   │   ├── cacheService.ts       # Cache invalidation
-│   │   └── schedulerService.ts   # Cron-based background jobs
-│   └── server.ts             # Entry point
-├── Dockerfile
-└── docker-compose.yml
-```

@@ -1682,6 +1682,17 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 
 .tx-table td { vertical-align: top; }
 
+.hb-sum-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 0.25rem; }
+
+.tx-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.25rem 0.25rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
 /* ── Dividend calendar (Snowball-style) ──────────────────────────── */
 
 .divcal-top {

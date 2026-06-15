@@ -36,9 +36,6 @@ const UI = {
     dividendChartInstance: null,
     dashFutureChartInstance: null,
     dashReceivedChartInstance: null,
-    holdingsStore: new Map(),
-    txStore: new Map(),
-    TX_PAGE_SIZE: 25,
 
     showToast(msg, type = 'success') {
         this.toast.textContent = msg;
@@ -83,7 +80,7 @@ const UI = {
                     <div>
                         <div class="portfolio-item-name">
                             ${sanitize(p.name)}
-                            ${p.userSecret
+                            ${p.registered
                                 ? '<span class="status-badge status-active" style="font-size:0.65rem;padding:0.15rem 0.55rem;">Registered</span>'
                                 : '<span class="status-badge status-inactive" style="font-size:0.65rem;padding:0.15rem 0.55rem;">Not registered</span>'}
                             <span id="conn-badge-${p.id}" style="font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;"></span>
@@ -106,12 +103,12 @@ const UI = {
                         <span class="slider"></span>
                     </label>
                 </div>
-                ${p.tradingEnabled && p.userSecret
+                ${p.tradingEnabled && p.registered
                     ? `<button class="btn btn-outline btn-sm w-full" style="margin-bottom:0.4rem;" onclick="App.reconnectForTrading(${p.id}, this)">
                            <span class="loader"></span><span class="btn-text">Reconnect with Trade Permissions</span>
                        </button>`
                     : ''}
-                ${!p.userSecret
+                ${!p.registered
                     ? `<button class="btn btn-primary btn-sm w-full" onclick="App.registerPortfolio(${p.id}, this)">
                            <span class="loader"></span><span class="btn-text">Register with SnapTrade</span>
                        </button>`
@@ -122,7 +119,7 @@ const UI = {
         `).join('');
 
         // Load connection type badge for each registered portfolio
-        portfolios.filter(p => p.userSecret).forEach(p => App.loadConnectionBadge(p.id, !!p.tradingEnabled));
+        portfolios.filter(p => p.registered).forEach(p => App.loadConnectionBadge(p.id, !!p.tradingEnabled));
     },
 
     /** Format a SQLite UTC timestamp ("YYYY-MM-DD HH:MM:SS") as a local "YYYY-MM-DD HH:MM" string. */
@@ -273,7 +270,7 @@ const UI = {
     renderAddAccountMenu(portfolios) {
         const pop = document.getElementById('addAccountPop');
         if (!pop) return;
-        const registered = (portfolios || []).filter(p => p.userSecret);
+        const registered = (portfolios || []).filter(p => p.registered);
         let html = '';
         if (registered.length === 0) {
             html = `<div class="add-account-empty">No registered connections.<br>
@@ -643,8 +640,20 @@ const UI = {
     money(n) {
         return '$' + (Math.abs(Number(n) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     },
+    // Currency-aware money: prefixes CA$/$/<code> based on the holding's currency.
+    moneyC(n, code) {
+        return this.curSym(code) + (Math.abs(Number(n) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    },
     pct(n) { return (Number(n) || 0).toFixed(2) + '%'; },
     arrow(n) { return (Number(n) || 0) >= 0 ? '▲' : '▼'; },
+
+    // Map accountId → currency from the cached account groups.
+    accountCurrencyMap() {
+        const m = new Map();
+        const groups = (typeof App !== 'undefined' && App.currentGroups) ? App.currentGroups : [];
+        groups.forEach(g => (g.accounts || []).forEach(a => m.set(a.id, a.currency || 'USD')));
+        return m;
+    },
 
     renderAllHoldings(data) {
         const tabsContainer   = document.getElementById('holdings-tabs');
@@ -658,10 +667,12 @@ const UI = {
         }
 
         // Aggregate every position by symbol across all visible accounts.
+        const curByAcct = this.accountCurrencyMap();
         const bySymbol = new Map();
         let hadError = false;
         data.forEach(acct => {
             if (acct.error) { hadError = true; return; }
+            const accCur = curByAcct.get(acct.accountId) || 'USD';
             (acct.holdings || []).forEach(h => {
                 const symbol      = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '—';
                 const description = h.symbol?.symbol?.description || h.description || symbol;
@@ -674,9 +685,10 @@ const UI = {
                 const cost  = avg > 0 ? units * avg : value;
 
                 if (!bySymbol.has(symbol)) {
-                    bySymbol.set(symbol, { symbol, description, symbolId, shares: 0, cost: 0, value: 0, price, lots: [] });
+                    bySymbol.set(symbol, { symbol, description, symbolId, shares: 0, cost: 0, value: 0, price, currency: accCur, currencyMixed: false, lots: [] });
                 }
                 const row = bySymbol.get(symbol);
+                if (row.currency !== accCur) row.currencyMixed = true;
                 row.shares += units;
                 row.cost   += cost;
                 row.value  += value;
@@ -713,10 +725,15 @@ const UI = {
         if (!this.holdingsView) this.holdingsView = 'holdings';
         if (!this.holdingsSort) this.holdingsSort = { key: 'value', dir: 'desc' };
 
-        const tot = rows.reduce((a, r) => { a.cost += r.cost; a.value += r.value; a.div += r.annualDiv; return a; }, { cost: 0, value: 0, div: 0 });
-        tot.profit = tot.value - tot.cost;
-        tot.profitPct = tot.cost > 0 ? (tot.profit / tot.cost) * 100 : 0;
-        this.holdingsTotals = tot;
+        // Totals grouped by currency — summing across currencies without FX would be wrong.
+        const totByCur = {};
+        rows.forEach(r => {
+            const c = r.currencyMixed ? 'USD' : (r.currency || 'USD');
+            const t = totByCur[c] = totByCur[c] || { value: 0, cost: 0, div: 0 };
+            t.value += r.value; t.cost += r.cost; t.div += r.annualDiv;
+        });
+        Object.values(totByCur).forEach(t => { t.profit = t.value - t.cost; t.profitPct = t.cost > 0 ? (t.profit / t.cost) * 100 : 0; });
+        this.holdingsTotalsByCur = totByCur;
 
         const errNote = hadError
             ? `<div style="font-size:0.78rem;color:var(--warning);padding:0 0 0.75rem;">⚠ Some accounts could not be loaded and are excluded.</div>`
@@ -813,28 +830,32 @@ const UI = {
             ? `<tr><td colspan="${cols.length + 1}" style="text-align:center;color:var(--text-muted);padding:2rem;">No holdings match your search.</td></tr>`
             : list.map(r => this.renderHoldingRow(r, cols)).join('');
 
-        const t = this.holdingsTotals || { value: 0, cost: 0, profit: 0, profitPct: 0, div: 0 };
+        const totByCur = this.holdingsTotalsByCur || {};
         const sumEl = document.getElementById('hbSummary');
         if (sumEl) {
-            sumEl.innerHTML = `
-                <span>${list.length} holding${list.length === 1 ? '' : 's'}</span>
-                <span>Value <strong>${this.money(t.value)}</strong></span>
-                <span>Cost <strong>${this.money(t.cost)}</strong></span>
-                <span>Profit <strong class="${t.profit >= 0 ? 'pos' : 'neg'}">${t.profit < 0 ? '-' : '+'}${this.money(t.profit)} (${this.pct(t.profitPct)})</strong></span>
-                <span>Annual income <strong style="color:var(--primary);">${this.money(t.div)}</strong></span>`;
+            const curs = Object.keys(totByCur);
+            const perCur = curs.map(c => {
+                const t = totByCur[c];
+                return `<span>Value <strong>${this.moneyC(t.value, c)}</strong></span>
+                    <span>Cost <strong>${this.moneyC(t.cost, c)}</strong></span>
+                    <span>Profit <strong class="${t.profit >= 0 ? 'pos' : 'neg'}">${t.profit < 0 ? '-' : '+'}${this.moneyC(t.profit, c)} (${this.pct(t.profitPct)})</strong></span>
+                    <span>Income <strong style="color:var(--primary);">${this.moneyC(t.div, c)}</strong></span>`;
+            }).join('<span class="hb-sum-sep"></span>');
+            sumEl.innerHTML = `<span>${list.length} holding${list.length === 1 ? '' : 's'}</span>${perCur}`;
         }
     },
 
     renderHoldingRow(r, cols) {
         const initials = (r.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || '?';
+        const m = n => this.moneyC(n, r.currency);
         const cell = {
             shares:    `<td class="right">${r.shares.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>`,
-            cost:      `<td class="right">${this.money(r.cost)}<div class="hb-sub">${this.money(r.avgCost)}</div></td>`,
-            value:     `<td class="right">${this.money(r.value)}<div class="hb-sub">${this.money(r.price)}</div></td>`,
-            annualDiv: `<td class="right">${r.annualDiv > 0 ? this.money(r.annualDiv) : '—'}<div class="hb-sub">${r.annualPerShare > 0 ? this.money(r.annualPerShare) : ''}</div></td>`,
+            cost:      `<td class="right">${m(r.cost)}<div class="hb-sub">${m(r.avgCost)}</div></td>`,
+            value:     `<td class="right">${m(r.value)}<div class="hb-sub">${m(r.price)}</div></td>`,
+            annualDiv: `<td class="right">${r.annualDiv > 0 ? m(r.annualDiv) : '—'}<div class="hb-sub">${r.annualPerShare > 0 ? m(r.annualPerShare) : ''}</div></td>`,
             yieldCur:  `<td class="right">${r.yieldCur  > 0 ? this.pct(r.yieldCur)  : '—'}</td>`,
             yieldCost: `<td class="right">${r.yieldCost > 0 ? this.pct(r.yieldCost) : '—'}</td>`,
-            profit:    `<td class="right ${r.profit >= 0 ? 'pos' : 'neg'}">${r.profit < 0 ? '-' : '+'}${this.money(r.profit)}<div class="hb-sub ${r.profit >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profit)} ${this.pct(Math.abs(r.profitPct))}</div></td>`,
+            profit:    `<td class="right ${r.profit >= 0 ? 'pos' : 'neg'}">${r.profit < 0 ? '-' : '+'}${m(r.profit)}<div class="hb-sub ${r.profit >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profit)} ${this.pct(Math.abs(r.profitPct))}</div></td>`,
             profitPct: `<td class="right ${r.profitPct >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profitPct)} ${this.pct(Math.abs(r.profitPct))}</td>`,
         };
         const cells = cols.slice(1).map(c => cell[c.key] || '<td class="right">—</td>').join('');
@@ -867,104 +888,6 @@ const UI = {
                 ${items || '<div class="hb-menu-empty">Enable trading on the connection to buy or sell.</div>'}
             </div>
         </details>`;
-    },
-
-    renderHoldingsTableBody(accountId) {
-        const store = this.holdingsStore.get(accountId);
-        if (!store) return;
-        const tbody = document.getElementById(`holdings-tbody-${sanitize(accountId)}`);
-        if (!tbody) return;
-
-        const filterEl = document.querySelector(`.holdings-filter[data-account="${sanitize(accountId)}"]`);
-        const sortEl   = document.querySelector(`.holdings-sort[data-account="${sanitize(accountId)}"]`);
-        const filter   = (filterEl?.value || '').toLowerCase();
-        const sort     = sortEl?.value || 'value-desc';
-
-        let holdings = [...store.holdings];
-
-        if (filter) {
-            holdings = holdings.filter(h => {
-                const sym  = (h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '').toLowerCase();
-                const desc = (h.symbol?.symbol?.description || h.description || '').toLowerCase();
-                return sym.includes(filter) || desc.includes(filter);
-            });
-        }
-
-        holdings.sort((a, b) => {
-            const symA = a.symbol?.symbol?.symbol || a.symbol?.symbol || a.symbol || '';
-            const symB = b.symbol?.symbol?.symbol || b.symbol?.symbol || b.symbol || '';
-            const valA = (a.units || 0) * (a.price || 0);
-            const valB = (b.units || 0) * (b.price || 0);
-            switch (sort) {
-                case 'symbol':      return symA.localeCompare(symB);
-                case 'symbol-desc': return symB.localeCompare(symA);
-                case 'value-desc':  return valB - valA;
-                case 'value-asc':   return valA - valB;
-                case 'shares-desc': return (b.units || 0) - (a.units || 0);
-                case 'price-desc':  return (b.price || 0) - (a.price || 0);
-                default:            return 0;
-            }
-        });
-
-        const { tradingEnabled, portfolioId } = store;
-        const tradeCol = tradingEnabled;
-        const colCount = tradeCol ? 6 : 4;
-
-        if (holdings.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="${colCount}" style="text-align:center;color:var(--text-muted);padding:1.5rem;">No positions match the filter.</td></tr>`;
-            return;
-        }
-
-        tbody.innerHTML = holdings.map(h => {
-            const symbol      = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol || '—';
-            const description = h.symbol?.symbol?.description || h.description || symbol;
-            const symbolId    = h.symbolId || h.instrument?.id || h.symbol?.id || '';
-            const units       = h.units  || 0;
-            const price       = h.price  || 0;
-            const totalValue  = units * price;
-            const aid         = sanitize(accountId);
-            const pid         = sanitize(portfolioId);
-
-            const tradeBtns = tradeCol ? `
-                <td style="white-space:nowrap;">
-                    <div style="display:flex;gap:0.3rem;justify-content:flex-end;">
-                        <button class="trade-btn-buy"
-                                data-account-id="${aid}" data-portfolio-id="${pid}"
-                                data-symbol="${sanitize(symbol)}" data-symbol-id="${sanitize(symbolId)}"
-                                data-description="${sanitize(description)}" data-price="${price}"
-                                data-action="BUY">Buy</button>
-                        <button class="trade-btn-sell"
-                                data-account-id="${aid}" data-portfolio-id="${pid}"
-                                data-symbol="${sanitize(symbol)}" data-symbol-id="${sanitize(symbolId)}"
-                                data-description="${sanitize(description)}" data-price="${price}"
-                                data-action="SELL">Sell</button>
-                    </div>
-                </td>` : '';
-
-            const presetBtns = tradeCol ? `
-                <td style="white-space:nowrap;">
-                    <div style="display:flex;gap:0.25rem;justify-content:flex-end;">
-                        ${[100, 250, 500].map(bucket => `
-                        <button class="trade-btn-preset"
-                                data-account-id="${aid}" data-portfolio-id="${pid}"
-                                data-symbol="${sanitize(symbol)}" data-symbol-id="${sanitize(symbolId)}"
-                                data-description="${sanitize(description)}" data-price="${price}"
-                                data-bucket="${bucket}"
-                                ${!price ? 'disabled' : ''}>$${bucket}</button>`).join('')}
-                    </div>
-                </td>` : '';
-
-            return `<tr>
-                <td>
-                    <div class="ticker-cell">${sanitize(symbol)}</div>
-                    <div class="ticker-desc">${sanitize(description)}</div>
-                </td>
-                <td class="right">${units.toLocaleString(undefined,{maximumFractionDigits:4})}</td>
-                <td class="right">$${price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                <td class="right" style="font-weight:600;">$${totalValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
-                ${tradeBtns}${presetBtns}
-            </tr>`;
-        }).join('');
     },
 
     // ── Transactions board (Snowball-style ledger) ───────────────────────────
@@ -1005,7 +928,7 @@ const UI = {
                     <div style="display:flex;align-items:center;gap:0.5rem;">
                         <div class="hb-search" style="min-width:170px;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                            <input type="text" id="txSearch" placeholder="Search…" oninput="UI.renderTxRows()">
+                            <input type="text" id="txSearch" placeholder="Search…" oninput="UI.txSearchInput()">
                         </div>
                         <button class="btn btn-outline btn-sm" onclick="UI.exportTransactions()">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -1025,7 +948,21 @@ const UI = {
                         <tbody id="txBody"></tbody>
                     </table>
                 </div>
+                <div id="txPager" class="tx-pager"></div>
             </div>`;
+        this.txPage = 0;
+        this.renderTxRows();
+    },
+
+    TX_PAGE: 100,
+
+    txSearchInput() {
+        clearTimeout(this._txSearchTimer);
+        this._txSearchTimer = setTimeout(() => { this.txPage = 0; this.renderTxRows(); }, 180);
+    },
+
+    txGoPage(delta) {
+        this.txPage = Math.max(0, (this.txPage || 0) + delta);
         this.renderTxRows();
     },
 
@@ -1039,6 +976,7 @@ const UI = {
 
     setTxTab(tab) {
         this.txTab = tab;
+        this.txPage = 0;
         document.querySelectorAll('.tx-tab').forEach(b => b.classList.toggle('active', b.getAttribute('onclick').includes(`'${tab}'`)));
         this.renderTxRows();
     },
@@ -1080,9 +1018,28 @@ const UI = {
                     ${curs.map(c => `<div class="tx-sum-val">${this.curSym(c)}${money(sums[c].sell)}</div>`).join('')}</div>`;
         }
 
-        body.innerHTML = list.length === 0
+        // Paginate to keep the DOM small on large histories.
+        const pageSize = this.TX_PAGE;
+        const total = list.length;
+        const maxPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+        if ((this.txPage || 0) > maxPage) this.txPage = maxPage;
+        const page = this.txPage || 0;
+        const start = page * pageSize;
+        const slice = list.slice(start, start + pageSize);
+
+        body.innerHTML = slice.length === 0
             ? `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No transactions in this view.</td></tr>`
-            : list.map(t => this.renderTxRow(t)).join('');
+            : slice.map(t => this.renderTxRow(t)).join('');
+
+        const pager = document.getElementById('txPager');
+        if (pager) {
+            pager.innerHTML = total <= pageSize ? '' : `
+                <span>${start + 1}–${Math.min(start + pageSize, total)} of ${total}</span>
+                <div style="display:flex;gap:0.4rem;">
+                    <button class="btn btn-outline btn-sm" ${page === 0 ? 'disabled' : ''} onclick="UI.txGoPage(-1)">← Prev</button>
+                    <button class="btn btn-outline btn-sm" ${page >= maxPage ? 'disabled' : ''} onclick="UI.txGoPage(1)">Next →</button>
+                </div>`;
+        }
     },
 
     renderTxRow(t) {
@@ -1106,8 +1063,9 @@ const UI = {
         const summNeg = op === 'BUY' || op === 'WITHDRAWAL' || op === 'TRANSFER_OUT' || amount < 0;
         const summ = `<span class="${summNeg ? 'neg' : 'pos'}">${summNeg ? '-' : '+'}${cur}${Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>`;
 
+        // Unrealised gain since purchase — only meaningful for BUY lots still held.
         let profitCell = '<td class="right">—</td>';
-        if ((op === 'BUY' || op === 'SELL') && symbol && units) {
+        if (op === 'BUY' && symbol && units) {
             const curPrice = this.txPriceMap.get(symbol);
             if (curPrice && price) {
                 const profit = (curPrice - price) * Math.abs(units);
@@ -1163,94 +1121,6 @@ const UI = {
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
         this.showToast('Transactions exported');
-    },
-
-    txPageChange(accountId, delta) {
-        const entry = this.txStore.get(accountId);
-        if (!entry) return;
-        const total = entry.transactions.length;
-        const maxPage = Math.ceil(total / this.TX_PAGE_SIZE) - 1;
-        entry.page = Math.max(0, Math.min(maxPage, entry.page + delta));
-        this.renderTransactionPage(accountId);
-    },
-
-    renderTransactionPage(accountId) {
-        const entry = this.txStore.get(accountId);
-        if (!entry) return;
-        const aid = sanitize(accountId);
-        const tbody = document.getElementById(`tx-tbody-${aid}`);
-        const infoEl = document.getElementById(`tx-page-info-${aid}`);
-        const prevBtn = document.getElementById(`tx-prev-${aid}`);
-        const nextBtn = document.getElementById(`tx-next-${aid}`);
-        if (!tbody) return;
-
-        const { transactions, positionsBySymbol, page } = entry;
-        const total    = transactions.length;
-        const maxPage  = Math.ceil(total / this.TX_PAGE_SIZE) - 1;
-        const start    = page * this.TX_PAGE_SIZE;
-        const end      = Math.min(start + this.TX_PAGE_SIZE, total);
-        const slice    = transactions.slice(start, end);
-
-        const typeBadge = type => {
-            const t = (type || '').toUpperCase();
-            if (t === 'BUY')                               return `<span class="type-badge badge-buy">Buy</span>`;
-            if (t === 'SELL')                              return `<span class="type-badge badge-sell">Sell</span>`;
-            if (t === 'DIVIDEND')                          return `<span class="type-badge badge-dividend">Dividend</span>`;
-            if (t === 'DEPOSIT' || t === 'TRANSFER_IN')   return `<span class="type-badge badge-dep">Deposit</span>`;
-            if (t === 'WITHDRAWAL' || t === 'TRANSFER_OUT') return `<span class="type-badge badge-with">Withdrawal</span>`;
-            return `<span class="type-badge badge-other">${sanitize(type) || '—'}</span>`;
-        };
-
-        tbody.innerHTML = slice.map(txn => {
-            const symbol      = txn.symbol || '—';
-            const description = txn.description || symbol;
-            const date        = txn.date ? new Date(txn.date).toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'}) : '—';
-            const amount      = txn.amount ?? 0;
-            const amtCls      = amount >= 0 ? 'val-pos' : 'val-neg';
-            const amtSign     = amount >= 0 ? '+' : '';
-
-            const isDividend  = (txn.type || '').toUpperCase() === 'DIVIDEND';
-            let unitsHtml     = '—';
-
-            if (txn.units != null) {
-                // Brokerage provided the share count directly
-                const sharesStr = Number(txn.units).toLocaleString(undefined, { maximumFractionDigits: 4 });
-                if (isDividend && txn.price != null) {
-                    const perShare = Number(txn.price).toFixed(4);
-                    unitsHtml = `${sanitize(sharesStr)}<div class="text-sm text-muted" title="Dividend per share">$${perShare}/sh</div>`;
-                } else {
-                    unitsHtml = sanitize(sharesStr);
-                }
-            } else if (isDividend && symbol !== '—' && positionsBySymbol[symbol] != null) {
-                // SnapTrade didn't send units — cross-reference with current holdings
-                const heldShares = positionsBySymbol[symbol];
-                const sharesStr  = Number(heldShares).toLocaleString(undefined, { maximumFractionDigits: 4 });
-                const perShare   = heldShares > 0 ? (amount / heldShares).toFixed(4) : null;
-                unitsHtml = `<span title="Share count not provided by brokerage — inferred from current holdings">~${sanitize(sharesStr)}</span>`
-                    + (perShare ? `<div class="text-sm text-muted" title="Implied dividend per share">~$${perShare}/sh</div>` : '');
-            }
-
-            return `<tr>
-                <td>
-                    <div class="ticker-cell">${sanitize(symbol !== '—' ? symbol : description)}</div>
-                    <div class="ticker-desc">${sanitize(description !== symbol ? description : '')}${txn.accountName ? (description !== symbol ? ' · ' : '') + sanitize(txn.accountName) : ''}</div>
-                </td>
-                <td style="white-space:nowrap;color:var(--text-muted);font-size:0.8rem;">${sanitize(date)}</td>
-                <td>${typeBadge(txn.type)}</td>
-                <td class="right" style="color:var(--text-muted);">${unitsHtml}</td>
-                <td class="right" style="font-weight:600;">
-                    <span class="${amtCls}">${amtSign}$${Math.abs(amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                    <div class="text-sm text-muted">${sanitize(txn.currencyCode || '')}</div>
-                </td>
-            </tr>`;
-        }).join('');
-
-        if (infoEl) infoEl.textContent = `${start + 1}–${end} of ${total}`;
-        if (prevBtn) prevBtn.disabled = page === 0;
-        if (nextBtn) nextBtn.disabled = page >= maxPage;
-
-        const paginationEl = document.getElementById(`tx-pagination-${aid}`);
-        if (paginationEl) paginationEl.style.display = total <= this.TX_PAGE_SIZE ? 'none' : 'flex';
     },
 
     renderJobsPanel(jobs) {
@@ -1762,7 +1632,8 @@ const UI = {
         monthEl.textContent = targetDate.toLocaleString('default', { month: 'long', year: 'numeric' });
         this.renderDividendAccountTabs(cachedDividendsData, selectedAccountId);
 
-        // Gather events for the selected account scope.
+        // Gather events for the selected account scope (tagging each with its account currency).
+        const curByAcct = this.accountCurrencyMap();
         let allEvents = [];
         let annualTotal = 0;
         (cachedDividendsData || []).forEach(acct => {
@@ -1776,33 +1647,40 @@ const UI = {
                 include = port && (port.accountIds || []).includes(acct.accountId);
             } else include = acct.accountId === selectedAccountId;
             if (include) (acct.dividends || []).forEach(e => {
-                allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
+                allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: curByAcct.get(acct.accountId) || 'USD' });
                 annualTotal += (e.amount || 0);
             });
         });
         this.divCalEvents = allEvents;
 
-        // Per-holding yield (annual dividend / current price) for the event cards.
+        // Per-holding current price for the yield figure on each event card.
         const priceMap = new Map();
         const hd = (typeof App !== 'undefined' && App.cachedHoldingsData) ? App.cachedHoldingsData : [];
         hd.forEach(a => (a.holdings || []).forEach(h => {
             const s = h.symbol?.symbol?.symbol || h.symbol?.symbol || h.symbol;
             if (s && h.price) priceMap.set(s, h.price);
         }));
+        const curOf = e => e._cur || 'USD';
         const yieldFor = e => {
             const p = priceMap.get(e.symbol);
             if (!p || !e.amountPerShare || !e.frequency) return null;
             return (e.amountPerShare * e.frequency / p) * 100;
         };
 
+        // Annual income grouped by currency; headline uses the dominant currency.
+        const annualByCur = {};
+        allEvents.forEach(e => { const c = curOf(e); annualByCur[c] = (annualByCur[c] || 0) + (e.amount || 0); });
+        const primaryCur = Object.keys(annualByCur).sort((a, b) => annualByCur[b] - annualByCur[a])[0] || 'USD';
+        const primaryAnnual = annualByCur[primaryCur] || 0;
+
         // Summary card.
         const portVal = (typeof App !== 'undefined' && App.totalPortfolioValue) ? App.totalPortfolioValue() : 0;
         const setTxt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-        setTxt('divcalAnnual',  this.money(annualTotal));
-        setTxt('divcalMonthly', this.money(annualTotal / 12));
-        setTxt('divcalDaily',   this.money(annualTotal / 365));
+        setTxt('divcalAnnual',  this.moneyC(primaryAnnual, primaryCur));
+        setTxt('divcalMonthly', this.moneyC(primaryAnnual / 12, primaryCur));
+        setTxt('divcalDaily',   this.moneyC(primaryAnnual / 365, primaryCur));
         setTxt('divcalYield',   portVal > 0 ? this.pct((annualTotal / portVal) * 100) : '—');
-        setTxt('unified-annual-income', this.money(annualTotal));
+        setTxt('unified-annual-income', this.moneyC(primaryAnnual, primaryCur));
 
         this.renderDivCalChart(allEvents);
 
@@ -1825,17 +1703,18 @@ const UI = {
             monthTotal += dayTotal;
             const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
 
+            const dayCur = dayEvents.length ? curOf(dayEvents[0]) : primaryCur;
             const cards = dayEvents.map(e => {
                 const y = yieldFor(e);
                 const badge = (e.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4);
                 return `<div class="divcal-event" title="${sanitize(e.name || e.symbol)}">
                     <div class="divcal-event-top"><span class="divcal-event-badge">${sanitize(badge)}</span><span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong> ${sanitize((e.name || '').slice(0, 20))}</span></div>
-                    <div class="divcal-event-bot"><span class="divcal-event-amt">$${(e.amount || 0).toFixed(2)}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>
+                    <div class="divcal-event-bot"><span class="divcal-event-amt">${this.moneyC(e.amount, curOf(e))}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>
                 </div>`;
             }).join('');
 
             html += `<div class="divcal-cell${isToday ? ' today' : ''}">
-                <div class="divcal-cell-head"><span class="divcal-daynum${isToday ? ' today' : ''}">${day}</span>${dayTotal > 0 ? `<span class="divcal-daytotal">+$${dayTotal.toFixed(2)}</span>` : ''}</div>
+                <div class="divcal-cell-head"><span class="divcal-daynum${isToday ? ' today' : ''}">${day}</span>${dayTotal > 0 ? `<span class="divcal-daytotal">+${this.moneyC(dayTotal, dayCur)}</span>` : ''}</div>
                 <div class="divcal-cell-events">${cards}</div>
             </div>`;
         }
@@ -1843,8 +1722,8 @@ const UI = {
         gridEl.innerHTML = html;
 
         const mt = document.getElementById('divcalMonthTotal');
-        if (mt) mt.textContent = monthTotal > 0 ? `+$${monthTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
-        setTxt('unified-month-total', this.money(monthTotal));
+        if (mt) mt.textContent = monthTotal > 0 ? `+${this.moneyC(monthTotal, primaryCur)}` : '';
+        setTxt('unified-month-total', this.moneyC(monthTotal, primaryCur));
 
         this.renderDivCalList(allEvents);
         this.setDivCalView(this.divCalView || 'calendar');
@@ -1896,12 +1775,15 @@ const UI = {
         if (upcoming.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No upcoming dividends.</div>'; return; }
         const byDate = {};
         upcoming.forEach(e => { const k = new Date(e.date).toLocaleDateString('en-CA'); (byDate[k] = byDate[k] || []).push(e); });
+        const curOf = e => e._cur || 'USD';
+
         el.innerHTML = '<div class="card" style="padding:0;overflow:hidden;">' + Object.keys(byDate).map(k => {
             const evs = byDate[k];
             const tot = evs.reduce((s, e) => s + (e.amount || 0), 0);
+            const dayCur = curOf(evs[0]);
             return `<div class="divcal-listday">
-                <div class="divcal-listday-head"><span>${sanitize(k)}</span><span class="pos">+$${tot.toFixed(2)}</span></div>
-                ${evs.map(e => `<div class="divcal-listrow"><span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span><span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span><span class="divcal-listrow-amt">$${(e.amount || 0).toFixed(2)}</span></div>`).join('')}
+                <div class="divcal-listday-head"><span>${sanitize(k)}</span><span class="pos">+${this.moneyC(tot, dayCur)}</span></div>
+                ${evs.map(e => `<div class="divcal-listrow"><span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span><span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span><span class="divcal-listrow-amt">${this.moneyC(e.amount, curOf(e))}</span></div>`).join('')}
             </div>`;
         }).join('') + '</div>';
     },
@@ -1916,50 +1798,6 @@ const UI = {
         if (list) list.style.display = view === 'list' ? 'block' : 'none';
         if (cb) cb.classList.toggle('active', view === 'calendar');
         if (lb) lb.classList.toggle('active', view === 'list');
-    },
-
-    renderCalendarDayDetails(events, dateStr) {
-        const container = document.getElementById('calendar-day-details');
-        if (!container) return;
-
-        document.querySelectorAll('.calendar-cell').forEach(el => el.classList.remove('selected'));
-
-        const date          = new Date(dateStr + 'T12:00:00');
-        const formattedDate = date.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-
-        if (!events || events.length === 0) {
-            container.innerHTML = `
-                <div class="day-detail-header">
-                    <div class="day-detail-date">${formattedDate}</div>
-                </div>
-                <div class="empty-state" style="padding:1.5rem 0;">
-                    <p>No dividends scheduled for this day.</p>
-                </div>`;
-            return;
-        }
-
-        const total = events.reduce((s, e) => s + (e.amount || 0), 0);
-
-        let html = `
-            <div class="day-detail-header">
-                <div class="day-detail-date">${formattedDate}</div>
-                <div class="day-detail-total">+$${total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
-            </div>`;
-
-        events.forEach(e => {
-            html += `
-                <div class="day-detail-item">
-                    <div class="day-detail-item-top">
-                        <span class="dividend-event-symbol">${e.symbol}</span>
-                        <span class="day-detail-item-amount">+$${(e.amount||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
-                    </div>
-                    <div class="day-detail-item-name">${e.name}</div>
-                    <div class="day-detail-item-meta">${(e.units||0).toLocaleString()} shares @ $${(e.amountPerShare||0).toFixed(4)}</div>
-                    <div class="day-detail-item-meta" style="margin-top:4px;opacity:0.7;">${e.portfolioName} &middot; ${e.accountName}</div>
-                </div>`;
-        });
-
-        container.innerHTML = html;
     },
 
     // ── User Portfolio UI ──────────────────────────────────────────────────────

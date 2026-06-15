@@ -5,9 +5,10 @@ import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 
-// Strip server-side secrets before sending portfolios to the client
-function sanitizePortfolio({ consumerKey: _ck, userSecret: _us, ...safe }: Portfolio) {
-  return safe;
+// Strip server-side secrets before sending portfolios to the client, but expose a
+// `registered` boolean so the UI can tell connected portfolios apart without the secret.
+function sanitizePortfolio({ consumerKey: _ck, userSecret, ...safe }: Portfolio) {
+  return { ...safe, registered: !!userSecret };
 }
 
 export const getPortfolios = (req: Request, res: Response) => {
@@ -61,7 +62,7 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
     res.json({ success: true, id: savedId });
   } catch (err: any) {
     logger.error('Portfolio', `savePortfolio failed: ${err.message}`);
-    res.status(500).json({ error: "Failed to save portfolio", detail: err.message });
+    res.status(500).json({ error: "Failed to save portfolio" });
   }
 };
 
@@ -83,7 +84,7 @@ export const togglePortfolioTrading = (req: Request, res: Response) => {
     res.json({ success: true, id, tradingEnabled });
   } catch (err: any) {
     logger.error('Portfolio', `togglePortfolioTrading(${id}) failed: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Failed to update trading setting" });
   }
 };
 
@@ -179,6 +180,6 @@ export const removePortfolio = (req: Request, res: Response) => {
     res.json({ success: true });
   } catch (err: any) {
     logger.error('Portfolio', `deletePortfolio(${id}) failed: ${err.message}`);
-    res.status(500).json({ error: "Failed to delete portfolio", detail: err.message });
+    res.status(500).json({ error: "Failed to delete portfolio" });
   }
 };

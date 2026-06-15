@@ -906,7 +906,7 @@ const App = {
 
     onJobStatusEvent(job) {
         // Keep the Scheduler → Background Jobs panel live while it's on screen.
-        if (localStorage.getItem('activeMainTab') === 'scheduler') {
+        if (localStorage.getItem('activeMainTab') === 'settings' && localStorage.getItem('activeSettingsTab') === 'scheduler') {
             API.getJobs().then(jobs => UI.renderJobsPanel(jobs)).catch(() => {});
         }
         // The dividend-fetch finishing also flips the "Fetching…" loader to real
@@ -1417,8 +1417,6 @@ const App = {
             }
         } else if (tabId === 'rebalance') {
             this.loadRebalanceTab();
-        } else if (tabId === 'scheduler') {
-            this.loadJobsPanel();
         }
     },
 
@@ -1557,6 +1555,8 @@ const App = {
             this.loadUserPortfolios();
         } else if (paneId === 'connections') {
             this.fetchAccounts();
+        } else if (paneId === 'scheduler') {
+            this.loadJobsPanel();
         }
     },
 

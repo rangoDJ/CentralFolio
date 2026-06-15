@@ -1,5 +1,6 @@
 import { db } from "../models/database.js";
 import { logger } from "../utils/logger.js";
+import { emitDataChanged } from "../services/eventBus.js";
 
 // ── Prepared statements (compiled once at module load for performance) ─────────
 
@@ -123,6 +124,8 @@ export function getActiveAccountIds(): Set<string> {
 export function setAccountActive(accountId: string, isActive: boolean) {
   logger.info('DB', `setAccountActive(${accountId}) → ${isActive}`);
   stmtSetAccountActive.run(isActive ? 1 : 0, accountId);
+  // The active flag drives the account filter, so dependent totals everywhere change.
+  emitDataChanged('accounts');
 }
 
 export function getAccountActive(accountId: string): boolean | null {
@@ -171,6 +174,7 @@ export function saveCachedAccounts(portfolioId: number | string, accounts: any[]
       );
     }
   })(accounts);
+  emitDataChanged('accounts');
 }
 
 export function clearAccountCache() {
@@ -232,6 +236,7 @@ export function saveCachedPositions(accountId: string, positions: any[]) {
     }
     stmtUpdateLastPositionsFetch.run(accountId);
   })(positions);
+  emitDataChanged('holdings');
 }
 
 export function updateLastPositionsFetch(accountId: string) {

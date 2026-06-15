@@ -1,5 +1,6 @@
 import { db } from "../models/database.js";
 import { logger } from "../utils/logger.js";
+import { emitDataChanged } from "../services/eventBus.js";
 
 export interface TargetAllocation {
   portfolioId: number;
@@ -33,4 +34,5 @@ export function setPortfolioTargets(portfolioId: number, targets: { symbol: stri
       stmtInsertTarget.run(portfolioId, t.symbol.toUpperCase().trim(), t.targetPct);
     }
   })();
+  emitDataChanged('targets');
 }

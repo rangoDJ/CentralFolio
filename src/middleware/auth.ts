@@ -4,10 +4,14 @@ import { getJwtSecret, getPasswordHash } from "../models/db.js";
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
+  // EventSource (SSE) cannot set the Authorization header, so accept the token
+  // as a ?token= query param as a fallback. The Bearer header takes precedence.
+  const token = header?.startsWith("Bearer ")
+    ? header.slice(7)
+    : (typeof req.query.token === "string" ? req.query.token : undefined);
+  if (!token) {
     return res.status(401).json({ error: "Unauthorized" });
   }
-  const token = header.slice(7);
   try {
     jwt.verify(token, getJwtSecret() + (getPasswordHash() || ""));
     next();

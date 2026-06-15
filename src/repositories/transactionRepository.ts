@@ -1,5 +1,6 @@
 import { db } from "../models/database.js";
 import { logger } from "../utils/logger.js";
+import { emitDataChanged } from "../services/eventBus.js";
 
 // ── Prepared statements (compiled once at module load for performance) ─────────
 
@@ -122,6 +123,7 @@ export function saveCachedTransactions(accountId: string, transactions: any[]) {
     // 3. Update lastTransactionsFetch timestamp
     stmtUpdateLastTransactionsFetch.run(accountId);
   })();
+  emitDataChanged('transactions');
 }
 
 export function clearTransactionCache() {

@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { logger } from "../utils/logger.js";
+import { emitJobStatus } from "./eventBus.js";
 
 export type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 
@@ -82,6 +83,7 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
   job.state.status = 'running';
   job.state.lastError = null;
   logger.info('Scheduler', `Job "${job.state.name}" started (${trigger})`);
+  emitJobStatus(job.state);
 
   try {
     await job.fn(trigger);
@@ -102,6 +104,7 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
     }
     logger.error('Scheduler', `Job "${job.state.name}" failed after ${job.state.lastDurationMs}ms: ${err.message}`);
   }
+  emitJobStatus(job.state);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

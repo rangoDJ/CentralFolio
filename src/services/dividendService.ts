@@ -3,6 +3,7 @@ import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
+import { emitDataChanged } from "./eventBus.js";
 
 // In-memory cache for dividend metadata (24h TTL)
 const divMetadataCache = new Map<string, { 
@@ -470,6 +471,7 @@ export async function getAllDividendsForAllPortfolios(
   
   cachedAllDividends = results;
   cachedDividendsTime = Date.now();
+  emitDataChanged('dividends');
   return results;
 }
 

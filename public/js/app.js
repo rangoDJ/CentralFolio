@@ -37,6 +37,9 @@ const App = {
 
         this.setupEventListeners();
 
+        // Open the live-update stream so pages refresh themselves when backend data changes.
+        this.connectLiveSync();
+
         // Load all portfolios, settings, and user portfolios first to avoid race conditions
         await Promise.all([
             this.loadPortfolios(),
@@ -721,77 +724,158 @@ const App = {
                 container.innerHTML = '<div class="empty-state"><p>No dividend data available. Trigger a fetch from Settings → Background Jobs.</p></div>';
             }
 
-            if (response.fetching) {
-                // If we don't have any cached data rendering yet, show a loader
-                if (!response.data || response.data.length === 0) {
-                    container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block;border-top-color:var(--primary);"></span><p style="margin-top:0.75rem;">Fetching dividend data in the background…</p><p class="text-muted text-sm">This page will update automatically when ready.</p></div>';
-                }
-                this.startJobPolling();
-            } else {
-                this.stopJobPolling();
+            // If a background fetch is running and we have nothing cached yet, show a
+            // loader. The live `dividends` event refreshes this view when data lands.
+            if (response.fetching && (!response.data || response.data.length === 0)) {
+                container.innerHTML = '<div class="empty-state"><span class="loader" style="display:inline-block;border-top-color:var(--primary);"></span><p style="margin-top:0.75rem;">Fetching dividend data in the background…</p><p class="text-muted text-sm">This page will update automatically when ready.</p></div>';
             }
         } catch (err) {
             container.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
         }
     },
 
-    startJobPolling() {
-        if (this._jobPollTimer) return; // already polling
-        this._jobPollTimer = setInterval(() => this.pollJobs(), 4000);
+    // ── Live updates via Server-Sent Events ─────────────────────────────────────
+    // The backend pushes `data-changed` and `job-status` events whenever cached
+    // data is written. We react by silently refreshing the affected in-memory
+    // caches and re-rendering the active page (and anything derived from it).
+
+    connectLiveSync() {
+        const token = localStorage.getItem('cf_token');
+        if (!token) return;
+        if (this._sse) { try { this._sse.close(); } catch (_) {} this._sse = null; }
+
+        this._livePending = this._livePending || new Set();
+
+        const es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+        this._sse = es;
+
+        es.addEventListener('data-changed', (e) => {
+            try {
+                const { domain } = JSON.parse(e.data);
+                if (domain) {
+                    this._livePending.add(domain);
+                    this.scheduleLiveUpdate();
+                }
+            } catch (_) {}
+        });
+
+        es.addEventListener('job-status', (e) => {
+            try { this.onJobStatusEvent(JSON.parse(e.data).job); } catch (_) {}
+        });
+
+        es.onopen = () => { this._sseErrors = 0; };
+        es.onerror = () => {
+            // EventSource auto-reconnects on transient failures. Guard against a
+            // permanently-failing (e.g. revoked) token by giving up after a streak.
+            this._sseErrors = (this._sseErrors || 0) + 1;
+            if (this._sseErrors > 12) {
+                try { es.close(); } catch (_) {}
+                this._sse = null;
+            }
+        };
     },
 
-    stopJobPolling() {
-        if (this._jobPollTimer) {
-            clearInterval(this._jobPollTimer);
-            this._jobPollTimer = null;
+    disconnectLiveSync() {
+        if (this._sse) { try { this._sse.close(); } catch (_) {} this._sse = null; }
+        clearTimeout(this._liveTimer);
+    },
+
+    // Coalesce a burst of events (e.g. a job writing many accounts) into one update.
+    scheduleLiveUpdate() {
+        clearTimeout(this._liveTimer);
+        this._liveTimer = setTimeout(() => {
+            const domains = this._livePending;
+            this._livePending = new Set();
+            this.applyLiveUpdate(domains).catch(() => {});
+        }, 400);
+    },
+
+    async applyLiveUpdate(domains) {
+        if (!domains || domains.size === 0) return;
+
+        const holdingsChanged      = domains.has('holdings') || domains.has('accounts');
+        const dividendsChanged     = domains.has('dividends');
+        const transactionsChanged  = domains.has('transactions');
+        const targetsChanged       = domains.has('targets');
+
+        // 1. Refresh the in-memory caches for whatever changed (cache-only, silent).
+        if (holdingsChanged) {
+            try {
+                this.currentGroups = await API.getAccounts();
+                await this.fetchHoldingsDataSilently();
+            } catch (_) {}
+        }
+        if (dividendsChanged) {
+            try {
+                const response = await API.getAllDividends(false);
+                if (response.data) {
+                    this.cachedDividendsData = response.data.map(d => ({
+                        ...d,
+                        portfolioName: this.getUserPortfolioNamesForAccount(d.accountId)
+                    }));
+                    this.dividendsLastUpdated = new Date();
+                }
+            } catch (_) {}
+        }
+        if (transactionsChanged) {
+            try {
+                const response = await API.getTransactions(false);
+                this.cachedTransactionsData = response
+                    .filter(group => group.transactions && group.transactions.length > 0)
+                    .map(group => ({
+                        portfolioName: this.getUserPortfolioNamesForAccount(group.accountId),
+                        accountName: group.accountName,
+                        accountId: group.accountId,
+                        positionsBySymbol: group.positionsBySymbol || {},
+                        transactions: group.transactions
+                    }));
+                this.transactionsLastUpdated = new Date();
+            } catch (_) {}
+        }
+
+        // 2. Re-render the active page; dependent figures recompute from fresh caches.
+        //    Other tabs re-read these same caches when next shown via switchMainTab.
+        const activeTab = localStorage.getItem('activeMainTab') || 'dashboard';
+        if (activeTab === 'dashboard') {
+            this.loadDashboard();
+        } else if (activeTab === 'holdings' && holdingsChanged) {
+            UI.renderAllHoldings(this.getFilteredHoldingsData());
+        } else if (activeTab === 'transactions' && transactionsChanged) {
+            UI.renderAllTransactions(this.getFilteredTransactionsData());
+            this.updateTransactionsTimestamp();
+        } else if (activeTab === 'rebalance' && (holdingsChanged || targetsChanged)) {
+            this.loadRebalanceTab(false);
+        } else if (activeTab === 'dividend-tracker' && dividendsChanged) {
+            const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
+            const filtered = this.getFilteredDividendsData();
+            if (subTab === 'forecast') {
+                UI.renderDividends(filtered, this.currentDividendAccountId);
+            } else {
+                UI.renderDividendCalendar(filtered, this.currentCalendarDate, this.currentDividendAccountId);
+            }
+            this.updateDividendsTimestamp();
         }
     },
 
-    async pollJobs() {
-        try {
-            const jobs = await API.getJobs();
-            const anyRunning = jobs.some(j => j.status === 'running');
-            UI.renderJobsPanel(jobs);
-
-            // Fetch the latest cache-only dividends periodically if the fetch job is running or just finished
-            const divJob = jobs.find(j => j.name === 'dividend-fetch');
-            const isDivJobRunning = divJob && divJob.status === 'running';
-
-            if (isDivJobRunning || !anyRunning) {
-                const response = await API.getAllDividends(false);
-                if (response.data && response.data.length > 0) {
-                    const oldTotal = (this.cachedDividendsData ?? []).reduce((sum, a) => sum + (a.dividends?.length ?? 0), 0);
-                    const newTotal = response.data.reduce((sum, a) => sum + (a.dividends?.length ?? 0), 0);
-
-                    if (newTotal !== oldTotal || !this.cachedDividendsData) {
-                        this.cachedDividendsData = response.data.map(d => ({
-                            ...d,
-                            portfolioName: this.getUserPortfolioNamesForAccount(d.accountId)
-                        }));
-                        this.dividendsLastUpdated = new Date();
-                        const container = document.getElementById('dividends-page-content');
-                        if (container) UI.renderDividends(this.getFilteredDividendsData(), this.currentDividendAccountId);
-                        this.updateDividendsTimestamp();
-                        // Also update dashboard widgets
-                        UI.renderDashboardDividendWidgets(this.getFilteredDividendsData(), this.totalPortfolioValue());
-                        if (!isDivJobRunning && !anyRunning) {
-                            UI.showToast('Dividend data updated successfully');
-                        }
-                    }
-                }
-            }
-
-            if (!anyRunning) {
-                this.stopJobPolling();
-            }
-        } catch (_) {}
+    onJobStatusEvent(job) {
+        // Keep the Settings → Background Jobs panel live while it's on screen.
+        if (localStorage.getItem('activeMainTab') === 'settings') {
+            API.getJobs().then(jobs => UI.renderJobsPanel(jobs)).catch(() => {});
+        }
+        // The dividend-fetch finishing also flips the "Fetching…" loader to real
+        // data; the `dividends` data-changed event drives the actual re-render.
+        if (job && job.name === 'dividend-fetch' && job.status !== 'running') {
+            this._livePending = this._livePending || new Set();
+            this._livePending.add('dividends');
+            this.scheduleLiveUpdate();
+        }
     },
 
     async loadJobsPanel() {
+        // Initial render; subsequent updates arrive via `job-status` SSE events.
         try {
             const jobs = await API.getJobs();
             UI.renderJobsPanel(jobs);
-            if (jobs.some(j => j.status === 'running')) this.startJobPolling();
         } catch (err) {
             const el = document.getElementById('jobsPanel');
             if (el) el.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
@@ -802,7 +886,6 @@ const App = {
         try {
             await API.triggerJob(name);
             UI.showToast('Job started');
-            this.startJobPolling();
             await this.loadJobsPanel();
         } catch (err) {
             UI.showToast(err.message, 'error');
@@ -1148,9 +1231,9 @@ const App = {
                     }));
                     this.dividendsLastUpdated = new Date();
                     UI.renderDashboardDividendWidgets(this.getFilteredDividendsData(), totalBalance);
-                } else if (response.fetching) {
-                    this.startJobPolling();
                 }
+                // If a background fetch is still running, the `dividends` SSE event
+                // will refresh these widgets when the data lands.
             } catch (_) {}
             finally { UI.setDashboardDividendLoading(false); }
         }
@@ -1204,6 +1287,7 @@ const App = {
     },
 
     logout() {
+        this.disconnectLiveSync();
         localStorage.removeItem('cf_token');
         window.location.href = '/login.html';
     },

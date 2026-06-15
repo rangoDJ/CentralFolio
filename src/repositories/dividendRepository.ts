@@ -1,5 +1,6 @@
 import { db } from "../models/database.js";
 import { logger } from "../utils/logger.js";
+import { emitDataChanged } from "../services/eventBus.js";
 
 // ── Prepared statements (compiled once at module load for performance) ─────────
 
@@ -44,6 +45,7 @@ export function saveCachedDividendMetadata(symbol: string, data: any, provider?:
     data.name            ?? null,
     provider             ?? null
   );
+  emitDataChanged('dividends');
 }
 
 export function getAllCachedDividendMetadata(): any[] {
@@ -52,6 +54,7 @@ export function getAllCachedDividendMetadata(): any[] {
 
 export function deleteCachedDividendMetadata(symbol: string): boolean {
   const result = stmtDeleteMetadata.run(symbol);
+  if (result.changes > 0) emitDataChanged('dividends');
   return result.changes > 0;
 }
 

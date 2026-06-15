@@ -1427,6 +1427,80 @@ const UI = {
         tabsContainer.style.display = 'flex';
     },
 
+    // Transaction activity types that represent a dividend/distribution landing
+    // in the account (uppercased for comparison).
+    _DIV_TYPES: ['DIVIDEND', 'DIV', 'DISTRIBUTION'],
+
+    // Annotate each forecast event with a `_status`:
+    //   'received' — a matching dividend transaction was found in the account
+    //   'expected' — projected, date still in the future (or today)
+    //   'overdue'  — projected date has passed with no matching transaction
+    // Matching is per account + symbol, claiming the nearest unused dividend
+    // transaction within a frequency-aware date tolerance so monthly payers do
+    // not match an adjacent month. `events` are tagged in place and returned.
+    tagDividendStatus(events, txData) {
+        const norm = s => String(s || '').toUpperCase().trim();
+        const base = s => { const u = norm(s); const i = u.lastIndexOf('.'); return i > 0 ? u.slice(0, i) : u; };
+
+        // Index dividend transactions: accountId → symbol key → sorted [{t, amount, used}]
+        const index = new Map();
+        (txData || []).forEach(acct => {
+            (acct.transactions || []).forEach(txn => {
+                if (!this._DIV_TYPES.includes(norm(txn.type))) return;
+                if (!txn.symbol || !txn.date) return;
+                const accMap = index.get(acct.accountId) || new Map();
+                for (const key of new Set([norm(txn.symbol), base(txn.symbol)])) {
+                    const list = accMap.get(key) || [];
+                    list.push({ t: new Date(txn.date).getTime(), amount: Math.abs(txn.amount || 0) });
+                    accMap.set(key, list);
+                }
+                index.set(acct.accountId, accMap);
+            });
+        });
+        index.forEach(accMap => accMap.forEach(list => list.sort((a, b) => a.t - b.t)));
+
+        const todayTs = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+        const DAY = 86400000;
+
+        // Process in date order so greedy nearest-match claims sensibly.
+        const ordered = [...events].sort((a, b) => new Date(a.date) - new Date(b.date));
+        ordered.forEach(e => {
+            const evTs = new Date(e.date).getTime();
+            const freq = e.frequency || 4;
+            const tolDays = Math.min(30, (365 / freq) * 0.45);
+            const accMap = index.get(e.accountId);
+            const list = accMap && (accMap.get(norm(e.symbol)) || accMap.get(base(e.symbol)));
+
+            let matchIdx = -1, bestDelta = Infinity;
+            if (list) {
+                for (let i = 0; i < list.length; i++) {
+                    if (list[i].used) continue;
+                    const delta = Math.abs(list[i].t - evTs);
+                    if (delta <= tolDays * DAY && delta < bestDelta) { bestDelta = delta; matchIdx = i; }
+                }
+            }
+
+            if (matchIdx >= 0) {
+                list[matchIdx].used = true;
+                e._status = 'received';
+                e._recvAmount = list[matchIdx].amount;
+                e._recvDate = new Date(list[matchIdx].t).toLocaleDateString('en-CA');
+            } else {
+                e._status = evTs >= todayTs ? 'expected' : 'overdue';
+            }
+        });
+        return events;
+    },
+
+    // Small 3-state legend shown above the forecast list and the calendar.
+    dividendLegendHtml() {
+        return `<div class="divlegend">
+            <span class="divlegend-item"><span class="divlegend-dot div-expected"></span>Expected</span>
+            <span class="divlegend-item"><span class="divlegend-dot div-received"></span>Received</span>
+            <span class="divlegend-item"><span class="divlegend-dot div-overdue"></span>Overdue</span>
+        </div>`;
+    },
+
     renderDividends(cachedDividendsData, selectedAccountId = 'all') {
         const container  = document.getElementById('dividends-page-content');
         const summaryRow = document.getElementById('dividendSummaryRow');
@@ -1466,7 +1540,7 @@ const UI = {
                 }
 
                 (acct.dividends || []).forEach(e => {
-                    allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName });
+                    allEvents.push({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName });
                 });
             }
         });
@@ -1480,6 +1554,7 @@ const UI = {
         if (summaryRow) summaryRow.style.display = 'flex';
 
         allEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
+        this.tagDividendStatus(allEvents, (typeof App !== 'undefined' && App.getFilteredTransactionsData) ? App.getFilteredTransactionsData() : null);
 
         const annualTotal = allEvents.reduce((s, e) => s + (e.amount || 0), 0);
         const fmt = v => `$${v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`;
@@ -1524,7 +1599,7 @@ const UI = {
 
         this.renderDividendChart(monthlyData);
 
-        let html = '';
+        let html = this.dividendLegendHtml();
         for (const [monthYear, mData] of Object.entries(monthlyData)) {
             if (mData.events.length === 0) continue;
 
@@ -1536,8 +1611,12 @@ const UI = {
 
             mData.events.forEach(e => {
                 const d = new Date(e.date);
+                const status = e._status || 'expected';
+                const tip = status === 'received'
+                    ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}`
+                    : status === 'overdue' ? 'Projected — no matching transaction yet' : 'Expected';
                 html += `
-                    <div class="dividend-event-row">
+                    <div class="dividend-event-row div-${status}" title="${sanitize(tip)}">
                         <div class="dividend-event-date">
                             <div class="dividend-event-date-month">${sanitize(d.toLocaleString('default',{month:'short'}))}</div>
                             <div class="dividend-event-date-day">${d.getDate()}</div>
@@ -1550,7 +1629,7 @@ const UI = {
                             <div class="dividend-event-meta">${(e.units || 0).toLocaleString()} shares &middot; $${(e.amountPerShare || 0).toFixed(4)}/share</div>
                         </div>
                         <div class="dividend-event-right">
-                            <div class="dividend-event-amount">+$${(e.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+                            <div class="dividend-event-amount">${status === 'received' ? '✓ ' : ''}+$${(e.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
                             <div class="dividend-event-portfolio">${sanitize(e.portfolioName)}</div>
                         </div>
                     </div>`;
@@ -1652,10 +1731,11 @@ const UI = {
                 include = port && (port.accountIds || []).includes(acct.accountId);
             } else include = acct.accountId === selectedAccountId;
             if (include) (acct.dividends || []).forEach(e => {
-                allEvents.push({ ...e, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: curByAcct.get(acct.accountId) || 'USD' });
+                allEvents.push({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: curByAcct.get(acct.accountId) || 'USD' });
                 annualTotal += (e.amount || 0);
             });
         });
+        this.tagDividendStatus(allEvents, (typeof App !== 'undefined' && App.getFilteredTransactionsData) ? App.getFilteredTransactionsData() : null);
         this.divCalEvents = allEvents;
 
         // Per-holding current price for the yield figure on each event card.
@@ -1695,7 +1775,7 @@ const UI = {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const today = new Date();
 
-        let html = '<div class="divcal-weekrow">' + ['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d => `<div class="divcal-weekday">${d}</div>`).join('') + '</div><div class="divcal-grid">';
+        let html = this.dividendLegendHtml() + '<div class="divcal-weekrow">' + ['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d => `<div class="divcal-weekday">${d}</div>`).join('') + '</div><div class="divcal-grid">';
         for (let i = 0; i < firstDow; i++) html += '<div class="divcal-cell empty"></div>';
 
         let monthTotal = 0;
@@ -1712,9 +1792,13 @@ const UI = {
             const cards = dayEvents.map(e => {
                 const y = yieldFor(e);
                 const badge = (e.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4);
-                return `<div class="divcal-event" title="${sanitize(e.name || e.symbol)}">
+                const status = e._status || 'expected';
+                const tip = status === 'received'
+                    ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}`
+                    : status === 'overdue' ? 'Projected — no matching transaction yet' : (e.name || e.symbol);
+                return `<div class="divcal-event div-${status}" title="${sanitize(tip)}">
                     <div class="divcal-event-top"><span class="divcal-event-badge">${sanitize(badge)}</span><span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong> ${sanitize((e.name || '').slice(0, 20))}</span></div>
-                    <div class="divcal-event-bot"><span class="divcal-event-amt">${this.moneyC(e.amount, curOf(e))}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>
+                    <div class="divcal-event-bot"><span class="divcal-event-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>
                 </div>`;
             }).join('');
 
@@ -1788,7 +1872,7 @@ const UI = {
             const dayCur = curOf(evs[0]);
             return `<div class="divcal-listday">
                 <div class="divcal-listday-head"><span>${sanitize(k)}</span><span class="pos">+${this.moneyC(tot, dayCur)}</span></div>
-                ${evs.map(e => `<div class="divcal-listrow"><span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span><span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span><span class="divcal-listrow-amt">${this.moneyC(e.amount, curOf(e))}</span></div>`).join('')}
+                ${evs.map(e => { const status = e._status || 'expected'; return `<div class="divcal-listrow div-${status}"><span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span><span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span><span class="divcal-listrow-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span></div>`; }).join('')}
             </div>`;
         }).join('') + '</div>';
     },

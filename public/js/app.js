@@ -719,6 +719,7 @@ const App = {
                 }));
                 this.dividendsLastUpdated = new Date();
                 this.updateDividendsTimestamp();
+                await this.ensureTransactionsLoaded();
                 UI.renderDividends(this.getFilteredDividendsData(), this.currentDividendAccountId);
             } else if (!response.fetching) {
                 container.innerHTML = '<div class="empty-state"><p>No dividend data available. Trigger a fetch from Settings → Background Jobs.</p></div>';
@@ -845,7 +846,9 @@ const App = {
             this.updateTransactionsTimestamp();
         } else if (activeTab === 'rebalance' && (holdingsChanged || targetsChanged)) {
             this.loadRebalanceTab(false);
-        } else if (activeTab === 'dividend-tracker' && dividendsChanged) {
+        } else if (activeTab === 'dividend-tracker' && (dividendsChanged || transactionsChanged)) {
+            // transactionsChanged also re-renders so newly-logged dividends recolor
+            // expected → received in the forecast/calendar without a reload.
             const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
             const filtered = this.getFilteredDividendsData();
             if (subTab === 'forecast') {
@@ -921,13 +924,37 @@ const App = {
         if (!container) return;
 
         if (!forceRefresh && this.cachedDividendsData && this.dividendsLastUpdated) {
+            await this.ensureTransactionsLoaded();
             UI.renderDividendCalendar(this.getFilteredDividendsData(), this.currentCalendarDate, this.currentDividendAccountId);
             return;
         }
 
         // If no cache, we can trigger the loadAllDividends which populates the cache
         await this.loadAllDividends(forceRefresh);
+        await this.ensureTransactionsLoaded();
         UI.renderDividendCalendar(this.getFilteredDividendsData(), this.currentCalendarDate, this.currentDividendAccountId);
+    },
+
+    // Ensure dividend transactions are cached so the forecast/calendar can mark
+    // which projected dividends have actually been received. Cache-only + idempotent.
+    async ensureTransactionsLoaded() {
+        if (this.cachedTransactionsData) return true;
+        try {
+            const response = await API.getTransactions(false);
+            this.cachedTransactionsData = response
+                .filter(group => group.transactions && group.transactions.length > 0)
+                .map(group => ({
+                    portfolioName: this.getUserPortfolioNamesForAccount(group.accountId),
+                    accountName: group.accountName,
+                    accountId: group.accountId,
+                    positionsBySymbol: group.positionsBySymbol || {},
+                    transactions: group.transactions
+                }));
+            this.transactionsLastUpdated = new Date();
+            return true;
+        } catch (_) {
+            return false;
+        }
     },
 
     changeCalendarMonth(delta) {

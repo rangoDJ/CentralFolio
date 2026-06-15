@@ -16,6 +16,9 @@
   --success:     #00d09c;
   --danger:      #f55252;
   --warning:     #f5a623;
+  --div-expected: #f5a623;
+  --div-received: #00d09c;
+  --div-overdue:  #f55252;
   --sidebar-w:   240px;
   --radius:      16px;
   --radius-sm:   8px;
@@ -802,6 +805,33 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .dividend-event-right  { flex-shrink: 0; text-align: right; }
 .dividend-event-amount { font-size: 0.95rem; font-weight: 700; color: var(--success); font-feature-settings: "tnum"; }
 .dividend-event-portfolio { font-size: 0.68rem; color: var(--text-muted); margin-top: 2px; }
+
+/* ── Dividend status: expected vs received vs overdue ───────────── */
+/* A coloured left accent + amount colour distinguishes the three states.
+   Applied to forecast rows (.dividend-event-row) and calendar cards. */
+.div-expected { border-left: 3px solid var(--div-expected); }
+.div-received { border-left: 3px solid var(--div-received); }
+.div-overdue  { border-left: 3px solid var(--div-overdue); }
+
+.dividend-event-row.div-expected .dividend-event-amount { color: var(--div-expected); }
+.dividend-event-row.div-received .dividend-event-amount { color: var(--div-received); }
+.dividend-event-row.div-overdue  .dividend-event-amount { color: var(--div-overdue); }
+
+.divcal-event.div-expected .divcal-event-amt { color: var(--div-expected); }
+.divcal-event.div-received .divcal-event-amt { color: var(--div-received); }
+.divcal-event.div-overdue  .divcal-event-amt { color: var(--div-overdue); }
+
+.divcal-listrow.div-received .divcal-listrow-amt { color: var(--div-received); }
+.divcal-listrow.div-overdue  .divcal-listrow-amt { color: var(--div-overdue); }
+.divcal-listrow.div-expected .divcal-listrow-amt { color: var(--div-expected); }
+
+/* Legend */
+.divlegend { display: flex; gap: 1rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.divlegend-item { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; color: var(--text-muted); font-weight: 600; }
+.divlegend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.divlegend-dot.div-expected { background: var(--div-expected); border-left: none; }
+.divlegend-dot.div-received { background: var(--div-received); border-left: none; }
+.divlegend-dot.div-overdue  { background: var(--div-overdue);  border-left: none; }
 
 /* ── Admin user rows ──────────────────────────── */
 

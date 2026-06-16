@@ -502,8 +502,8 @@ const UI = {
         const container = document.getElementById('dashEventsStrip');
         if (!container) return;
 
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const upcoming = allEvents.filter(e => new Date(e.date) >= today).slice(0, 7);
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const upcoming = allEvents.filter(e => e.date.substring(0, 10) >= todayStr).slice(0, 7);
 
         if (upcoming.length === 0) {
             container.innerHTML = '<div class="empty-state" style="padding:0.75rem 0;"><p>No upcoming dividend events in the forecast.</p></div>';
@@ -515,9 +515,9 @@ const UI = {
         container.innerHTML = '<div class="dash-events-strip">' +
             upcoming.map(e => {
                 const d        = new Date(e.date);
-                const day      = d.getDate();
-                const month    = d.toLocaleString('default', { month: 'short' });
-                const weekday  = d.toLocaleString('default', { weekday: 'short' });
+                const day      = d.getUTCDate();
+                const month    = d.toLocaleString('default', { month: 'short', timeZone: 'UTC' });
+                const weekday  = d.toLocaleString('default', { weekday: 'short', timeZone: 'UTC' });
                 const freq     = freqLabel(e.frequency || 4);
                 const amt      = (e.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 const perShare = (e.amountPerShare || 0).toFixed(4);
@@ -550,9 +550,9 @@ const UI = {
         let totalNext12 = 0;
         allEvents.forEach(e => {
             const d = new Date(e.date);
-            const ahead = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth());
+            const ahead = (d.getUTCFullYear() - now.getFullYear()) * 12 + (d.getUTCMonth() - now.getMonth());
             if (ahead >= 0 && ahead < 12) {
-                const key = d.toLocaleString('default', { month: 'short' });
+                const key = d.toLocaleString('default', { month: 'short', timeZone: 'UTC' });
                 if (monthlyData[key] !== undefined) { monthlyData[key] += (e.amount || 0); totalNext12 += (e.amount || 0); }
             }
         });
@@ -1737,9 +1737,9 @@ const UI = {
         } catch (_) { document.getElementById('unified-yield').textContent = '—'; }
 
         // Yet to receive: events from today onwards within the 12-month window
-        const today = new Date(); today.setHours(0,0,0,0);
+        const todayStr = new Date().toLocaleDateString('en-CA');
         const yetToReceive = allEvents
-            .filter(e => new Date(e.date) >= today)
+            .filter(e => e.date.substring(0, 10) >= todayStr)
             .reduce((s, e) => s + (e.amount || 0), 0);
         document.getElementById('unified-yet-to-receive').textContent = fmt(yetToReceive);
 
@@ -1753,7 +1753,7 @@ const UI = {
         }
 
         allEvents.forEach(e => {
-            const key = new Date(e.date).toLocaleString('default', { month: 'short', year: 'numeric' });
+            const key = new Date(e.date).toLocaleString('default', { month: 'short', year: 'numeric', timeZone: 'UTC' });
             if (monthlyData[key]) {
                 monthlyData[key].total += e.amount || 0;
                 monthlyData[key].events.push(e);
@@ -1781,8 +1781,8 @@ const UI = {
                 html += `
                     <div class="dividend-event-row div-${status}" title="${sanitize(tip)}">
                         <div class="dividend-event-date">
-                            <div class="dividend-event-date-month">${sanitize(d.toLocaleString('default',{month:'short'}))}</div>
-                            <div class="dividend-event-date-day">${d.getDate()}</div>
+                            <div class="dividend-event-date-month">${sanitize(d.toLocaleString('default',{month:'short', timeZone: 'UTC'}))}</div>
+                            <div class="dividend-event-date-day">${d.getUTCDate()}</div>
                         </div>
                         <div class="dividend-event-info">
                             <div>
@@ -1954,8 +1954,8 @@ const UI = {
 
         // Calendar grid for the viewed month.
         const year = targetDate.getFullYear(), month = targetDate.getMonth();
-        const firstDow = new Date(year, month, 1).getDay();
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDow = new Date(Date.UTC(year, month, 1)).getUTCDay();
+        const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
         const today = new Date();
 
         let html = this.dividendLegendHtml() + '<div class="divcal-weekrow">' + ['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d => `<div class="divcal-weekday">${d}</div>`).join('') + '</div><div class="divcal-grid">';
@@ -1965,7 +1965,7 @@ const UI = {
         for (let day = 1; day <= daysInMonth; day++) {
             const dayEvents = displayEvents.filter(e => {
                 const d = new Date(e.date);
-                return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
+                return d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day;
             });
             const dayTotal = dayEvents.reduce((s, e) => s + (e.amount || 0), 0);
             monthTotal += dayTotal;
@@ -2016,7 +2016,7 @@ const UI = {
         const idx = new Map(keys.map((k, i) => [k, i]));
         (events || []).forEach(e => {
             const d = new Date(e.date);
-            const k = `${d.getFullYear()}-${d.getMonth()}`;
+            const k = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
             if (idx.has(k)) totals[idx.get(k)] += (e.amount || 0);
         });
         const max = Math.max(1, ...totals);
@@ -2052,7 +2052,10 @@ const UI = {
             .sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 400);
         if (rows.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No dividends in the last 6 months or upcoming.</div>'; return; }
         const byDate = {};
-        rows.forEach(e => { const k = new Date(e.date).toLocaleDateString('en-CA'); (byDate[k] = byDate[k] || []).push(e); });
+        rows.forEach(e => {
+            const k = e.date.substring(0, 10);
+            (byDate[k] = byDate[k] || []).push(e);
+        });
         const curOf = e => e._cur || 'USD';
 
         el.innerHTML = '<div class="card" style="padding:0;overflow:hidden;">' + Object.keys(byDate).map(k => {

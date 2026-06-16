@@ -50,7 +50,10 @@
     // by claiming the nearest unused dividend transaction in the same
     // account+symbol within a frequency-aware tolerance. Mutates events + index.
     function tagEventsWithIndex(events, index) {
-        const todayTs = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+        const todayTs = (() => {
+            const d = new Date();
+            return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+        })();
         const DAY = 86400000;
         const ordered = [...events].sort((a, b) => new Date(a.date) - new Date(b.date));
         ordered.forEach(e => {
@@ -73,7 +76,7 @@
                 match.used = true;
                 e._status = 'received';
                 e._recvAmount = match.amount;
-                e._recvDate = new Date(match.t).toLocaleDateString('en-CA');
+                e._recvDate = new Date(match.t).toISOString().substring(0, 10);
             } else {
                 e._status = evTs >= todayTs ? 'expected' : 'overdue';
             }
@@ -109,13 +112,13 @@
             received.push({
                 symbol: rec.symbol,
                 name: rec.name,
-                date: new Date(rec.t).toISOString(),
+                date: new Date(rec.t).toISOString().substring(0, 10) + 'T00:00:00.000Z',
                 amount: rec.amount,
                 units: rec.units,
                 accountId,
                 _status: 'received',
                 _recvAmount: rec.amount,
-                _recvDate: new Date(rec.t).toLocaleDateString('en-CA'),
+                _recvDate: new Date(rec.t).toISOString().substring(0, 10),
                 _fromTxn: true,
             });
         })));

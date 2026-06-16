@@ -2,6 +2,12 @@ import { Snaptrade } from "snaptrade-typescript-sdk";
 import { listPortfolios, getPortfolio, Portfolio } from "../models/db.js";
 import { logger } from "../utils/logger.js";
 
+const clientCache = new Map<string, Snaptrade>();
+
+export function clearSnapTradeClientCache() {
+  clientCache.clear();
+}
+
 export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | number | string) {
   let portfolio: Portfolio | null = null;
   
@@ -22,14 +28,21 @@ export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | numbe
     throw new Error("SnapTrade credentials not configured for this portfolio.");
   }
 
-  logger.debug('SnapTrade', `Built client for portfolio "${portfolio.name}" (userId: ${portfolio.userId})`);
-  return new Snaptrade({
-    clientId: portfolio.clientId,
-    consumerKey: portfolio.consumerKey,
-    baseOptions: {
-      timeout: 15000,
-    },
-  });
+  const cacheKey = portfolio.id ? String(portfolio.id) : `${portfolio.clientId}:${portfolio.consumerKey}`;
+  if (!clientCache.has(cacheKey)) {
+    logger.debug('SnapTrade', `Building new client instance for portfolio "${portfolio.name}" (userId: ${portfolio.userId})`);
+    clientCache.set(cacheKey, new Snaptrade({
+      clientId: portfolio.clientId,
+      consumerKey: portfolio.consumerKey,
+      baseOptions: {
+        timeout: 15000,
+      },
+    }));
+  } else {
+    logger.debug('SnapTrade', `Reusing cached client instance for portfolio "${portfolio.name}"`);
+  }
+
+  return clientCache.get(cacheKey)!;
 }
 
 export async function listAllUsersAcrossPortfolios() {

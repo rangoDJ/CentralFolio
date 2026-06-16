@@ -143,11 +143,11 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
           }
         }
 
-        for (const account of cachedAccounts) {
+        const accountPromises = cachedAccounts.map(async (account) => {
           // Only process active accounts
           if (!activeAccountIds.has(account.id)) {
             logger.debug('Transactions', `Skipping inactive account ${account.id}`);
-            continue;
+            return;
           }
 
           try {
@@ -161,7 +161,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
 
             if (isFresh && !forceRefresh) {
               logger.debug('Transactions', `  Account ${account.id} — cache is fresh, skipping`);
-              continue;
+              return;
             }
 
             // Incremental: if we already have history cached, only fetch since the
@@ -190,15 +190,13 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
 
             saveCachedTransactions(account.id, transactions);
             processedCount++;
-
-            // Rate limiting - avoid hammering SnapTrade API
-            await sleep(100);
-
           } catch (err: any) {
             logger.warn('Transactions', `Error processing account ${account.id}: ${err.message}`);
             errorCount++;
           }
-        }
+        });
+
+        await Promise.all(accountPromises);
       } catch (err: any) {
         logger.warn('Transactions', `Error processing portfolio "${portfolio.name}": ${err.message}`);
         errorCount++;

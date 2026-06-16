@@ -8,6 +8,7 @@ import { logger } from "../utils/logger.js";
 const loginAttempts = new Map<string, { count: number; firstAt: number }>();
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const RATE_MAX = 10;
+const MAX_LIMITER_ENTRIES = 1000;
 
 function pruneExpiredAttempts(now: number) {
   for (const [ip, record] of loginAttempts) {
@@ -20,6 +21,10 @@ function isRateLimited(ip: string): boolean {
   pruneExpiredAttempts(now);
   const record = loginAttempts.get(ip);
   if (!record) {
+    if (loginAttempts.size >= MAX_LIMITER_ENTRIES) {
+      const oldestIp = loginAttempts.keys().next().value;
+      if (oldestIp !== undefined) loginAttempts.delete(oldestIp);
+    }
     loginAttempts.set(ip, { count: 1, firstAt: now });
     return false;
   }

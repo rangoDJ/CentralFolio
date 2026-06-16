@@ -52,16 +52,22 @@ export function hoursToCron(hours: number): string | null {
   return `0 0 */${days} * *`;
 }
 
-/** Compute approximate ms until next cron fire (for display in UI). */
 function nextRunFromCron(expression: string): number {
   // node-cron does not expose the next-run date, so we approximate:
-  // parse the minute field interval if it follows */N pattern.
+  // parse the fields if they follow step patterns or daily/weekly bounds.
   try {
     const parts = expression.split(' ');
     const minutePart = parts[0];
     const hourPart   = parts[1];
     const now = Date.now();
 
+    if (minutePart === '0' && hourPart === '0' && parts[2].startsWith('*/')) {
+      const d = parseInt(parts[2].slice(2), 10);
+      return now + d * 24 * 60 * 60 * 1000;
+    }
+    if (minutePart === '0' && hourPart === '0' && parts[2] === '*') {
+      return now + 24 * 60 * 60 * 1000;
+    }
     if (minutePart === '0' && hourPart.startsWith('*/')) {
       const h = parseInt(hourPart.slice(2), 10);
       return now + h * 60 * 60 * 1000;

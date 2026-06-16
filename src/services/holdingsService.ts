@@ -41,8 +41,8 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
       }
     }
 
-    for (const account of accounts) {
-      if (!activeAccountIds.has(account.id)) continue;
+    const accountPromises = accounts.map(async (account) => {
+      if (!activeAccountIds.has(account.id)) return;
 
       try {
         const timestamps = getAccountFetchTimestamps(account.id);
@@ -53,7 +53,7 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
         if (isFresh && !forceRefresh) {
           logger.debug('Holdings', `Account ${account.id} — cache fresh, skipping`);
           skipped++;
-          continue;
+          return;
         }
 
         logger.info('Holdings', `Refreshing positions for account ${account.id}...`);
@@ -65,15 +65,15 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
 
         saveCachedPositions(account.id, response.data);
         processed++;
-
-        await sleep(200);
       } catch (err: any) {
         const body = err?.responseBody ?? err?.response?.data;
         const errMsg = body?.detail || err.message || "Unknown error";
         logger.warn('Holdings', `Error refreshing account ${account.id}: ${errMsg}`);
         errors++;
       }
-    }
+    });
+
+    await Promise.all(accountPromises);
   }
 
   logger.info('Holdings', `Holdings refresh complete — ${processed} refreshed, ${skipped} skipped, ${errors} errors`);

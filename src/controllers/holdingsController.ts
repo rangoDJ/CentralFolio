@@ -13,90 +13,88 @@ export const listAccounts = async (req: Request, res: Response) => {
   try {
     const portfolios = listPortfolios();
     logger.info('SnapTrade', `listAccounts — processing ${portfolios.length} portfolio(s)`);
-    const results = [];
-
-    for (const portfolio of portfolios) {
-      if (!portfolio.userSecret) {
-        logger.warn('SnapTrade', `  "${portfolio.name}" — not registered (no userSecret), skipping`);
-        results.push({
-          portfolioId: portfolio.id,
-          portfolioName: portfolio.name,
-          error: "Not registered",
-          accounts: []
-        });
-        continue;
-      }
-
-      try {
-        // Check cache — also treat as miss if balance data is missing (old cache pre-balance migration)
-        const cached = getCachedAccounts(portfolio.id!);
-        const hasBalance = cached.some((r: any) => r.balance != null);
-        const isFresh = cached.length > 0 && hasBalance && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
-
-        if (isFresh && !forceRefresh) {
-          logger.info('SnapTrade', `  "${portfolio.name}" — cache HIT (${cached.length} accounts)`);
-          const augmented = cached.map((acc: any) => {
-            const snapAmt = acc.balance?.total?.amount ?? 0;
-            if (snapAmt > 0) return acc;
-            const positionTotal = getCachedPositions(acc.id).reduce((s: number, p: any) => s + (p.marketValue || 0), 0);
-            return { ...acc, balance: { total: { amount: positionTotal, currency: acc.balance?.total?.currency || 'CAD' } } };
-          });
-          results.push({
+    const results = await Promise.all(
+      portfolios.map(async (portfolio) => {
+        if (!portfolio.userSecret) {
+          logger.warn('SnapTrade', `  "${portfolio.name}" — not registered (no userSecret), skipping`);
+          return {
             portfolioId: portfolio.id,
             portfolioName: portfolio.name,
-            accounts: augmented,
-            cached: true
-          });
-          continue;
+            error: "Not registered",
+            accounts: []
+          };
         }
 
-        logger.info('SnapTrade', `  "${portfolio.name}" — cache MISS, fetching from SnapTrade API...`);
-        const client = getSnapTradeClientForPortfolio(portfolio);
+        try {
+          // Check cache — also treat as miss if balance data is missing (old cache pre-balance migration)
+          const cached = getCachedAccounts(portfolio.id!);
+          const hasBalance = cached.some((r: any) => r.balance != null);
+          const isFresh = cached.length > 0 && hasBalance && (Date.now() - new Date(cached[0].cachedAt).getTime() < SNAPTRADE_CACHE_TTL_MS);
 
-        const response = await client.accountInformation.listUserAccounts({
-          userId: portfolio.userId,
-          userSecret: portfolio.userSecret,
-        });
+          if (isFresh && !forceRefresh) {
+            logger.info('SnapTrade', `  "${portfolio.name}" — cache HIT (${cached.length} accounts)`);
+            const augmented = cached.map((acc: any) => {
+              const snapAmt = acc.balance?.total?.amount ?? 0;
+              if (snapAmt > 0) return acc;
+              const positionTotal = getCachedPositions(acc.id).reduce((s: number, p: any) => s + (p.marketValue || 0), 0);
+              return { ...acc, balance: { total: { amount: positionTotal, currency: acc.balance?.total?.currency || 'CAD' } } };
+            });
+            return {
+              portfolioId: portfolio.id,
+              portfolioName: portfolio.name,
+              accounts: augmented,
+              cached: true
+            };
+          }
 
-        const accountCount = Array.isArray(response.data) ? response.data.length : 0;
-        logger.info('SnapTrade', `  "${portfolio.name}" — received ${accountCount} account(s), saving to cache`);
+          logger.info('SnapTrade', `  "${portfolio.name}" — cache MISS, fetching from SnapTrade API...`);
+          const client = getSnapTradeClientForPortfolio(portfolio);
 
-        saveCachedAccounts(portfolio.id!, response.data);
-        const merged = getCachedAccounts(portfolio.id!);
-        const liveMap = new Map((response.data as any[]).map((a: any) => [a.id, a]));
-        const accountsWithIsActive = merged.map((row: any) => {
-          const live = liveMap.get(row.id) ?? {};
-          const snapBalance = live.balance?.total?.amount ?? 0;
-          const positionTotal = snapBalance > 0 ? snapBalance
-            : getCachedPositions(row.id).reduce((s: number, p: any) => s + (p.marketValue || 0), 0);
+          const response = await client.accountInformation.listUserAccounts({
+            userId: portfolio.userId,
+            userSecret: portfolio.userSecret,
+          });
+
+          const accountCount = Array.isArray(response.data) ? response.data.length : 0;
+          logger.info('SnapTrade', `  "${portfolio.name}" — received ${accountCount} account(s), saving to cache`);
+
+          saveCachedAccounts(portfolio.id!, response.data);
+          const merged = getCachedAccounts(portfolio.id!);
+          const liveMap = new Map((response.data as any[]).map((a: any) => [a.id, a]));
+          const accountsWithIsActive = merged.map((row: any) => {
+            const live = liveMap.get(row.id) ?? {};
+            const snapBalance = live.balance?.total?.amount ?? 0;
+            const positionTotal = snapBalance > 0 ? snapBalance
+              : getCachedPositions(row.id).reduce((s: number, p: any) => s + (p.marketValue || 0), 0);
+            return {
+              ...live,
+              isActive: row.isActive === 1 || row.isActive === true,
+              customName: row.customName || null,
+              lastPositionsFetch: row.lastPositionsFetch ?? null,
+              cachedAt: row.cachedAt ?? null,
+              balance: { total: { amount: positionTotal, currency: live.balance?.total?.currency || 'CAD' } },
+            };
+          });
+
           return {
-            ...live,
-            isActive: row.isActive === 1 || row.isActive === true,
-            customName: row.customName || null,
-            lastPositionsFetch: row.lastPositionsFetch ?? null,
-            cachedAt: row.cachedAt ?? null,
-            balance: { total: { amount: positionTotal, currency: live.balance?.total?.currency || 'CAD' } },
+            portfolioId: portfolio.id,
+            portfolioName: portfolio.name,
+            accounts: accountsWithIsActive,
+            cached: false
           };
-        });
 
-        results.push({
-          portfolioId: portfolio.id,
-          portfolioName: portfolio.name,
-          accounts: accountsWithIsActive,
-          cached: false
-        });
-
-      } catch (err: any) {
-        const { log, client } = snapTradeError(err, "Failed to fetch accounts");
-        logger.warn('SnapTrade', `  "${portfolio.name}" — failed: ${log}`);
-        results.push({
-          portfolioId: portfolio.id,
-          portfolioName: portfolio.name,
-          error: client,
-          accounts: []
-        });
-      }
-    }
+        } catch (err: any) {
+          const { log, client } = snapTradeError(err, "Failed to fetch accounts");
+          logger.warn('SnapTrade', `  "${portfolio.name}" — failed: ${log}`);
+          return {
+            portfolioId: portfolio.id,
+            portfolioName: portfolio.name,
+            error: client,
+            accounts: []
+          };
+        }
+      })
+    );
 
     const totalAccounts = results.reduce((s, r) => s + (r.accounts?.length ?? 0), 0);
     logger.info('SnapTrade', `listAccounts complete — ${results.length} portfolio(s), ${totalAccounts} total account(s)`);

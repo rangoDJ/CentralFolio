@@ -12,6 +12,6 @@
 export function snapTradeError(err: any, clientFallback: string): { log: string; client: string } {
   const body = err?.responseBody ?? err?.response?.data;
   const log = body?.detail || body?.message || err?.message || 'unknown error';
-  const client = body?.detail || clientFallback;
+  const client = clientFallback;
   return { log, client };
 }

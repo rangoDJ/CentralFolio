@@ -558,11 +558,15 @@ const App = {
     },
 
     async handleWipeUsers() {
-        if (!confirm('WIPE ALL USERS from ALL SnapTrade keys? This cannot be undone.')) return;
+        const input = prompt('WIPE ALL USERS from ALL SnapTrade keys? This cannot be undone.\nTo confirm, type "WIPE ALL USERS" below:');
+        if (input !== 'WIPE ALL USERS') {
+            UI.showToast('Wipe cancelled');
+            return;
+        }
         const wipeBtn = document.getElementById('wipeBtn');
         wipeBtn.classList.add('loading');
         try {
-            const data = await API.wipeAdminUsers();
+            const data = await API.wipeAdminUsers('WIPE_ALL');
             UI.showToast(`Wiped ${data.wipedCount} users. ${data.failedCount} failed.`);
             await this.handleListUsers();
         } catch (err) {

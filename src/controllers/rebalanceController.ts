@@ -157,70 +157,65 @@ export const executeRebalance = async (req: Request, res: Response) => {
       }
     }
 
-    const results = [];
     logger.info('Rebalance', `Executing rebalance trades for portfolio id=${portfolioId} (${trades.length} trade(s))`);
 
-    for (const t of trades) {
-      const { accountId, symbol, action, amount } = t;
+    const results = await Promise.all(
+      trades.map(async (t) => {
+        const { accountId, symbol, action, amount } = t;
 
-      // ── Per-trade validation (mirrors placeTrade guards) ───────────────────
-      if (!accountId || !allowedAccountIds.has(accountId)) {
-        results.push({ trade: t, success: false, error: 'Account does not belong to this portfolio' });
-        continue;
-      }
-      if (typeof symbol !== 'string' || !SYMBOL_RE.test(symbol.trim())) {
-        results.push({ trade: t, success: false, error: 'Invalid or missing symbol' });
-        continue;
-      }
-      if (action !== 'BUY' && action !== 'SELL') {
-        results.push({ trade: t, success: false, error: "action must be 'BUY' or 'SELL'" });
-        continue;
-      }
-      const amountNum = Number(amount);
-      if (!Number.isFinite(amountNum) || amountNum <= 0) {
-        results.push({ trade: t, success: false, error: 'amount must be a positive number' });
-        continue;
-      }
+        // ── Per-trade validation (mirrors placeTrade guards) ───────────────────
+        if (!accountId || !allowedAccountIds.has(accountId)) {
+          return { trade: t, success: false, error: 'Account does not belong to this portfolio' };
+        }
+        if (typeof symbol !== 'string' || !SYMBOL_RE.test(symbol.trim())) {
+          return { trade: t, success: false, error: 'Invalid or missing symbol' };
+        }
+        if (action !== 'BUY' && action !== 'SELL') {
+          return { trade: t, success: false, error: "action must be 'BUY' or 'SELL'" };
+        }
+        const amountNum = Number(amount);
+        if (!Number.isFinite(amountNum) || amountNum <= 0) {
+          return { trade: t, success: false, error: 'amount must be a positive number' };
+        }
 
-      const mapping = accountToParentMap.get(accountId);
+        const mapping = accountToParentMap.get(accountId);
 
-      if (!mapping) {
-        results.push({ trade: t, success: false, error: 'Account not found or not registered' });
-        continue;
-      }
+        if (!mapping) {
+          return { trade: t, success: false, error: 'Account not found or not registered' };
+        }
 
-      const { parent, account } = mapping;
+        const { parent, account } = mapping;
 
-      if (!parent.tradingEnabled) {
-        results.push({ trade: t, success: false, error: `Trading is disabled for portfolio "${parent.name}"` });
-        continue;
-      }
+        if (!parent.tradingEnabled) {
+          return { trade: t, success: false, error: `Trading is disabled for portfolio "${parent.name}"` };
+        }
 
-      try {
-        const client = getSnapTradeClientForPortfolio(parent);
-        const qtyDesc = `$${amountNum}`;
-        logger.info('SnapTrade', `placeTrade (Rebalance) — ${action} ${qtyDesc} ticker="${symbol}" account="${accountId}"`);
+        try {
+          const client = getSnapTradeClientForPortfolio(parent);
+          const qtyDesc = `$${amountNum}`;
+          logger.info('SnapTrade', `placeTrade (Rebalance) — ${action} ${qtyDesc} ticker="${symbol}" account="${accountId}"`);
 
-        const orderBody: any = {
-          userId: parent.userId,
-          userSecret: parent.userSecret!,
-          account_id: accountId,
-          action,
-          order_type: 'Market',
-          time_in_force: 'Day',
-          symbol: symbol.trim(),
-          universal_symbol_id: null,
-          notional_value: { amount: amountNum, currency: account.currency || 'USD' }
-        };
+          const orderBody: any = {
+            userId: parent.userId,
+            userSecret: parent.userSecret!,
+            account_id: accountId,
+            action,
+            order_type: 'Market',
+            time_in_force: 'Day',
+            symbol: symbol.trim(),
+            universal_symbol_id: null,
+            notional_value: { amount: amountNum, currency: account.currency || 'USD' }
+          };
 
-        const response = await (client as any).trading.placeForceOrder(orderBody);
-        results.push({ trade: t, success: true, order: response.data });
-      } catch (err: any) {
-        const { log, client } = snapTradeError(err, 'Order placement failed');
-        logger.error('SnapTrade', `placeTrade (Rebalance) failed for account ${accountId}: ${log}`);
-        results.push({ trade: t, success: false, error: client });
-      }
-    }
+          const response = await (client as any).trading.placeForceOrder(orderBody);
+          return { trade: t, success: true, order: response.data };
+        } catch (err: any) {
+          const { log, client } = snapTradeError(err, 'Order placement failed');
+          logger.error('SnapTrade', `placeTrade (Rebalance) failed for account ${accountId}: ${log}`);
+          return { trade: t, success: false, error: client };
+        }
+      })
+    );
 
     const successfulCount = results.filter(r => r.success).length;
     logger.info('Rebalance', `Rebalance execution complete — ${successfulCount} of ${results.length} trades succeeded`);

@@ -57,6 +57,12 @@ export const deleteUser = async (req: Request, res: Response) => {
 };
 
 export const wipeAllUsers = async (req: Request, res: Response) => {
+  const { confirm } = req.body;
+  if (confirm !== "WIPE_ALL") {
+    logger.warn('Admin', 'POST /admin/wipe — reject wipe attempt: missing or invalid confirmation payload');
+    return res.status(400).json({ error: "Wipe confirmation phrase is invalid or missing." });
+  }
+
   logger.warn('Admin', 'POST /admin/wipe — wiping ALL SnapTrade users!');
   try {
     const users = await listAllUsersAcrossPortfolios();
@@ -135,6 +141,10 @@ export const updateSettings = (req: Request, res: Response) => {
     }
 
     for (const [key, value] of Object.entries(settings)) {
+      if (value === '***' && SENSITIVE_KEY_RE.test(key)) {
+        logger.info('Admin', `  Setting: ${key} = *** (ignored masked placeholder)`);
+        continue;
+      }
       const displayVal = SENSITIVE_KEY_RE.test(key) ? '***' : String(value);
       logger.info('Admin', `  Setting: ${key} = ${displayVal}`);
       setSetting(key, String(value));

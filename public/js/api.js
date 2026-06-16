@@ -228,8 +228,11 @@ const API = {
         return true;
     },
 
-    async wipeAdminUsers() {
-        const res = await this._fetch('/api/admin/wipe', { method: 'POST' });
+    async wipeAdminUsers(confirm) {
+        const res = await this._fetch('/api/admin/wipe', {
+            method: 'POST',
+            body: JSON.stringify({ confirm })
+        });
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Wipe failed');
         return data;

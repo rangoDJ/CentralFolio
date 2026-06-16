@@ -65,6 +65,16 @@ export {
 } from "../repositories/rebalanceRepository.js";
 
 export {
+  getAllUserPortfolios,
+  getUserPortfolioById,
+  createUserPortfolio,
+  updateUserPortfolio,
+  deleteUserPortfolio,
+  setUserPortfolioAccounts,
+  clearAllUserPortfolios,
+} from "../repositories/userPortfolioRepository.js";
+
+export {
   getJobState,
   saveJobState,
   addJobRun,

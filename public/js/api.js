@@ -238,6 +238,16 @@ const API = {
         return data;
     },
 
+    async purgeAdminData(confirm) {
+        const res = await this._fetch('/api/admin/purge-data', {
+            method: 'POST',
+            body: JSON.stringify({ confirm })
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Purge failed');
+        return data;
+    },
+
     async getSettings() {
         const res = await this._fetch('/api/admin/settings');
         const data = await this._json(res);

@@ -1,8 +1,9 @@
 import { Request, Response } from "express";
 import { listAllUsersAcrossPortfolios, deleteUserFromPortfolios } from "../services/snaptrade.js";
-import { listSettings, setSetting } from "../models/db.js";
+import { listSettings, setSetting, clearAllUserPortfolios } from "../models/db.js";
 import { clearAllCaches } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
+import { emitDataChanged } from "../services/eventBus.js";
 
 // Keys that must never be written via the settings API — only set internally
 const PROTECTED_SETTINGS = new Set(['jwt_secret', 'auth_password_hash']);
@@ -154,5 +155,35 @@ export const updateSettings = (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error('Admin', `updateSettings error: ${err.message}`);
     res.status(500).json({ error: "Failed to update settings", detail: err.message });
+  }
+};
+
+export const purgeData = async (req: Request, res: Response) => {
+  const { confirm } = req.body;
+  if (confirm !== "PURGE_DATA") {
+    logger.warn('Admin', 'POST /admin/purge-data — reject purge attempt: missing or invalid confirmation payload');
+    return res.status(400).json({ error: "Purge confirmation phrase is invalid or missing." });
+  }
+
+  logger.warn('Admin', 'POST /admin/purge-data — purging user custom portfolios and cached data!');
+  try {
+    // Clear custom user portfolios (cascades to accounts links & targets)
+    clearAllUserPortfolios();
+
+    // Wipes every cache tier: accounts, positions, transactions, dividend_metadata, and memory cache
+    clearAllCaches();
+
+    // Emit change events for all domains to notify active UI clients
+    emitDataChanged('accounts');
+    emitDataChanged('holdings');
+    emitDataChanged('transactions');
+    emitDataChanged('dividends');
+    emitDataChanged('targets');
+
+    logger.info('Admin', 'Purge complete — user portfolios, cache, and dividend data deleted.');
+    res.json({ success: true });
+  } catch (err: any) {
+    logger.error('Admin', `purgeData fatal error: ${err.message}`);
+    res.status(500).json({ error: "Failed to purge data", detail: err.message });
   }
 };

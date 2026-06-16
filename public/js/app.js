@@ -123,6 +123,7 @@ const App = {
 
         document.getElementById('listUsersBtn').onclick = () => this.handleListUsers();
         document.getElementById('wipeBtn').onclick = () => this.handleWipeUsers();
+        document.getElementById('purgeDataBtn').onclick = () => this.handlePurgeData();
         document.getElementById('clearDividendCacheBtn').onclick = () => this.handleClearDividendCache();
     },
 
@@ -573,6 +574,26 @@ const App = {
             UI.showToast('Wipe failed', 'error');
         } finally {
             wipeBtn.classList.remove('loading');
+        }
+    },
+
+    async handlePurgeData() {
+        const input = prompt('DELETE ALL custom user portfolios, targets, cash balances, transaction logs, and cached dividend metadata?\nThis keeps your brokerage / SnapTrade connection keys intact.\nTo confirm, type "PURGE DATA" below:');
+        if (input !== 'PURGE DATA') {
+            UI.showToast('Purge cancelled');
+            return;
+        }
+        const purgeBtn = document.getElementById('purgeDataBtn');
+        purgeBtn.classList.add('loading');
+        try {
+            await API.purgeAdminData('PURGE_DATA');
+            UI.showToast('All custom portfolios and cached data purged');
+            // Reload portfolios to reflect clean state immediately
+            await this.loadPortfolios();
+        } catch (err) {
+            UI.showToast('Purge failed: ' + err.message, 'error');
+        } finally {
+            purgeBtn.classList.remove('loading');
         }
     },
 

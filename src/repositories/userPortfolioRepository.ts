@@ -43,6 +43,10 @@ const stmtDeletePortfolioAccounts = db.prepare(
   "DELETE FROM user_portfolio_accounts WHERE portfolio_id = ?"
 );
 
+const stmtClearAllUserPortfolios = db.prepare(
+  "DELETE FROM user_portfolios"
+);
+
 const stmtInsertPortfolioAccount = db.prepare(
   "INSERT OR IGNORE INTO user_portfolio_accounts (portfolio_id, account_id) VALUES (?, ?)"
 );
@@ -91,4 +95,8 @@ export function setUserPortfolioAccounts(portfolioId: number, accountIds: string
       stmtInsertPortfolioAccount.run(portfolioId, aid);
     }
   })();
+}
+
+export function clearAllUserPortfolios(): void {
+  stmtClearAllUserPortfolios.run();
 }

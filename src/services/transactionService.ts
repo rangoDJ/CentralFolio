@@ -102,15 +102,14 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
   }
 }
 
-export async function refreshAllTransactions(forceRefresh: boolean = false, intervalMs: number = 24 * 60 * 60 * 1000, fullHistory: boolean = false): Promise<void> {
+export async function refreshAllTransactions(forceRefresh: boolean = false, intervalMs: number = 24 * 60 * 60 * 1000, fullHistory: boolean = false): Promise<{ processedCount: number; errorCount: number }> {
+  let processedCount = 0;
+  let errorCount = 0;
   try {
     logger.info('Transactions', `Starting transaction refresh cycle${fullHistory ? ' (full history)' : ''}...`);
 
     const portfolios = listPortfolios();
     let activeAccountIds = getActiveAccountIds();
-
-    let processedCount = 0;
-    let errorCount = 0;
 
     for (const portfolio of portfolios) {
       if (!portfolio.userSecret) {
@@ -209,5 +208,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
     logger.info('Transactions', `Transaction refresh complete — processed ${processedCount} account(s), ${errorCount} error(s)`);
   } catch (err: any) {
     logger.error('Transactions', `refreshAllTransactions fatal error: ${err.message}`);
+    errorCount++;
   }
+  return { processedCount, errorCount };
 }

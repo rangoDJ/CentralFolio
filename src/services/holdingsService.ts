@@ -3,7 +3,7 @@ import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
 
-export async function refreshAllHoldings(intervalMs: number, forceRefresh: boolean = false): Promise<void> {
+export async function refreshAllHoldings(intervalMs: number, forceRefresh: boolean = false): Promise<{ processed: number; skipped: number; errors: number }> {
   logger.info('Holdings', 'Starting holdings refresh cycle...');
 
   const portfolios = listPortfolios();
@@ -77,4 +77,5 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
   }
 
   logger.info('Holdings', `Holdings refresh complete — ${processed} refreshed, ${skipped} skipped, ${errors} errors`);
+  return { processed, skipped, errors };
 }

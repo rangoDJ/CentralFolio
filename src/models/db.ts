@@ -64,3 +64,10 @@ export {
   setPortfolioTargets,
 } from "../repositories/rebalanceRepository.js";
 
+export {
+  getJobState,
+  saveJobState,
+  addJobRun,
+  getJobRuns,
+} from "../repositories/jobRepository.js";
+

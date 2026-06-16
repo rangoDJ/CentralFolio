@@ -190,6 +190,13 @@ const API = {
         return data;
     },
 
+    async getJobHistory() {
+        const res = await this._fetch('/api/jobs/history');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch job history');
+        return data;
+    },
+
     async triggerJob(name) {
         const res = await this._fetch(`/api/jobs/${encodeURIComponent(name)}/trigger`, { method: 'POST' });
         const data = await this._json(res);

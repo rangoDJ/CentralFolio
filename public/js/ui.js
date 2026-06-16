@@ -1223,6 +1223,96 @@ const UI = {
         }).join('');
     },
 
+    renderJobHistoryPanel(history) {
+        const el = document.getElementById('jobHistoryPanel');
+        if (!el) return;
+        if (!history || history.length === 0) {
+            el.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No execution history available.</p></div>';
+            return;
+        }
+
+        const jobLabels = {
+            'dividend-fetch': 'Dividend Fetch',
+            'holdings-refresh': 'Holdings Refresh',
+            'transactions-refresh': 'Transactions Refresh'
+        };
+
+        const renderInfoOrError = (h) => {
+            if (h.status === 'failed' && h.error) {
+                return `<span style="color:var(--danger);">${sanitize(h.error)}</span>`;
+            }
+            if (h.info) {
+                return `<span style="color:var(--text);">${sanitize(h.info)}</span>`;
+            }
+            return '<span class="text-muted">—</span>';
+        };
+
+        const durationStr = (ms) => {
+            if (ms == null) return '—';
+            if (ms < 1000) return `${ms}ms`;
+            return `${(ms / 1000).toFixed(1)}s`;
+        };
+
+        const dateStr = (ts) => {
+            if (!ts) return '—';
+            return new Date(ts).toLocaleTimeString() + ' ' + new Date(ts).toLocaleDateString();
+        };
+
+        const getStatusBadge = (status) => {
+            const colors = {
+                'completed': 'var(--success)',
+                'failed': 'var(--danger)',
+                'running': 'var(--primary)'
+            };
+            const label = status.charAt(0).toUpperCase() + status.slice(1);
+            return `<span style="font-weight:600;color:${colors[status] || 'var(--text-secondary)'};">${sanitize(label)}</span>`;
+        };
+
+        const getTriggerBadge = (trigger) => {
+            const bgColors = {
+                'scheduled': 'var(--surface-2)',
+                'manual': 'rgba(0,208,156,0.08)',
+                'startup': 'rgba(245,166,35,0.08)'
+            };
+            const fontColors = {
+                'scheduled': 'var(--text-muted)',
+                'manual': 'var(--primary)',
+                'startup': 'var(--warning)'
+            };
+            const label = trigger.charAt(0).toUpperCase() + trigger.slice(1);
+            return `<span style="padding:0.25rem 0.55rem;background:${bgColors[trigger] || 'var(--surface-2)'};color:${fontColors[trigger] || 'var(--text)'};font-size:0.72rem;font-weight:600;border-radius:4px;display:inline-block;text-align:center;min-width:75px;">${sanitize(label)}</span>`;
+        };
+
+        el.innerHTML = `
+            <div class="hb-scroll" style="max-height:360px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);">
+                <table class="hb-table" style="width:100%;font-size:0.82rem;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left;padding:0.6rem 0.8rem;">Job</th>
+                            <th style="text-align:left;padding:0.6rem 0.8rem;">Trigger</th>
+                            <th style="text-align:left;padding:0.6rem 0.8rem;">Status</th>
+                            <th style="text-align:left;padding:0.6rem 0.8rem;">Time</th>
+                            <th style="text-align:right;padding:0.6rem 0.8rem;">Duration</th>
+                            <th style="text-align:left;padding:0.6rem 0.8rem;width:40%;">Details</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${history.map(h => `
+                            <tr>
+                                <td style="padding:0.6rem 0.8rem;font-weight:600;white-space:nowrap;">${sanitize(jobLabels[h.jobName] || h.jobName)}</td>
+                                <td style="padding:0.6rem 0.8rem;white-space:nowrap;">${getTriggerBadge(h.triggerType)}</td>
+                                <td style="padding:0.6rem 0.8rem;white-space:nowrap;">${getStatusBadge(h.status)}</td>
+                                <td style="padding:0.6rem 0.8rem;white-space:nowrap;color:var(--text-muted);">${sanitize(dateStr(h.startedAt))}</td>
+                                <td style="padding:0.6rem 0.8rem;text-align:right;white-space:nowrap;font-feature-settings:'tnum';">${sanitize(durationStr(h.durationMs))}</td>
+                                <td style="padding:0.6rem 0.8rem;font-size:0.78rem;line-height:1.35;word-break:break-word;">${renderInfoOrError(h)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
     renderAdminUsers(users) {
         if (!users || users.length === 0) {
             this.adminUserList.innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No users found.</p></div>';

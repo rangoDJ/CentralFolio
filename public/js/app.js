@@ -910,6 +910,7 @@ const App = {
         // Keep the Scheduler → Background Jobs panel live while it's on screen.
         if (localStorage.getItem('activeMainTab') === 'settings' && localStorage.getItem('activeSettingsTab') === 'scheduler') {
             API.getJobs().then(jobs => UI.renderJobsPanel(jobs)).catch(() => {});
+            API.getJobHistory().then(history => UI.renderJobHistoryPanel(history)).catch(() => {});
         }
         // The dividend-fetch finishing also flips the "Fetching…" loader to real
         // data; the `dividends` data-changed event drives the actual re-render.
@@ -923,8 +924,12 @@ const App = {
     async loadJobsPanel() {
         // Initial render; subsequent updates arrive via `job-status` SSE events.
         try {
-            const jobs = await API.getJobs();
+            const [jobs, history] = await Promise.all([
+                API.getJobs(),
+                API.getJobHistory()
+            ]);
             UI.renderJobsPanel(jobs);
+            UI.renderJobHistoryPanel(history);
         } catch (err) {
             const el = document.getElementById('jobsPanel');
             if (el) el.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;

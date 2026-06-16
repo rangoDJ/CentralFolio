@@ -61,12 +61,14 @@ const server = app.listen(port, () => {
       const bgFetchEnabled = getSetting('dividend_background_fetch_enabled') !== 'false';
       if (!bgFetchEnabled && trigger !== 'manual') {
         logger.info('Scheduler', `Skipping ${trigger} dividend fetch because automatic background sync is disabled`);
-        return;
+        return 'Skipped: Background sync is disabled';
       }
       const allowExternal = (trigger !== 'startup');
       const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
       logger.info('Scheduler', `Running dividend fetch (trigger: ${trigger}, forceRefresh: ${forceRefresh}, allowExternal: ${allowExternal})`);
-      await getAllDividendsForAllPortfolios(forceRefresh, allowExternal);
+      const results = await getAllDividendsForAllPortfolios(forceRefresh, allowExternal);
+      const totalEvents = results.reduce((s, r) => s + (r.dividends?.length ?? 0), 0);
+      return `Processed ${results.length} account(s), projected ${totalEvents} dividend event(s)`;
     },
     true
   );
@@ -79,11 +81,12 @@ const server = app.listen(port, () => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
       if (trigger === 'startup') {
         logger.info('Scheduler', `Skipping holdings refresh on startup — loading cached data from database`);
-        return;
+        return 'Skipped on startup';
       }
       const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
       logger.info('Scheduler', `Running holdings refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh})`);
-      await refreshAllHoldings(hours * hourMs, forceRefresh);
+      const stats = await refreshAllHoldings(hours * hourMs, forceRefresh);
+      return `Processed ${stats.processed} account(s), skipped ${stats.skipped}, errors: ${stats.errors}`;
     },
     false
   );
@@ -96,13 +99,14 @@ const server = app.listen(port, () => {
       const hours = Math.max(1, parseInt(getSetting('data_refresh_interval_hours') ?? '24', 10));
       if (trigger === 'startup') {
         logger.info('Scheduler', `Skipping transactions refresh on startup — loading cached data from database`);
-        return;
+        return 'Skipped on startup';
       }
       const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
       // A manual "Run now" pulls full history (backfill); automatic runs are incremental.
       const fullHistory = (trigger === 'manual');
       logger.info('Scheduler', `Running transactions refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh}, fullHistory: ${fullHistory})`);
-      await refreshAllTransactions(forceRefresh, hours * hourMs, fullHistory);
+      const stats = await refreshAllTransactions(forceRefresh, hours * hourMs, fullHistory);
+      return `Processed ${stats.processedCount} account(s), errors: ${stats.errorCount}`;
     },
     false
   );

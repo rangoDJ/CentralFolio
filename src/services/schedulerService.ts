@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { logger } from "../utils/logger.js";
 import { emitJobStatus } from "./eventBus.js";
+import { getJobState, saveJobState, addJobRun } from "../models/db.js";
 
 export type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 
@@ -19,7 +20,7 @@ export interface JobState {
   defaultIntervalMs: number | null;
 }
 
-type JobFn = (trigger: string) => Promise<void> | void;
+type JobFn = (trigger: string) => Promise<string | void> | string | void;
 
 interface RegisteredJob {
   state: JobState;
@@ -83,10 +84,18 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
   job.state.status = 'running';
   job.state.lastError = null;
   logger.info('Scheduler', `Job "${job.state.name}" started (${trigger})`);
+  saveJobState({
+    name: job.state.name,
+    status: 'running',
+    lastRunAt: job.state.lastRunAt,
+    lastDurationMs: job.state.lastDurationMs,
+    lastError: null,
+    nextRunAt: job.state.nextRunAt
+  });
   emitJobStatus(job.state);
 
   try {
-    await job.fn(trigger);
+    const result = await job.fn(trigger);
     job.state.status = 'completed';
     job.state.lastDurationMs = Date.now() - start;
     job.state.lastRunAt = start;
@@ -94,6 +103,25 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
       job.state.nextRunAt = nextRunFromCron(job.state.cronExpression);
     }
     logger.info('Scheduler', `Job "${job.state.name}" completed in ${job.state.lastDurationMs}ms`);
+
+    saveJobState({
+      name: job.state.name,
+      status: 'completed',
+      lastRunAt: start,
+      lastDurationMs: job.state.lastDurationMs,
+      lastError: null,
+      nextRunAt: job.state.nextRunAt
+    });
+
+    addJobRun({
+      jobName: job.state.name,
+      triggerType: trigger,
+      status: 'completed',
+      startedAt: start,
+      durationMs: job.state.lastDurationMs,
+      error: null,
+      info: typeof result === 'string' ? result : null
+    });
   } catch (err: any) {
     job.state.status = 'failed';
     job.state.lastDurationMs = Date.now() - start;
@@ -103,6 +131,25 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
       job.state.nextRunAt = nextRunFromCron(job.state.cronExpression);
     }
     logger.error('Scheduler', `Job "${job.state.name}" failed after ${job.state.lastDurationMs}ms: ${err.message}`);
+
+    saveJobState({
+      name: job.state.name,
+      status: 'failed',
+      lastRunAt: start,
+      lastDurationMs: job.state.lastDurationMs,
+      lastError: err.message,
+      nextRunAt: job.state.nextRunAt
+    });
+
+    addJobRun({
+      jobName: job.state.name,
+      triggerType: trigger,
+      status: 'failed',
+      startedAt: start,
+      durationMs: job.state.lastDurationMs,
+      error: err.message,
+      info: null
+    });
   }
   emitJobStatus(job.state);
 }
@@ -125,18 +172,29 @@ export function registerJob(
   const hours = intervalMs ? intervalMs / (60 * 60 * 1000) : 0;
   const cronExpression = hoursToCron(hours);
 
+  const persisted = getJobState(name);
+
   const state: JobState = {
     name,
     label,
     status: 'idle',
-    lastRunAt: null,
-    lastDurationMs: null,
-    lastError: null,
+    lastRunAt: persisted?.lastRunAt ?? null,
+    lastDurationMs: persisted?.lastDurationMs ?? null,
+    lastError: persisted?.lastError ?? null,
     nextRunAt: cronExpression ? nextRunFromCron(cronExpression) : null,
     cronExpression,
     intervalMs,
     defaultIntervalMs: intervalMs,
   };
+
+  saveJobState({
+    name: state.name,
+    status: state.status,
+    lastRunAt: state.lastRunAt,
+    lastDurationMs: state.lastDurationMs,
+    lastError: state.lastError,
+    nextRunAt: state.nextRunAt
+  });
 
   const job: RegisteredJob = { state, fn, task: null, startupTimer: null };
   registry.set(name, job);
@@ -188,6 +246,15 @@ export function updateJobInterval(name: string, newIntervalMs: number | null): b
   job.state.intervalMs = newIntervalMs;
   job.state.cronExpression = cronExpression;
   job.state.nextRunAt = cronExpression ? nextRunFromCron(cronExpression) : null;
+
+  saveJobState({
+    name: job.state.name,
+    status: job.state.status,
+    lastRunAt: job.state.lastRunAt,
+    lastDurationMs: job.state.lastDurationMs,
+    lastError: job.state.lastError,
+    nextRunAt: job.state.nextRunAt
+  });
 
   if (cronExpression) {
     job.task = cron.schedule(cronExpression, () => runJob(job, 'scheduled'));

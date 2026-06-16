@@ -147,6 +147,28 @@ const migrations: Array<{ name: string; sql: string }> = [
     )
   ` },
   { name: 'positions.averagePurchasePrice', sql: 'ALTER TABLE positions ADD COLUMN averagePurchasePrice REAL' },
+  { name: 'job_states.create', sql: `
+    CREATE TABLE IF NOT EXISTS job_states (
+      name TEXT PRIMARY KEY,
+      status TEXT NOT NULL,
+      lastRunAt INTEGER,
+      lastDurationMs INTEGER,
+      lastError TEXT,
+      nextRunAt INTEGER
+    )
+  ` },
+  { name: 'job_runs.create', sql: `
+    CREATE TABLE IF NOT EXISTS job_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      jobName TEXT NOT NULL,
+      triggerType TEXT NOT NULL,
+      status TEXT NOT NULL,
+      startedAt INTEGER NOT NULL,
+      durationMs INTEGER,
+      error TEXT,
+      info TEXT
+    )
+  ` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

@@ -2,6 +2,16 @@ import { Request, Response } from "express";
 import { getAllJobStatuses, getJobStatus, triggerJob, updateJobInterval } from "../services/schedulerService.js";
 import { setSetting } from "../models/db.js";
 import { logger } from "../utils/logger.js";
+import { getJobRuns } from "../repositories/jobRepository.js";
+
+export const listJobHistory = (req: Request, res: Response) => {
+  try {
+    res.json(getJobRuns());
+  } catch (err: any) {
+    logger.error('Jobs', `Failed to list job history: ${err.message}`);
+    res.status(500).json({ error: "Failed to list job history" });
+  }
+};
 
 export const listJobs = (req: Request, res: Response) => {
   res.json(getAllJobStatuses());

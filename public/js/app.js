@@ -1357,7 +1357,7 @@ const App = {
             finally { UI.setDashboardDividendLoading(false); }
         }
 
-        UI.renderDashboardReceivedChart(this.getFilteredTransactionsData() || null);
+        // Dividend chart (received + projected) is rendered inside renderDashboardDividendWidgets.
 
         this.applyDashboardValuesVisibility(localStorage.getItem('cf_mask_values') === 'true');
 

@@ -208,27 +208,15 @@
           </div>
         </div>
 
-        <!-- Future payments + dividends received -->
-        <div class="dash-bottom-row">
-          <div class="card">
-            <div class="card-header" style="margin-bottom:0.35rem;">
-              <span class="card-title">Future Payments</span>
-              <span id="dashFutureTotal" class="text-sm" style="color:var(--primary);font-weight:600;">—</span>
-            </div>
-            <div id="dashFutureMonthly" class="stat-sublabel mb-3">—</div>
-            <div style="position:relative;height:150px;">
-              <canvas id="dashFutureChart"></canvas>
-            </div>
+        <!-- Dividend income — received + projected combined -->
+        <div class="card mb-3">
+          <div class="card-header" style="flex-wrap:wrap;gap:0.5rem;">
+            <span class="card-title">Dividend Income</span>
+            <span id="dashReceivedTotal" class="text-sm" style="color:var(--text-secondary);">—</span>
+            <span id="dashFutureTotal" class="text-sm" style="color:var(--primary);font-weight:600;">—</span>
           </div>
-          <div class="card">
-            <div class="card-header" style="margin-bottom:0.35rem;">
-              <span class="card-title">Dividends Received</span>
-              <span id="dashReceivedTotal" class="text-sm" style="color:var(--primary);font-weight:600;">—</span>
-            </div>
-            <div class="stat-sublabel mb-3">Last 12 months</div>
-            <div style="position:relative;height:150px;">
-              <canvas id="dashReceivedChart"></canvas>
-            </div>
+          <div style="position:relative;height:200px;">
+            <canvas id="dashDividendChart"></canvas>
           </div>
         </div>
 

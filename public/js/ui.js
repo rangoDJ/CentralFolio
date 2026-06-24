@@ -34,8 +34,7 @@ const UI = {
 
     accountsChartInstance: null,
     dividendChartInstance: null,
-    dashFutureChartInstance: null,
-    dashReceivedChartInstance: null,
+    dashDividendChartInstance: null,
 
     getChartTheme() {
         if (typeof document === 'undefined') return { textColor: '#7c8496', gridColor: 'rgba(255,255,255,0.06)', tooltipBg: '#1e2640', tooltipBorder: 'rgba(255,255,255,0.08)' };
@@ -495,7 +494,8 @@ const UI = {
         if (el('passiveAnnually'))   el('passiveAnnually').textContent   = `${fmt(annualTotal)} annually`;
 
         this.renderDashboardEventsStrip(allEvents);
-        this.renderDashboardFutureChart(allEvents);
+        const transactionsData = (typeof App !== 'undefined') ? App.getFilteredTransactionsData() : null;
+        this.renderDashboardDividendChart(allEvents, transactionsData);
     },
 
     renderDashboardEventsStrip(allEvents) {
@@ -536,126 +536,99 @@ const UI = {
         '</div>';
     },
 
-    renderDashboardFutureChart(allEvents) {
-        const canvas = document.getElementById('dashFutureChart');
+    renderDashboardDividendChart(allEvents, transactionsData) {
+        const canvas = document.getElementById('dashDividendChart');
         if (!canvas || typeof Chart === 'undefined') return;
 
         const now = new Date();
-        const monthlyData = {};
-        for (let i = 0; i < 12; i++) {
+        const fmt = v => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        // Build a 24-month timeline: past 11 months + current + next 12 months.
+        // Key format: 'YYYY-MM' for bucketing; label format: 'Mon YY' for display.
+        const months = [];
+        for (let i = -11; i <= 12; i++) {
             const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-            monthlyData[d.toLocaleString('default', { month: 'short' })] = 0;
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const label = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+            months.push({ key, label, received: 0, projected: 0 });
         }
+        const byKey = new Map(months.map(m => [m.key, m]));
 
-        let totalNext12 = 0;
-        allEvents.forEach(e => {
-            const d = new Date(e.date);
-            const ahead = (d.getUTCFullYear() - now.getFullYear()) * 12 + (d.getUTCMonth() - now.getMonth());
-            if (ahead >= 0 && ahead < 12) {
-                const key = d.toLocaleString('default', { month: 'short', timeZone: 'UTC' });
-                if (monthlyData[key] !== undefined) { monthlyData[key] += (e.amount || 0); totalNext12 += (e.amount || 0); }
-            }
-        });
-
-        const labels = Object.keys(monthlyData);
-        const data   = Object.values(monthlyData);
-        const maxVal = Math.max(...data, 1);
-        const fmt    = v => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-        const ftEl = document.getElementById('dashFutureTotal');
-        const fmEl = document.getElementById('dashFutureMonthly');
-        if (ftEl) ftEl.textContent = `${fmt(totalNext12)} next 12m`;
-        if (fmEl) fmEl.textContent = `${fmt(totalNext12 / 12)} monthly avg`;
-
-        const theme = this.getChartTheme();
-        const chartCfg = {
-            type: 'bar',
-            data: { labels, datasets: [{ data, backgroundColor: 'rgba(0,208,156,0.28)', borderColor: '#00d09c', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(0,208,156,0.55)' }] },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: theme.tooltipBg, padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: theme.tooltipBorder, borderWidth: 1 } },
-                scales: {
-                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: theme.gridColor }, ticks: { color: theme.textColor, font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
-                    x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 10 } } }
-                }
-            }
-        };
-
-        if (this.dashFutureChartInstance) {
-            this.dashFutureChartInstance.data.labels = labels;
-            this.dashFutureChartInstance.data.datasets[0].data = data;
-            this.dashFutureChartInstance.options.scales.y.max = maxVal * 1.25;
-            this.dashFutureChartInstance.options.scales.y.grid.color = theme.gridColor;
-            this.dashFutureChartInstance.options.scales.y.ticks.color = theme.textColor;
-            this.dashFutureChartInstance.options.scales.x.ticks.color = theme.textColor;
-            this.dashFutureChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
-            this.dashFutureChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
-            this.dashFutureChartInstance.update('none');
-        } else {
-            this.dashFutureChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
-        }
-    },
-
-    renderDashboardReceivedChart(transactionsData) {
-        const canvas = document.getElementById('dashReceivedChart');
-        if (!canvas || typeof Chart === 'undefined') return;
-
-        const now = new Date();
-        const monthlyData = {};
-        for (let i = 11; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            monthlyData[d.toLocaleString('default', { month: 'short', year: '2-digit' })] = 0;
-        }
-
-        let total12m = 0;
+        // Fill received from transaction history.
+        let totalReceived = 0;
         if (transactionsData) {
             transactionsData.forEach(acct => {
                 (acct.transactions || []).forEach(txn => {
                     if (!['DIVIDEND', 'DIV'].includes((txn.type || '').toUpperCase())) return;
                     const d = new Date(txn.date);
-                    const ago = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
-                    if (ago >= 0 && ago < 12) {
-                        const key = d.toLocaleString('default', { month: 'short', year: '2-digit' });
-                        if (monthlyData[key] !== undefined) { monthlyData[key] += Math.abs(txn.amount || 0); total12m += Math.abs(txn.amount || 0); }
-                    }
+                    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                    const bucket = byKey.get(key);
+                    if (bucket) { bucket.received += Math.abs(txn.amount || 0); totalReceived += Math.abs(txn.amount || 0); }
                 });
             });
         }
 
-        const labels = Object.keys(monthlyData);
-        const data   = Object.values(monthlyData);
-        const maxVal = Math.max(...data, 1);
-        const fmt    = v => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        // Fill projected from dividend events (current month onwards).
+        let totalProjected = 0;
+        const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        allEvents.forEach(e => {
+            const d = new Date(e.date);
+            const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+            if (key < todayKey) return;
+            const bucket = byKey.get(key);
+            if (bucket) { bucket.projected += (e.amount || 0); totalProjected += (e.amount || 0); }
+        });
 
-        const totalEl = document.getElementById('dashReceivedTotal');
-        if (totalEl) totalEl.textContent = total12m > 0 ? `${fmt(total12m)} received` : 'No data yet';
+        const labels       = months.map(m => m.label);
+        const receivedData = months.map(m => m.received);
+        const projectedData = months.map(m => m.projected);
+        const maxVal = Math.max(...months.map(m => m.received + m.projected), 1);
+
+        const ftEl = document.getElementById('dashFutureTotal');
+        const rtEl = document.getElementById('dashReceivedTotal');
+        if (ftEl) ftEl.textContent = totalProjected > 0 ? `${fmt(totalProjected)} projected next 12m` : '';
+        if (rtEl) rtEl.textContent = totalReceived > 0 ? `${fmt(totalReceived)} received` : '';
 
         const theme = this.getChartTheme();
-        const chartCfg = {
-            type: 'bar',
-            data: { labels, datasets: [{ data, backgroundColor: 'rgba(79,142,247,0.28)', borderColor: '#4f8ef7', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(79,142,247,0.55)' }] },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${fmt(c.parsed.y)}` }, backgroundColor: theme.tooltipBg, padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: theme.tooltipBorder, borderWidth: 1 } },
-                scales: {
-                    y: { beginAtZero: true, max: maxVal * 1.25, grid: { color: theme.gridColor }, ticks: { color: theme.textColor, font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(0)}K` : `$${v}` } },
-                    x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 10 } } }
-                }
-            }
+        const tooltipCb = (c) => {
+            const ds = c.chart.data.datasets[c.datasetIndex];
+            return c.parsed.y > 0 ? ` ${ds.label}: ${fmt(c.parsed.y)}` : null;
         };
 
-        if (this.dashReceivedChartInstance) {
-            this.dashReceivedChartInstance.data.labels = labels;
-            this.dashReceivedChartInstance.data.datasets[0].data = data;
-            this.dashReceivedChartInstance.options.scales.y.max = maxVal * 1.25;
-            this.dashReceivedChartInstance.options.scales.y.grid.color = theme.gridColor;
-            this.dashReceivedChartInstance.options.scales.y.ticks.color = theme.textColor;
-            this.dashReceivedChartInstance.options.scales.x.ticks.color = theme.textColor;
-            this.dashReceivedChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
-            this.dashReceivedChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
-            this.dashReceivedChartInstance.update('none');
+        if (this.dashDividendChartInstance) {
+            this.dashDividendChartInstance.data.labels = labels;
+            this.dashDividendChartInstance.data.datasets[0].data = receivedData;
+            this.dashDividendChartInstance.data.datasets[1].data = projectedData;
+            this.dashDividendChartInstance.options.scales.y.max = maxVal * 1.25;
+            this.dashDividendChartInstance.options.scales.y.grid.color = theme.gridColor;
+            this.dashDividendChartInstance.options.scales.y.ticks.color = theme.textColor;
+            this.dashDividendChartInstance.options.scales.x.ticks.color = theme.textColor;
+            this.dashDividendChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
+            this.dashDividendChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
+            this.dashDividendChartInstance.update('none');
         } else {
-            this.dashReceivedChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
+            this.dashDividendChartInstance = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Received', data: receivedData, backgroundColor: 'rgba(79,142,247,0.5)', borderColor: '#4f8ef7', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(79,142,247,0.75)' },
+                        { label: 'Projected', data: projectedData, backgroundColor: 'rgba(0,208,156,0.35)', borderColor: '#00d09c', borderWidth: 0, borderRadius: 3, hoverBackgroundColor: 'rgba(0,208,156,0.6)' },
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: true, labels: { color: theme.textColor, boxWidth: 12, font: { size: 11 }, filter: i => i.text !== 'Received' || receivedData.some(v => v > 0) } },
+                        tooltip: { callbacks: { label: tooltipCb }, backgroundColor: theme.tooltipBg, padding: 8, cornerRadius: 6, titleFont: { size: 11 }, bodyFont: { size: 12, weight: '600' }, borderColor: theme.tooltipBorder, borderWidth: 1 }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, max: maxVal * 1.25, stacked: false, grid: { color: theme.gridColor }, ticks: { color: theme.textColor, font: { size: 10 }, callback: v => v >= 1000 ? `$${(v/1000).toFixed(1)}K` : `$${v}` } },
+                        x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 10 }, maxRotation: 45 } }
+                    }
+                }
+            });
         }
     },
 

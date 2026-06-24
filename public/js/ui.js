@@ -2112,7 +2112,7 @@ const UI = {
             if (isNaN(t) || t < xMin || t > xMax) return '';
             const x = sx(t), y = sy(priceAt(t));
             const isBuy = tr.action === 'BUY';
-            const color = isBuy ? 'var(--success)' : 'var(--danger)';
+            const color = isBuy ? '#4f8ef7' : 'var(--danger)';
             const units = (tr.units || 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
             const title = `${isBuy ? 'Buy' : 'Sell'} ${units} @ ${this.moneyC(tr.price || 0, cur)} · ${tr.date}`;
             return `<circle class="sd-chart-trade" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="${color}"><title>${sanitize(title)}</title></circle>`;

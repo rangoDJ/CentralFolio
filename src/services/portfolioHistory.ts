@@ -53,8 +53,13 @@ export interface PortfolioHistoryResult {
 const norm = (s: unknown) => String(s ?? "").toUpperCase().trim();
 
 // SnapTrade type codes we treat as share-changing trades.
-const BUY_TYPES = new Set(["BUY", "BUYTOOPEN", "REINVEST", "DRIP"]);
+const BUY_TYPES  = new Set(["BUY", "BUYTOOPEN", "REINVEST", "DRIP"]);
 const SELL_TYPES = new Set(["SELL", "SELLTOCLOSE"]);
+
+// Cash flow types that change the net-invested baseline but don't move shares.
+// Deposits/contributions/transfers-in add to invested; withdrawals/transfers-out subtract.
+const DEPOSIT_TYPES    = new Set(["DEPOSIT", "TRANSFER_IN", "CONTRIBUTION"]);
+const WITHDRAWAL_TYPES = new Set(["WITHDRAWAL", "TRANSFER_OUT"]);
 
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -81,14 +86,15 @@ function shareDelta(txn: PHTransaction): number {
 
 /**
  * Cash contribution delta for a trade (for the net-invested line):
- * a buy is money in (+cost), a sell is money out (−proceeds). Uses `amount`
- * when present (already net of fees), else falls back to units×price.
+ * - Buys / deposits / transfers-in → money into the portfolio (+)
+ * - Sells / withdrawals / transfers-out → money leaving the portfolio (−)
+ * Uses `amount` when present (already net of fees), else falls back to units×price.
  */
 function contributionDelta(txn: PHTransaction): number {
   const t = norm(txn.type);
   const amt = txn.amount != null ? Math.abs(txn.amount) : Math.abs((txn.units ?? 0) * (txn.price ?? 0));
-  if (BUY_TYPES.has(t)) return amt;
-  if (SELL_TYPES.has(t)) return -amt;
+  if (BUY_TYPES.has(t) || DEPOSIT_TYPES.has(t)) return amt;
+  if (SELL_TYPES.has(t) || WITHDRAWAL_TYPES.has(t)) return -amt;
   return 0;
 }
 
@@ -116,9 +122,14 @@ export function reconstructPortfolioHistory(
   priceSeriesBySymbol: Map<string, PriceCandleLite[]>,
   benchmark?: { symbol: string; series: PriceCandleLite[] }
 ): PortfolioHistoryResult {
-  // Trades with a usable symbol + date, sorted chronologically.
+  // Include share trades (buy/sell with a symbol) AND cash-only events
+  // (deposits, withdrawals, transfers) which affect the invested baseline
+  // but don't move share counts.
   const trades = transactions
-    .filter(t => t.symbol && t.date && shareDelta(t) !== 0)
+    .filter(t => t.date && (
+      (t.symbol && shareDelta(t) !== 0) ||
+      contributionDelta(t) !== 0
+    ))
     .map(t => ({ ...t, _day: isoDay(new Date(t.date as string)) }))
     .sort((a, b) => a._day.localeCompare(b._day));
 

@@ -86,6 +86,36 @@ test('reconstruct: benchmark mirrors contributions at index price', () => {
   assert.equal(res.summary.benchmarkEndValue, 200);
 });
 
+test('reconstruct: cash deposit and withdrawal adjust invested baseline', () => {
+  const txns: PHTransaction[] = [
+    { symbol: 'AAA', type: 'BUY',        units: 10, price: 10, amount: 100,  date: '2024-01-01' },
+    {                type: 'DEPOSIT',    units: 0,  price: 0,  amount: 50,   date: '2024-01-02' },
+    {                type: 'WITHDRAWAL', units: 0,  price: 0,  amount: 30,   date: '2024-01-03' },
+  ];
+  const prices = new Map<string, PriceCandleLite[]>([
+    ['AAA', [{ date: '2024-01-01', close: 10 }, { date: '2024-01-03', close: 10 }]],
+  ]);
+  const res = reconstructPortfolioHistory(txns, prices);
+  // After buy: invested = 100
+  approx(ptOn(res, '2024-01-01').invested, 100, 'after buy');
+  // After deposit: invested = 150
+  approx(ptOn(res, '2024-01-02').invested, 150, 'after deposit');
+  // After withdrawal: invested = 120
+  approx(ptOn(res, '2024-01-03').invested, 120, 'after withdrawal');
+  // Share count unchanged — holdings value stays at 100
+  approx(ptOn(res, '2024-01-03').value, 100, 'value unaffected by cash flows');
+});
+
+test('reconstruct: TRANSFER_IN and TRANSFER_OUT treated as deposit/withdrawal', () => {
+  const txns: PHTransaction[] = [
+    { type: 'TRANSFER_IN',  amount: 200, date: '2024-02-01' },
+    { type: 'TRANSFER_OUT', amount: 80,  date: '2024-02-02' },
+  ];
+  const res = reconstructPortfolioHistory(txns, new Map());
+  approx(ptOn(res, '2024-02-01').invested, 200, 'transfer in');
+  approx(ptOn(res, '2024-02-02').invested, 120, 'transfer out');
+});
+
 test('reconstruct: summary totals + empty input', () => {
   const empty = reconstructPortfolioHistory([], new Map());
   assert.equal(empty.points.length, 0);

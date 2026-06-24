@@ -263,11 +263,11 @@ export async function getStockDetail(symbol: string): Promise<StockDetail | null
 /**
  * Helper to fetch dividend metadata with cache-only non-blocking option
  */
-export async function fetchDividendMetadata(symbol: string, allowExternalFetch: boolean = true): Promise<any> {
+export async function fetchDividendMetadata(symbol: string, allowExternalFetch: boolean = true, forceRefresh: boolean = false): Promise<any> {
   const now = Date.now();
 
-  // 1. Check in-memory Cache
-  if (divMetadataCache.has(symbol)) {
+  // 1. Check in-memory Cache (skipped on forceRefresh)
+  if (!forceRefresh && divMetadataCache.has(symbol)) {
     const cached = divMetadataCache.get(symbol)!;
     const isPlaceholder = cached.name === 'No Dividend Data' || cached.frequency === 0;
     const currentTtl = isPlaceholder ? 24 * 60 * 60 * 1000 : CACHE_TTL_MS;
@@ -277,14 +277,14 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
     }
   }
 
-  // 2. Check DB Cache
+  // 2. Check DB Cache (skipped on forceRefresh)
   const dbCached = getCachedDividendMetadata(symbol);
-  if (dbCached) {
+  if (!forceRefresh && dbCached) {
     // SQLite CURRENT_TIMESTAMP is UTC. Convert it to standard ISO-8601 UTC timestamp and parse.
     const cachedAt = new Date(dbCached.cachedAt.replace(' ', 'T') + 'Z').getTime();
     const isPlaceholder = dbCached.name === 'No Dividend Data' || dbCached.frequency === 0;
     const currentTtl = isPlaceholder ? 24 * 60 * 60 * 1000 : CACHE_TTL_MS;
-    
+
     // Hard Rule: If pulled in the last 24 hours, skip pulling and return cached data
     if (now - cachedAt < 24 * 60 * 60 * 1000) {
       logger.info('Cache', `fetchDividendMetadata(${symbol}) → DB HIT (skip pulling: pulled within last 24h at ${dbCached.cachedAt} UTC)`);
@@ -422,7 +422,7 @@ export async function getDividendForecastForAccount(
         let metadata;
         try {
           metadata = await withTimeout(
-            fetchDividendMetadata(symbol, allowExternalFetch),
+            fetchDividendMetadata(symbol, allowExternalFetch, forceRefresh),
             METADATA_TIMEOUT_MS,
             `fetchDividendMetadata(${symbol})`
           );

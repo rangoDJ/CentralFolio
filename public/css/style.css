@@ -930,6 +930,11 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .sd-chart-cost-lbl { fill: #c4b5fd; font-size: 12px; font-weight: 600; }
 .sd-chart-trade { stroke: var(--surface); stroke-width: 1.5; cursor: pointer; }
 .sd-chart-trade:hover { stroke: var(--text); }
+.sd-chart-tradetip { pointer-events: none; }
+.sd-chart-tradetip rect { fill: var(--surface-2); stroke: var(--border); }
+.sd-chart-tradetip text { fill: var(--text); font-size: 12px; }
+.sd-chart-tradetip .sd-chart-tradetip-1 { font-weight: 700; }
+.sd-chart-tradetip .sd-chart-tradetip-2 { fill: var(--text-muted); }
 .sd-chart-crossline { stroke: var(--border-hover); stroke-width: 1; }
 .sd-chart-crossdot { fill: var(--primary); stroke: var(--surface); stroke-width: 2; }
 .sd-chart-tip rect { fill: var(--surface-2); stroke: var(--border); }

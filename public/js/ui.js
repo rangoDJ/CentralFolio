@@ -2101,7 +2101,10 @@ const UI = {
             costLine = lines + labels;
         }
 
-        // Buy/sell markers placed on the line at each trade's date.
+        const cid = 'c' + Math.random().toString(36).slice(2, 8);
+
+        // Buy/sell markers placed on the line at each trade's date, each with a
+        // styled hover tooltip describing the action, share count, price and date.
         const priceAt = t => {
             let best = 0, bd = Infinity;
             for (let i = 0; i < xs.length; i++) { const d = Math.abs(xs[i] - t); if (d < bd) { bd = d; best = i; } }
@@ -2114,12 +2117,14 @@ const UI = {
             const isBuy = tr.action === 'BUY';
             const color = isBuy ? '#4f8ef7' : 'var(--danger)';
             const units = (tr.units || 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
-            const title = `${isBuy ? 'Buy' : 'Sell'} ${units} @ ${this.moneyC(tr.price || 0, cur)} · ${tr.date}`;
-            return `<circle class="sd-chart-trade" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="${color}"><title>${sanitize(title)}</title></circle>`;
+            const l1 = `${isBuy ? 'Bought' : 'Sold'} ${units} share${tr.units === 1 ? '' : 's'}`;
+            const l2 = `@ ${this.moneyC(tr.price || 0, cur)} · ${tr.date}`;
+            return `<circle class="sd-chart-trade" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="${color}"
+                data-l1="${sanitize(l1)}" data-l2="${sanitize(l2)}"
+                onmouseenter="UI._tradeTipShow(event,'${cid}')" onmouseleave="UI._tradeTipHide('${cid}')"><title>${sanitize(l1 + ' ' + l2)}</title></circle>`;
         }).join('');
 
         const gradId = 'sdGrad';
-        const cid = 'c' + Math.random().toString(36).slice(2, 8);
         // Serialize point data for the hover handler.
         const dataAttr = candles.map((c, i) => `${xs[i]}:${ys[i]}`).join(',');
 
@@ -2150,7 +2155,36 @@ const UI = {
                 <text class="sd-chart-tip-d" x="8" y="16"></text>
                 <text class="sd-chart-tip-p" x="8" y="32"></text>
             </g>
+            <g class="sd-chart-tradetip" style="display:none;">
+                <rect rx="4" width="200" height="40"/>
+                <text class="sd-chart-tradetip-1" x="9" y="17"></text>
+                <text class="sd-chart-tradetip-2" x="9" y="32"></text>
+            </g>
         </svg>`;
+    },
+
+    // Styled tooltip for a buy/sell marker on the price chart.
+    _tradeTipShow(evt, id) {
+        const svg = document.getElementById(id);
+        if (!svg) return;
+        const c = evt.target;
+        const tip = svg.querySelector('.sd-chart-tradetip');
+        if (!tip) return;
+        tip.querySelector('.sd-chart-tradetip-1').textContent = c.dataset.l1 || '';
+        tip.querySelector('.sd-chart-tradetip-2').textContent = c.dataset.l2 || '';
+        tip.style.display = '';
+        const [padL, , plotW] = svg.dataset.geo.split(',').map(Number);
+        const cx = +c.getAttribute('cx'), cy = +c.getAttribute('cy');
+        const tipW = 200;
+        const tx = Math.max(padL, Math.min(cx - tipW / 2, padL + plotW - tipW));
+        const ty = Math.max(2, cy - 48);
+        tip.setAttribute('transform', `translate(${tx.toFixed(1)},${ty.toFixed(1)})`);
+    },
+
+    _tradeTipHide(id) {
+        const svg = document.getElementById(id);
+        const tip = svg?.querySelector('.sd-chart-tradetip');
+        if (tip) tip.style.display = 'none';
     },
 
     // Crosshair + tooltip handler (shared by all price charts via element id).

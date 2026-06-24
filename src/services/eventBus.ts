@@ -7,7 +7,7 @@ import type { JobState } from "./schedulerService.js";
  * the backend pushes a `data-changed` event so connected clients can refresh
  * the affected views (and anything derived from them) without a manual reload.
  */
-export type DataDomain = 'holdings' | 'accounts' | 'transactions' | 'dividends' | 'targets';
+export type DataDomain = 'holdings' | 'accounts' | 'transactions' | 'dividends' | 'targets' | 'priceHistory';
 
 export interface DataChangedEvent {
   type: 'data-changed';

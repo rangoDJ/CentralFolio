@@ -153,6 +153,29 @@
           </div>
         </div>
 
+        <!-- Portfolio performance over time (value vs invested vs benchmark) -->
+        <div class="card mb-3" id="perfCard">
+          <div class="card-header" style="align-items:flex-start;flex-wrap:wrap;gap:0.75rem;">
+            <div>
+              <span class="card-title">Portfolio performance</span>
+              <div id="perfSummary" class="perf-summary text-muted text-sm">—</div>
+            </div>
+            <div class="perf-controls">
+              <label class="perf-bench-toggle" title="Overlay a benchmark index">
+                <input type="checkbox" id="perfBenchToggle" checked onchange="App.togglePerfBenchmark(this.checked)">
+                vs <strong id="perfBenchLabel">SPY</strong>
+              </label>
+              <div class="perf-pills" id="perfRangePills"></div>
+            </div>
+          </div>
+          <div style="position:relative;height:300px;">
+            <canvas id="perfChart"></canvas>
+            <div id="perfEmpty" class="empty-state" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+              <p class="text-muted text-sm">Loading performance…</p>
+            </div>
+          </div>
+        </div>
+
         <!-- Redesigned Main Layout: Left = Chart, Right = Holdings breakdown -->
         <div class="dashboard-grid">
           <div class="card" id="dashboardChartContainer">
@@ -174,6 +197,19 @@
               <div class="empty-state" style="padding:1.5rem 0;"><p>No holdings loaded.</p></div>
             </div>
           </div>
+        </div>
+
+        <!-- Diversification (sector / geography / asset type) -->
+        <div class="card mb-3" id="divCard">
+          <div class="card-header" style="flex-wrap:wrap;gap:0.75rem;">
+            <span class="card-title">Diversification</span>
+            <div class="perf-pills" id="divDimPills"></div>
+          </div>
+          <div class="div-body">
+            <div class="div-chart-wrap"><canvas id="divChart"></canvas></div>
+            <div class="div-legend" id="divLegend"></div>
+          </div>
+          <div id="divEmpty" class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading diversification…</p></div>
         </div>
 
         <!-- Upcoming dividend events -->
@@ -209,6 +245,36 @@
               <canvas id="dashReceivedChart"></canvas>
             </div>
           </div>
+        </div>
+
+        <!-- Income goal / FIRE snowball projection -->
+        <div class="card mb-3" id="fireCard">
+          <div class="card-header">
+            <span class="card-title">Income projection</span>
+            <span id="fireSummary" class="text-sm" style="color:var(--primary);font-weight:600;">—</span>
+          </div>
+          <div class="fire-body">
+            <div class="fire-controls">
+              <label class="fire-field"><span>Monthly contribution</span>
+                <input type="number" id="fireContribution" min="0" step="50" value="500" oninput="App.updateProjection()"></label>
+              <label class="fire-field"><span>Dividend growth %/yr</span>
+                <input type="number" id="fireDgr" min="0" max="50" step="0.5" value="7" oninput="App.updateProjection()"></label>
+              <label class="fire-field"><span>Price growth %/yr</span>
+                <input type="number" id="firePgr" min="0" max="50" step="0.5" value="4" oninput="App.updateProjection()"></label>
+              <label class="fire-field"><span>Target income $/yr</span>
+                <input type="number" id="fireTarget" min="0" step="1000" value="40000" oninput="App.updateProjection()"></label>
+              <label class="fire-field"><span>Years</span>
+                <input type="number" id="fireYears" min="1" max="60" step="1" value="25" oninput="App.updateProjection()"></label>
+              <label class="fire-field fire-checkbox"><input type="checkbox" id="fireDrip" checked onchange="App.updateProjection()"> Reinvest dividends (DRIP)</label>
+            </div>
+            <div class="fire-chart-wrap">
+              <canvas id="fireChart"></canvas>
+              <div id="fireEmpty" class="empty-state" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                <p class="text-muted text-sm">Connect holdings to project income.</p>
+              </div>
+            </div>
+          </div>
+          <div class="fire-basis text-muted text-sm" id="fireBasis"></div>
         </div>
 
       </div>

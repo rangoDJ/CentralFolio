@@ -1362,6 +1362,117 @@ const App = {
         UI.renderDashboardReceivedChart(this.getFilteredTransactionsData() || null);
 
         this.applyDashboardValuesVisibility(localStorage.getItem('cf_mask_values') === 'true');
+
+        // Portfolio performance (value over time) — loaded async, independent of
+        // the synchronous dashboard widgets above.
+        this.loadPortfolioPerformance();
+        this.loadDiversification();
+        this.updateProjection();
+    },
+
+    // Current portfolio value + annual dividend income, used as the projection
+    // starting point. Income comes from the 12-month dividend forecast.
+    getProjectionBasis() {
+        let value = 0;
+        (this.getFilteredHoldingsData() || []).forEach(acct => (acct.holdings || []).forEach(h => {
+            const units = h.units || 0, price = h.price || 0;
+            value += h.marketValue || (units * price) || 0;
+        }));
+        let income = 0;
+        (this.getFilteredDividendsData() || []).forEach(acct => (acct.dividends || []).forEach(e => { income += e.amount || 0; }));
+        const currency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
+        return { value, income, currency };
+    },
+
+    // Recompute and render the income projection from the current inputs +
+    // portfolio basis. Cheap and pure (DivMath.projectIncome), so safe to call
+    // on every keystroke.
+    updateProjection() {
+        const num = (id, def) => { const el = document.getElementById(id); const v = el ? parseFloat(el.value) : NaN; return isNaN(v) ? def : v; };
+        const basis = this.getProjectionBasis();
+
+        if (basis.value <= 0 && basis.income <= 0) {
+            UI.renderIncomeProjection(null, { noBasis: true });
+            return;
+        }
+
+        const monthly = num('fireContribution', 0);
+        const target = num('fireTarget', 0);
+        const drip = document.getElementById('fireDrip')?.checked !== false;
+
+        const result = DivMath.projectIncome({
+            currentValue: basis.value,
+            currentIncome: basis.income,
+            annualContribution: monthly * 12,
+            dividendGrowthRate: num('fireDgr', 0),
+            priceGrowthRate: num('firePgr', 0),
+            reinvest: drip,
+            years: num('fireYears', 25),
+            targetAnnualIncome: target,
+        });
+
+        UI.renderIncomeProjection(result, {
+            currency: basis.currency, target,
+            currentValue: basis.value, currentIncome: basis.income,
+        });
+    },
+
+    async loadDiversification() {
+        this._divDim = this._divDim || localStorage.getItem('cf_div_dim') || 'bySector';
+        try {
+            const result = await API.getDiversification();
+            this._divResult = result;
+            this._divCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
+            UI.renderDiversification(result, this._divDim, this._divCurrency);
+        } catch (e) {
+            const empty = document.getElementById('divEmpty');
+            if (empty) { empty.style.display = 'block'; empty.querySelector('p').textContent = 'Could not load diversification data.'; }
+        }
+    },
+
+    setDiversificationDim(dim) {
+        this._divDim = dim;
+        localStorage.setItem('cf_div_dim', dim);
+        if (this._divResult) UI.renderDiversification(this._divResult, dim, this._divCurrency || 'USD');
+    },
+
+    // Fetch the reconstructed portfolio history once and render it; range and
+    // benchmark toggles re-render from the cached result (benchmark change
+    // refetches since it's computed server-side).
+    async loadPortfolioPerformance() {
+        const benchOn = localStorage.getItem('cf_perf_bench') !== 'false';
+        const benchSym = localStorage.getItem('cf_perf_bench_sym') || 'SPY';
+        this._perfRange = this._perfRange || localStorage.getItem('cf_perf_range') || '1y';
+        const benchToggle = document.getElementById('perfBenchToggle');
+        if (benchToggle) benchToggle.checked = benchOn;
+        const benchLabel = document.getElementById('perfBenchLabel');
+        if (benchLabel) benchLabel.textContent = benchSym;
+
+        try {
+            const result = await API.getPortfolioHistory(benchSym);
+            this._perfResult = result;
+            this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
+            UI.renderPortfolioPerformance(result, this._perfRange, benchOn, this._perfCurrency);
+        } catch (e) {
+            const empty = document.getElementById('perfEmpty');
+            if (empty) { empty.style.display = 'flex'; empty.querySelector('p').textContent = 'Could not load performance data.'; }
+        }
+    },
+
+    setPerfRange(rangeKey) {
+        this._perfRange = rangeKey;
+        localStorage.setItem('cf_perf_range', rangeKey);
+        if (this._perfResult) {
+            const benchOn = localStorage.getItem('cf_perf_bench') !== 'false';
+            UI.renderPortfolioPerformance(this._perfResult, rangeKey, benchOn, this._perfCurrency || 'USD');
+        }
+    },
+
+    togglePerfBenchmark(on) {
+        localStorage.setItem('cf_perf_bench', String(on));
+        if (this._perfResult) {
+            UI.renderPortfolioPerformance(this._perfResult, this._perfRange, on, this._perfCurrency || 'USD');
+        }
     },
 
     toggleDashboardValuesVisibility() {
@@ -1479,12 +1590,42 @@ const App = {
 
         // Render immediately with positions + a loading header, then fill in Snowball detail.
         UI.renderStockDetail(symbol, null, positions, 'loading');
+        let detailCurrency = (positions?.total?.currency) || 'USD';
         try {
             const detail = await API.getStockDetail(symbol);
+            detailCurrency = (detail && detail.currency) || detailCurrency;
             UI.renderStockDetail(symbol, detail, positions, 'ready');
         } catch (_) {
             UI.renderStockDetail(symbol, null, positions, 'error');
         }
+        // Price history is independent of Snowball detail — load it after the
+        // detail card is in the DOM (renderStockDetail recreates the placeholder).
+        this.loadPriceHistory(symbol, detailCurrency);
+    },
+
+    // Fetch the full price-history series once, cache it, and render the chart.
+    // Range buttons then filter the cached series client-side (instant switching).
+    async loadPriceHistory(symbol, currency = 'USD') {
+        this._priceHistory = { symbol, currency, candles: null, range: this._priceHistoryRange || '5y' };
+        try {
+            const { candles } = await API.getStockPriceHistory(symbol, 'max');
+            // Guard against the user navigating to another symbol mid-fetch.
+            if (!this._priceHistory || this._priceHistory.symbol !== symbol) return;
+            this._priceHistory.candles = candles;
+            UI.renderPriceHistory(symbol, candles, this._priceHistory.range, currency, 'ready');
+        } catch (_) {
+            if (this._priceHistory && this._priceHistory.symbol === symbol) {
+                UI.renderPriceHistory(symbol, null, this._priceHistory.range, currency, 'error');
+            }
+        }
+    },
+
+    setPriceHistoryRange(rangeKey) {
+        this._priceHistoryRange = rangeKey;
+        const ph = this._priceHistory;
+        if (!ph || !ph.candles) return;
+        ph.range = rangeKey;
+        UI.renderPriceHistory(ph.symbol, ph.candles, rangeKey, ph.currency, 'ready');
     },
 
     closeStockDetail() {

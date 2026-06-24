@@ -15,6 +15,7 @@ const DivMath = sandbox.module.exports as {
   tagDividendStatus: (events: any[], txData: any[], divTypes?: string[]) => any[];
   collectReceivedDividends: (events: any[], txData: any[], opts?: any) => any[];
   buildStockPositions: (symbol: string, ctx: any) => { rows: any[]; total: any };
+  projectIncome: (params: any) => { points: any[]; summary: any };
 };
 
 const approx = (a: number, b: number, msg?: string) => assert.ok(Math.abs(a - b) < 1e-6, `${msg ?? ''} expected ${b}, got ${a}`);
@@ -110,4 +111,56 @@ test('buildStockPositions: inactive accounts excluded', () => {
   const { rows, total } = DivMath.buildStockPositions('ENB.TO', ctx);
   assert.equal(rows.length, 0);
   assert.equal(total, null);
+});
+
+test('projectIncome: no growth/contrib/DRIP keeps income flat', () => {
+  const { points, summary } = DivMath.projectIncome({
+    currentValue: 100000, currentIncome: 4000, annualContribution: 0,
+    dividendGrowthRate: 0, priceGrowthRate: 0, reinvest: false, years: 5,
+  });
+  assert.equal(points.length, 6); // year 0..5
+  points.forEach(p => approx(p.income, 4000, `income @${p.year}`));
+  approx(summary.baseYield, 0.04, 'base yield');
+  assert.equal(summary.yearsToTarget, null);
+});
+
+test('projectIncome: dividend growth compounds income', () => {
+  const { points } = DivMath.projectIncome({
+    currentValue: 100000, currentIncome: 1000, annualContribution: 0,
+    dividendGrowthRate: 10, priceGrowthRate: 0, reinvest: false, years: 3,
+  });
+  approx(points[1].income, 1100, 'y1 +10%');
+  approx(points[2].income, 1210, 'y2 +10%');
+  approx(points[3].income, 1331, 'y3 +10%');
+});
+
+test('projectIncome: contributions add income at base yield', () => {
+  const { points } = DivMath.projectIncome({
+    currentValue: 100000, currentIncome: 5000, annualContribution: 10000,
+    dividendGrowthRate: 0, priceGrowthRate: 0, reinvest: false, years: 1,
+  });
+  // base yield = 5%; +$10k → +$500 income; existing $5000 unchanged (0% DGR).
+  approx(points[1].income, 5500, 'income after contribution');
+  approx(points[1].value, 110000, 'value after contribution');
+  approx(points[1].contributions, 10000, 'contributions tracked');
+});
+
+test('projectIncome: DRIP reinvests dividends into value', () => {
+  const { points } = DivMath.projectIncome({
+    currentValue: 100000, currentIncome: 5000, annualContribution: 0,
+    dividendGrowthRate: 0, priceGrowthRate: 0, reinvest: true, years: 1,
+  });
+  // DRIP: value += income (105000); income += income*yield (5000 + 250 = 5250).
+  approx(points[1].value, 105000, 'value after DRIP');
+  approx(points[1].income, 5250, 'income after DRIP');
+});
+
+test('projectIncome: reports years to reach target income', () => {
+  const { summary } = DivMath.projectIncome({
+    currentValue: 100000, currentIncome: 1000, annualContribution: 0,
+    dividendGrowthRate: 10, priceGrowthRate: 0, reinvest: false, years: 30,
+    targetAnnualIncome: 2000,
+  });
+  // 1000 × 1.1^n ≥ 2000 → n = 8 (1.1^8 ≈ 2.1436).
+  assert.equal(summary.yearsToTarget, 8);
 });

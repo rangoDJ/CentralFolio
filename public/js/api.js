@@ -183,6 +183,27 @@ const API = {
         return data;
     },
 
+    async getStockPriceHistory(symbol, range = 'max') {
+        const res = await this._fetch(`/api/stock/${encodeURIComponent(symbol)}/history?range=${encodeURIComponent(range)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || `Failed to load price history for ${symbol}`);
+        return data;
+    },
+
+    async getPortfolioHistory(benchmark = 'SPY') {
+        const res = await this._fetch(`/api/analytics/portfolio-history?benchmark=${encodeURIComponent(benchmark)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load portfolio history');
+        return data;
+    },
+
+    async getDiversification() {
+        const res = await this._fetch('/api/analytics/diversification');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load diversification');
+        return data;
+    },
+
     async getJobs() {
         const res = await this._fetch('/api/jobs');
         const data = await this._json(res);

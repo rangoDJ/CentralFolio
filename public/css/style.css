@@ -879,6 +879,66 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 
 .sd-body { margin-bottom: 1.25rem; }
 .sd-card { max-width: 420px; }
+
+/* ── Portfolio performance card ──────────────────────────────────── */
+.perf-summary { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; margin-top: 0.3rem; font-feature-settings: "tnum"; }
+.perf-summary .perf-val { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+.perf-summary .pos { color: var(--success); font-weight: 600; }
+.perf-summary .neg { color: var(--danger); font-weight: 600; }
+.perf-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.perf-bench-toggle { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--text-muted); cursor: pointer; user-select: none; }
+.perf-bench-toggle strong { color: #f5a623; }
+.perf-pills { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+
+/* ── Income projection (FIRE) card ───────────────────────────────── */
+.fire-body { display: grid; grid-template-columns: 240px 1fr; gap: 1.5rem; align-items: start; }
+.fire-controls { display: flex; flex-direction: column; gap: 0.7rem; }
+.fire-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; color: var(--text-muted); }
+.fire-field input[type="number"] { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0.4rem 0.55rem; color: var(--text); font-size: 0.85rem; font-feature-settings: "tnum"; }
+.fire-field input[type="number"]:focus { outline: none; border-color: var(--primary); }
+.fire-checkbox { flex-direction: row; align-items: center; gap: 0.4rem; color: var(--text); margin-top: 0.2rem; cursor: pointer; }
+.fire-chart-wrap { position: relative; height: 280px; }
+.fire-basis { margin-top: 0.85rem; line-height: 1.5; }
+@media (max-width: 640px) { .fire-body { grid-template-columns: 1fr; } }
+
+/* ── Diversification card ────────────────────────────────────────── */
+.div-body { display: grid; grid-template-columns: 240px 1fr; gap: 1.5rem; align-items: center; }
+.div-chart-wrap { position: relative; height: 240px; }
+.div-legend { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.div-legend-row { display: grid; grid-template-columns: 14px 1fr auto auto; gap: 0.6rem; align-items: center; font-size: 0.85rem; }
+.div-legend-dot { width: 11px; height: 11px; border-radius: 3px; }
+.div-legend-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.div-legend-pct { font-weight: 700; font-feature-settings: "tnum"; }
+.div-legend-val { font-size: 0.78rem; font-feature-settings: "tnum"; }
+@media (max-width: 640px) { .div-body { grid-template-columns: 1fr; } }
+
+/* ── Price history chart ─────────────────────────────────────────── */
+.sd-chart-card { padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+.sd-chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.sd-chart-head .card-title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+.sd-chart-summary { display: flex; align-items: baseline; gap: 0.6rem; font-size: 0.82rem; }
+.sd-chart-range-lbl { color: var(--text-muted); }
+.sd-chart-change { font-weight: 700; font-feature-settings: "tnum"; }
+.sd-chart-change.pos { color: var(--success); }
+.sd-chart-change.neg { color: var(--danger); }
+.sd-chart-chgpct { font-weight: 600; }
+.sd-chart-pills { display: flex; gap: 0.35rem; flex-wrap: wrap; margin: 0.85rem 0 0.25rem; }
+.sd-range-pill { background: transparent; border: none; color: var(--text-muted); font-size: 0.8rem; font-weight: 600;
+  padding: 0.25rem 0.6rem; border-radius: 999px; cursor: pointer; transition: background .12s, color .12s; }
+.sd-range-pill:hover { color: var(--text); background: var(--hover-overlay); }
+.sd-range-pill.active { color: var(--primary); background: rgba(0,208,156,0.12); }
+.sd-chart-body { width: 100%; }
+.sd-chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.sd-chart-grid { stroke: var(--border); stroke-width: 1; }
+.sd-chart-axis { fill: var(--text-muted); font-size: 13px; }
+.sd-chart-minmax { stroke: var(--border-hover); stroke-width: 1; stroke-dasharray: 3 4; }
+.sd-chart-minmax-lbl { fill: var(--text-muted); font-size: 12px; }
+.sd-chart-crossline { stroke: var(--border-hover); stroke-width: 1; }
+.sd-chart-crossdot { fill: var(--primary); stroke: var(--surface); stroke-width: 2; }
+.sd-chart-tip rect { fill: var(--surface-2); stroke: var(--border); }
+.sd-chart-tip text { fill: var(--text); font-size: 13px; }
+.sd-chart-tip .sd-chart-tip-p { font-weight: 700; font-feature-settings: "tnum"; }
 .sd-divrow { display: flex; justify-content: space-between; gap: 1rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
 .sd-divrow:last-child { border-bottom: none; }
 .sd-divrow span { color: var(--text-muted); }

@@ -8,6 +8,7 @@ import { logger, requestLogger } from "./utils/logger.js";
 import { getAllDividendsForAllPortfolios } from "./services/dividendService.js";
 import { refreshAllHoldings } from "./services/holdingsService.js";
 import { refreshAllTransactions } from "./services/transactionService.js";
+import { syncAllHeldSymbols } from "./services/priceHistoryService.js";
 import { getSetting } from "./models/db.js";
 import { registerJob, updateJobInterval } from "./services/schedulerService.js";
 
@@ -107,6 +108,22 @@ const server = app.listen(port, () => {
       logger.info('Scheduler', `Running transactions refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh}, fullHistory: ${fullHistory})`);
       const stats = await refreshAllTransactions(forceRefresh, hours * hourMs, fullHistory);
       return `Processed ${stats.processedCount} account(s), errors: ${stats.errorCount}`;
+    },
+    false
+  );
+
+  registerJob(
+    'price-history-sync',
+    'Price History Sync',
+    storedInterval('price-history-sync', 24 * hourMs),
+    async (trigger: string) => {
+      if (trigger === 'startup') {
+        logger.info('Scheduler', `Skipping price history sync on startup — serving cached data`);
+        return 'Skipped on startup';
+      }
+      logger.info('Scheduler', `Running price history sync (trigger: ${trigger})`);
+      const stats = await syncAllHeldSymbols();
+      return `Synced ${stats.symbols} symbol(s), ${stats.updated} candle(s) written, errors: ${stats.errors}`;
     },
     false
   );

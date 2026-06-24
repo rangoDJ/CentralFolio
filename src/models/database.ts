@@ -169,6 +169,35 @@ const migrations: Array<{ name: string; sql: string }> = [
       info TEXT
     )
   ` },
+  { name: 'price_history.create', sql: `
+    CREATE TABLE IF NOT EXISTS price_history (
+      symbol      TEXT NOT NULL,
+      date        TEXT NOT NULL,            -- 'YYYY-MM-DD' (UTC trading day)
+      open        REAL,
+      high        REAL,
+      low         REAL,
+      close       REAL,
+      adjClose    REAL,
+      volume      INTEGER,
+      provider    TEXT NOT NULL DEFAULT 'yahoo',
+      yahooSymbol TEXT,                      -- resolved ticker used to fetch (may differ from symbol)
+      cachedAt    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (symbol, date)
+    )
+  ` },
+  { name: 'price_history.idx_symbol', sql: `CREATE INDEX IF NOT EXISTS idx_price_history_symbol ON price_history(symbol)` },
+  { name: 'asset_profiles.create', sql: `
+    CREATE TABLE IF NOT EXISTS asset_profiles (
+      symbol    TEXT PRIMARY KEY,
+      name      TEXT,
+      sector    TEXT,
+      industry  TEXT,
+      country   TEXT,
+      assetType TEXT,                        -- EQUITY / ETF / MUTUALFUND / ...
+      provider  TEXT NOT NULL DEFAULT 'yahoo',
+      cachedAt  DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

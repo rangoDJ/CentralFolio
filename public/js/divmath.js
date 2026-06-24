@@ -199,5 +199,67 @@
         return { rows, total };
     }
 
-    return { tagDividendStatus, collectReceivedDividends, buildStockPositions };
+    const round2 = n => Math.round(n * 100) / 100;
+    const round4 = n => Math.round(n * 10000) / 10000;
+
+    // Project dividend income forward — the "snowball" model. Each year: add
+    // contributions (new capital earns income at the base yield), grow existing
+    // income by the dividend-growth rate, appreciate capital by the price-growth
+    // rate, and (if DRIP is on) reinvest the year's dividends so they compound.
+    //
+    // params: {
+    //   currentValue, currentIncome,        // starting portfolio + annual income
+    //   annualContribution,                 // new money invested per year
+    //   dividendGrowthRate, priceGrowthRate,// percentages, e.g. 7 = 7%/yr
+    //   reinvest (bool, default true),      // DRIP
+    //   years (default 25),
+    //   targetAnnualIncome,                 // FIRE income goal
+    //   assumedYield                        // % fallback when currentValue is 0
+    // }
+    function projectIncome(params) {
+        const p = params || {};
+        const years = Math.max(1, Math.min(80, Math.round(p.years || 25)));
+        const drip = p.reinvest !== false;
+        const dgr = (p.dividendGrowthRate || 0) / 100;
+        const pgr = (p.priceGrowthRate || 0) / 100;
+        const contrib = Math.max(0, p.annualContribution || 0);
+        const target = Math.max(0, p.targetAnnualIncome || 0);
+
+        let value = Math.max(0, p.currentValue || 0);
+        let income = Math.max(0, p.currentIncome || 0);
+        const baseYield = value > 0 ? (income / value) : ((p.assumedYield || 0) / 100);
+
+        const points = [{ year: 0, value: round2(value), income: round2(income), contributions: 0 }];
+        let contributionsToDate = 0;
+        let yearsToTarget = (target > 0 && income >= target) ? 0 : null;
+
+        for (let y = 1; y <= years; y++) {
+            // New capital invested this year, earning income at the base yield.
+            value += contrib;
+            contributionsToDate += contrib;
+            income = income * (1 + dgr) + contrib * baseYield;
+            // Capital appreciation.
+            value *= (1 + pgr);
+            // Reinvest the year's dividends (compounding the snowball).
+            if (drip) {
+                value += income;
+                income += income * baseYield;
+            }
+            points.push({ year: y, value: round2(value), income: round2(income), contributions: round2(contributionsToDate) });
+            if (yearsToTarget === null && target > 0 && income >= target) yearsToTarget = y;
+        }
+
+        return {
+            points,
+            summary: {
+                yearsToTarget,
+                finalIncome: round2(income),
+                finalValue: round2(value),
+                baseYield: round4(baseYield),
+                totalContributed: round2(contributionsToDate),
+            },
+        };
+    }
+
+    return { tagDividendStatus, collectReceivedDividends, buildStockPositions, projectIncome };
 });

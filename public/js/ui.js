@@ -659,6 +659,265 @@ const UI = {
         }
     },
 
+    // Render the income projection chart (annual income vs target) + summary.
+    renderIncomeProjection(result, opts) {
+        const canvas = document.getElementById('fireChart');
+        const empty = document.getElementById('fireEmpty');
+        const summaryEl = document.getElementById('fireSummary');
+        const basisEl = document.getElementById('fireBasis');
+        if (!canvas || typeof Chart === 'undefined') return;
+
+        const cur = (opts && opts.currency) || 'USD';
+        const target = (opts && opts.target) || 0;
+        const points = (result && result.points) || [];
+
+        if (!points.length || (opts && opts.noBasis)) {
+            if (empty) { empty.style.display = 'flex'; empty.querySelector('p').textContent = opts && opts.noBasis ? 'No holdings/income yet to project from.' : 'No projection.'; }
+            if (this.fireChartInstance) { this.fireChartInstance.destroy(); this.fireChartInstance = null; }
+            if (summaryEl) summaryEl.textContent = '—';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        const s = result.summary || {};
+        if (summaryEl) {
+            summaryEl.textContent = s.yearsToTarget != null
+                ? `${this.moneyC(target, cur)}/yr reached in ${s.yearsToTarget} year${s.yearsToTarget === 1 ? '' : 's'}`
+                : `${this.moneyC(s.finalIncome, cur)}/yr after ${points.length - 1} years`;
+        }
+        if (basisEl) {
+            basisEl.innerHTML = `Starting from <strong>${this.moneyC(opts.currentValue, cur)}</strong> generating <strong>${this.moneyC(opts.currentIncome, cur)}/yr</strong> (yield ${this.pct((s.baseYield || 0) * 100)}). Contributed over period: ${this.moneyC(s.totalContributed, cur)}. <em>Projections are estimates, not guarantees.</em>`;
+        }
+
+        const labels = points.map(p => p.year);
+        const incomeData = points.map(p => p.income);
+        const theme = this.getChartTheme();
+        const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#00d09c';
+        const fmt = v => this.moneyC(v, cur);
+
+        const datasets = [{
+            label: 'Annual income', data: incomeData, borderColor: primary, backgroundColor: 'rgba(0,208,156,0.12)',
+            borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0, pointHoverRadius: 4,
+        }];
+        if (target > 0) {
+            datasets.push({
+                label: 'Target', data: points.map(() => target), borderColor: '#f5a623',
+                borderWidth: 1.5, borderDash: [6, 4], fill: false, pointRadius: 0,
+            });
+        }
+
+        if (this.fireChartInstance) this.fireChartInstance.destroy();
+        this.fireChartInstance = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: true, labels: { color: theme.textColor, boxWidth: 12, font: { size: 11 } } },
+                    tooltip: {
+                        backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1, padding: 8, cornerRadius: 6,
+                        callbacks: { title: items => `Year ${items[0].label}`, label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}` },
+                    },
+                },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: theme.gridColor }, ticks: { color: theme.textColor, font: { size: 10 }, callback: v => this._compactNum(v) } },
+                    x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 10 } }, title: { display: true, text: 'Years from now', color: theme.textColor, font: { size: 10 } } },
+                },
+            },
+        });
+    },
+
+    // Palette for diversification slices (cycled).
+    _DIV_PALETTE: ['#00d09c', '#4f8ef7', '#f5a623', '#9c27b0', '#ff7043', '#26a69a', '#ec407a', '#ab47bc', '#66bb6a', '#42a5f5', '#ffa726', '#8d6e63', '#789262', '#5c6bc0'],
+    _DIV_DIMS: [['bySector', 'Sector'], ['byCountry', 'Geography'], ['byAssetType', 'Asset type']],
+
+    renderDiversification(result, dim, cur) {
+        const canvas = document.getElementById('divChart');
+        const legendEl = document.getElementById('divLegend');
+        const pillsEl = document.getElementById('divDimPills');
+        const empty = document.getElementById('divEmpty');
+        if (!canvas || typeof Chart === 'undefined') return;
+
+        const slices = (result && result[dim]) || [];
+        if (!slices.length) {
+            if (empty) { empty.style.display = 'block'; empty.querySelector('p').textContent = 'No holdings to analyze yet.'; }
+            if (this.divChartInstance) { this.divChartInstance.destroy(); this.divChartInstance = null; }
+            if (legendEl) legendEl.innerHTML = '';
+            if (pillsEl) pillsEl.innerHTML = '';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        if (pillsEl) {
+            pillsEl.innerHTML = this._DIV_DIMS.map(([k, label]) =>
+                `<button class="sd-range-pill${k === dim ? ' active' : ''}" onclick="App.setDiversificationDim('${k}')">${label}</button>`
+            ).join('');
+        }
+
+        // Collapse a long tail into "Other" so the chart stays readable.
+        const MAX = 9;
+        let view = slices;
+        if (slices.length > MAX) {
+            const head = slices.slice(0, MAX - 1);
+            const tail = slices.slice(MAX - 1);
+            const otherVal = tail.reduce((s, x) => s + x.value, 0);
+            const otherPct = tail.reduce((s, x) => s + x.pct, 0);
+            view = [...head, { key: 'Other', value: otherVal, pct: Math.round(otherPct * 100) / 100 }];
+        }
+
+        const labels = view.map(s => s.key);
+        const data = view.map(s => s.value);
+        const colors = view.map((_, i) => this._DIV_PALETTE[i % this._DIV_PALETTE.length]);
+        const theme = this.getChartTheme();
+        const fmt = v => this.moneyC(v, cur);
+
+        if (this.divChartInstance) this.divChartInstance.destroy();
+        this.divChartInstance = new Chart(canvas.getContext('2d'), {
+            type: 'doughnut',
+            data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: 'transparent', borderWidth: 0, hoverOffset: 6 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false, cutout: '62%',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1, padding: 8, cornerRadius: 6,
+                        callbacks: { label: c => ` ${c.label}: ${fmt(c.parsed)} (${(c.parsed / (result.totalValue || 1) * 100).toFixed(1)}%)` },
+                    },
+                },
+            },
+        });
+
+        if (legendEl) {
+            legendEl.innerHTML = view.map((s, i) =>
+                `<div class="div-legend-row">
+                    <span class="div-legend-dot" style="background:${this._DIV_PALETTE[i % this._DIV_PALETTE.length]}"></span>
+                    <span class="div-legend-name">${sanitize(s.key)}</span>
+                    <span class="div-legend-pct">${this.pct(s.pct)}</span>
+                    <span class="div-legend-val text-muted">${fmt(s.value)}</span>
+                </div>`
+            ).join('');
+        }
+    },
+
+    // Ranges for the portfolio performance chart.
+    _PERF_RANGES: [
+        { key: '1m', label: '1m', days: 31 },
+        { key: '3m', label: '3m', days: 92 },
+        { key: '6m', label: '6m', days: 183 },
+        { key: 'ytd', label: 'YTD' },
+        { key: '1y', label: '1y', days: 366 },
+        { key: '5y', label: '5y', days: 1827 },
+        { key: 'all', label: 'all' },
+    ],
+
+    _filterPerfPoints(points, rangeKey) {
+        if (!points || !points.length || rangeKey === 'all') return points || [];
+        let cutoff;
+        if (rangeKey === 'ytd') {
+            cutoff = `${new Date().getFullYear()}-01-01`;
+        } else {
+            const def = this._PERF_RANGES.find(r => r.key === rangeKey);
+            const d = new Date(); d.setDate(d.getDate() - (def?.days ?? 1827));
+            cutoff = d.toISOString().slice(0, 10);
+        }
+        const out = points.filter(p => p.date >= cutoff);
+        return out.length >= 2 ? out : points.slice(-2);
+    },
+
+    // Render the portfolio performance (value / invested / benchmark) line chart.
+    renderPortfolioPerformance(result, rangeKey, benchOn, cur) {
+        const canvas = document.getElementById('perfChart');
+        const empty = document.getElementById('perfEmpty');
+        const pillsEl = document.getElementById('perfRangePills');
+        const summaryEl = document.getElementById('perfSummary');
+        if (!canvas || typeof Chart === 'undefined') return;
+
+        const allPoints = (result && result.points) || [];
+        if (allPoints.length < 2) {
+            if (empty) { empty.style.display = 'flex'; empty.querySelector('p').textContent = 'Not enough transaction history to chart performance.'; }
+            if (this.perfChartInstance) { this.perfChartInstance.destroy(); this.perfChartInstance = null; }
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        if (pillsEl) {
+            pillsEl.innerHTML = this._PERF_RANGES.map(r =>
+                `<button class="sd-range-pill${r.key === rangeKey ? ' active' : ''}" onclick="App.setPerfRange('${r.key}')">${r.label}</button>`
+            ).join('');
+        }
+
+        const pts = this._filterPerfPoints(allPoints, rangeKey);
+        const labels = pts.map(p => p.date);
+        const valueData = pts.map(p => p.value);
+        const investedData = pts.map(p => p.invested);
+        const benchData = pts.map(p => p.benchmark);
+
+        // Summary reflects the visible window.
+        const first = pts[0], last = pts[pts.length - 1];
+        const gain = last.value - first.value;
+        const gainCls = gain >= 0 ? 'pos' : 'neg';
+        if (summaryEl) {
+            const invested = last.invested;
+            const ret = last.value - invested;
+            const retPct = invested > 0 ? (ret / invested) * 100 : 0;
+            const rc = ret >= 0 ? 'pos' : 'neg';
+            summaryEl.innerHTML = `<span class="perf-val">${this.moneyC(last.value, cur)}</span>
+                <span class="${rc}">${ret >= 0 ? '+' : '-'}${this.moneyC(Math.abs(ret), cur)} (${this.arrow(ret)} ${this.pct(Math.abs(retPct))})</span>
+                <span class="text-muted">vs ${this.moneyC(invested, cur)} invested</span>`;
+        }
+
+        const theme = this.getChartTheme();
+        const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#00d09c';
+        const fmt = v => this.moneyC(v, cur);
+
+        const datasets = [
+            {
+                label: 'Value', data: valueData, borderColor: primary, backgroundColor: 'rgba(0,208,156,0.12)',
+                borderWidth: 2, fill: true, tension: 0.15, pointRadius: 0, pointHoverRadius: 4, order: 1,
+            },
+            {
+                label: 'Invested', data: investedData, borderColor: theme.textColor, borderWidth: 1.5,
+                borderDash: [5, 4], fill: false, tension: 0, pointRadius: 0, pointHoverRadius: 3, order: 2,
+            },
+        ];
+        if (benchOn) {
+            datasets.push({
+                label: (result.summary && 'Benchmark') || 'Benchmark', data: benchData, borderColor: '#f5a623',
+                borderWidth: 1.5, fill: false, tension: 0.15, pointRadius: 0, pointHoverRadius: 3, order: 3,
+            });
+        }
+
+        // Fewer x-ticks on long ranges.
+        const tickLimit = 7;
+
+        if (this.perfChartInstance) this.perfChartInstance.destroy();
+        this.perfChartInstance = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { display: true, labels: { color: theme.textColor, boxWidth: 12, font: { size: 11 } } },
+                    tooltip: {
+                        backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1,
+                        padding: 8, cornerRadius: 6,
+                        callbacks: {
+                            title: items => items.length ? new Date(items[0].label + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '',
+                            label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)}`,
+                        },
+                    },
+                },
+                scales: {
+                    y: { grid: { color: theme.gridColor }, ticks: { color: theme.textColor, font: { size: 10 }, callback: v => v >= 1000 ? `${this._compactNum(v)}` : `${Math.round(v)}` } },
+                    x: { grid: { display: false }, ticks: { color: theme.textColor, font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: tickLimit,
+                        callback(val) { const d = this.getLabelForValue(val); return new Date(d + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' }); } } },
+                },
+            },
+        });
+    },
+
     // ────────────────────────────────────────────────────────────────────
 
     // ── Holdings board (Snowball-style aggregated table) ─────────────────────
@@ -1618,9 +1877,17 @@ const UI = {
             divPanel = `<div class="card sd-card"><div class="card-title mb-2">Dividends</div><p class="text-muted text-sm">Details unavailable from Snowball Analytics for this symbol.</p></div>`;
         } else if (asset) {
             const row = (label, val) => `<div class="sd-divrow"><span>${label}</span><strong>${val}</strong></div>`;
+            // Yield on cost = annual dividend per share ÷ your average cost per share.
+            // Highlights how the income on your original investment has grown.
+            const totAvgCost = positions?.total?.avgCost || positions?.rows?.[0]?.avgCost || 0;
+            const yoc = (asset.annualPayout != null && totAvgCost > 0) ? (asset.annualPayout / totAvgCost) * 100 : null;
+            const yocRow = yoc != null
+                ? row('Yield on cost', `<span class="pos">${this.pct(yoc)}</span>`)
+                : '';
             divPanel = `<div class="card sd-card">
                 <div class="card-title mb-2">Dividends</div>
                 ${row('Dividend yield', asset.dividendYield != null ? this.pct(asset.dividendYield) : '—')}
+                ${yocRow}
                 ${row('Annual payout', asset.annualPayout != null ? this.moneyC(asset.annualPayout, cur) : '—')}
                 ${row('Frequency', this._freqName(asset.frequency))}
                 ${row('Next ex-div date', this._fmtDate(asset.exDividendDate))}
@@ -1633,10 +1900,15 @@ const UI = {
         }
 
         // ── My positions ──
+        // Per-share annual dividend (from Snowball asset detail) drives the
+        // per-position Yield-on-Cost and projected annual income lines.
+        const annualPerShare = asset && asset.annualPayout != null ? asset.annualPayout : null;
         const posCard = (r, isTotal) => {
             const m = n => this.moneyC(n, r.currency || cur);
             const signed = (n, p) => `<span class="${n >= 0 ? 'pos' : 'neg'}">${n < 0 ? '-' : '+'}${m(n)}${p != null ? ` (${this.arrow(n)} ${this.pct(Math.abs(p))})` : ''}</span>`;
             const line = (label, val) => `<div class="sd-posrow"><span>${label}</span><span class="sd-posval">${val}</span></div>`;
+            const yoc = (annualPerShare != null && r.avgCost > 0) ? (annualPerShare / r.avgCost) * 100 : null;
+            const annualIncome = (annualPerShare != null && r.units) ? annualPerShare * r.units : null;
             return `<div class="card sd-poscard${isTotal ? ' sd-poscard-total' : ''}">
                 <div class="sd-poshead">
                     <span class="sd-posacct">${sanitize(r.accountName || 'Account')}</span>
@@ -1647,6 +1919,8 @@ const UI = {
                 ${line('Profit', signed(r.profit, r.profitPct))}
                 ${line('Capital gain', signed(r.capitalGain, r.capitalGainPct))}
                 ${line('Dividends received', `<span style="color:var(--primary);">+${m(r.dividends)}</span>`)}
+                ${annualIncome != null ? line('Annual income', `<span style="color:var(--primary);">${m(annualIncome)}</span>`) : ''}
+                ${yoc != null ? line('Yield on cost', `<span class="pos">${this.pct(yoc)}</span>`) : ''}
                 ${r.pctInPortfolio != null ? line('% in portfolio', this.pct(r.pctInPortfolio)) : ''}
             </div>`;
         };
@@ -1661,7 +1935,238 @@ const UI = {
             posSection = `<div class="sd-pos-title">My positions</div><div class="empty-state" style="padding:1.5rem;"><p>You don't hold ${sanitize(symbol)} in any active account.</p></div>`;
         }
 
-        host.innerHTML = `${header}<div class="sd-body">${divPanel}</div>${posSection}`;
+        // Price history chart — filled in asynchronously by App.loadPriceHistory().
+        const chartCard = `<div class="card sd-chart-card" id="sd-pricehistory">
+            <div class="sd-chart-head"><div class="card-title">Price history</div></div>
+            <div class="sd-chart-body"><p class="text-muted text-sm" style="padding:1rem 0;">
+                <span class="loader" style="display:inline-block;width:14px;height:14px;border-top-color:var(--primary);vertical-align:-2px;"></span> Loading price history…
+            </p></div>
+        </div>`;
+
+        host.innerHTML = `${header}${chartCard}<div class="sd-body">${divPanel}</div>${posSection}`;
+    },
+
+    // Ranges offered by the chart's pill selector. 'all' uses every stored candle.
+    _PRICE_RANGES: [
+        { key: '7d',  label: '7d',  days: 7 },
+        { key: '1m',  label: '1m',  days: 31 },
+        { key: '3m',  label: '3m',  days: 92 },
+        { key: '6m',  label: '6m',  days: 183 },
+        { key: 'ytd', label: 'YTD' },
+        { key: '1y',  label: '1y',  days: 366 },
+        { key: '5y',  label: '5y',  days: 1827 },
+        { key: 'all', label: 'all' },
+    ],
+
+    // Filter the full candle set down to the selected range (client-side, so
+    // switching ranges is instant after the initial fetch).
+    _filterCandlesByRange(candles, rangeKey) {
+        if (!candles || !candles.length) return [];
+        if (rangeKey === 'all') return candles;
+        let cutoff;
+        if (rangeKey === 'ytd') {
+            cutoff = `${new Date().getFullYear()}-01-01`;
+        } else {
+            const def = this._PRICE_RANGES.find(r => r.key === rangeKey);
+            const days = def?.days ?? 1827;
+            const d = new Date();
+            d.setDate(d.getDate() - days);
+            cutoff = d.toISOString().slice(0, 10);
+        }
+        const out = candles.filter(c => c.date >= cutoff);
+        // Guarantee at least two points so the chart can draw a line.
+        return out.length >= 2 ? out : candles.slice(-2);
+    },
+
+    // Render the price-history card for the given symbol. `candles` is the full
+    // stored series; `rangeKey` selects the visible window.
+    renderPriceHistory(symbol, candles, rangeKey, cur, state = 'ready') {
+        const card = document.getElementById('sd-pricehistory');
+        if (!card) return;
+
+        if (state === 'error' || !candles || candles.length < 2) {
+            card.innerHTML = `<div class="sd-chart-head"><div class="card-title">Price history</div></div>
+                <div class="sd-chart-body"><p class="text-muted text-sm" style="padding:1rem 0;">No price history available for ${sanitize(symbol)}.</p></div>`;
+            return;
+        }
+
+        const pills = this._PRICE_RANGES.map(r =>
+            `<button class="sd-range-pill${r.key === rangeKey ? ' active' : ''}" onclick="App.setPriceHistoryRange('${r.key}')">${r.label}</button>`
+        ).join('');
+
+        const view = this._filterCandlesByRange(candles, rangeKey);
+        const first = view[0], last = view[view.length - 1];
+        const change = (last.close ?? 0) - (first.close ?? 0);
+        const changePct = first.close ? (change / first.close) * 100 : 0;
+        const cls = change >= 0 ? 'pos' : 'neg';
+        const fmtD = s => new Date(s + 'T00:00:00Z').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' });
+
+        const summary = `<div class="sd-chart-summary">
+            <span class="sd-chart-range-lbl">${fmtD(first.date)} – ${fmtD(last.date)}</span>
+            <span class="sd-chart-change ${cls}">${change >= 0 ? '+' : '-'}${this.moneyC(Math.abs(change), cur)}
+                <span class="sd-chart-chgpct">(${this.arrow(change)} ${this.pct(Math.abs(changePct))})</span>
+            </span>
+        </div>`;
+
+        card.innerHTML = `<div class="sd-chart-head">
+                <div class="card-title">Price history</div>
+                ${summary}
+            </div>
+            <div class="sd-chart-pills">${pills}</div>
+            <div class="sd-chart-body">${this._buildPriceChartSVG(view, cur)}</div>`;
+    },
+
+    // Build the SVG area/line chart (line + gradient fill, Y gridlines, X labels,
+    // min/max annotations, and a hover crosshair driven by inline JS).
+    _buildPriceChartSVG(candles, cur) {
+        const W = 1000, H = 380;
+        const padL = 8, padR = 70, padT = 28, padB = 30;
+        const plotW = W - padL - padR, plotH = H - padT - padB;
+
+        const xs = candles.map(c => Date.parse(c.date + 'T00:00:00Z'));
+        const ys = candles.map(c => c.close ?? 0);
+        const xMin = xs[0], xMax = xs[xs.length - 1] || xs[0] + 1;
+        let yMin = Math.min(...ys), yMax = Math.max(...ys);
+        if (yMin === yMax) { yMin -= 1; yMax += 1; }
+        const yPad = (yMax - yMin) * 0.08;
+        yMin -= yPad; yMax += yPad;
+
+        const sx = t => padL + ((t - xMin) / (xMax - xMin || 1)) * plotW;
+        const sy = v => padT + (1 - (v - yMin) / (yMax - yMin || 1)) * plotH;
+
+        const pts = candles.map((c, i) => [sx(xs[i]), sy(ys[i])]);
+        const linePath = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+        const areaPath = `${linePath} L${pts[pts.length - 1][0].toFixed(1)} ${(padT + plotH).toFixed(1)} L${pts[0][0].toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+
+        // Y gridlines at ~4 "nice" steps.
+        const yGrid = this._niceTicks(yMin, yMax, 4);
+        const gridLines = yGrid.map(v => {
+            const y = sy(v).toFixed(1);
+            return `<line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" class="sd-chart-grid"/>
+                    <text x="${(padL + plotW + 8).toFixed(1)}" y="${y}" class="sd-chart-axis" dominant-baseline="middle">${this._compactNum(v)}</text>`;
+        }).join('');
+
+        // X labels — pick ~6 evenly spaced candles; format by span.
+        const spanDays = (xMax - xMin) / 86400000;
+        const xFmt = spanDays > 400
+            ? d => new Date(d).toLocaleDateString(undefined, { year: 'numeric', timeZone: 'UTC' })
+            : spanDays > 60
+                ? d => new Date(d).toLocaleDateString(undefined, { month: 'short', year: '2-digit', timeZone: 'UTC' })
+                : d => new Date(d).toLocaleDateString(undefined, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+        const nLab = Math.min(6, candles.length);
+        const xLabels = Array.from({ length: nLab }, (_, i) => {
+            const idx = Math.round((i / (nLab - 1 || 1)) * (candles.length - 1));
+            const x = sx(xs[idx]);
+            const anchor = i === 0 ? 'start' : i === nLab - 1 ? 'end' : 'middle';
+            return `<text x="${x.toFixed(1)}" y="${H - 8}" class="sd-chart-axis" text-anchor="${anchor}">${xFmt(xs[idx])}</text>`;
+        }).join('');
+
+        // Min / max annotations.
+        const maxI = ys.indexOf(Math.max(...ys)), minI = ys.indexOf(Math.min(...ys));
+        const annot = (i, label, above) => {
+            const x = sx(xs[i]), y = sy(ys[i]);
+            const tx = Math.max(padL, Math.min(x, padL + plotW - 60));
+            return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${y.toFixed(1)}" class="sd-chart-minmax"/>
+                    <text x="${(tx).toFixed(1)}" y="${(y + (above ? -6 : 14)).toFixed(1)}" class="sd-chart-minmax-lbl">${label}: ${this.moneyC(ys[i], cur)}</text>`;
+        };
+
+        const gradId = 'sdGrad';
+        const cid = 'c' + Math.random().toString(36).slice(2, 8);
+        // Serialize point data for the hover handler.
+        const dataAttr = candles.map((c, i) => `${xs[i]}:${ys[i]}`).join(',');
+
+        return `<svg class="sd-chart-svg" id="${cid}" viewBox="0 0 ${W} ${H}"
+                    data-pts="${dataAttr}" data-cur="${sanitize(cur)}"
+                    data-geo="${padL},${padT},${plotW},${plotH},${xMin},${xMax},${yMin},${yMax}"
+                    onmousemove="UI._priceHover(event,'${cid}')" onmouseleave="UI._priceHoverOut('${cid}')">
+            <defs>
+                <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="var(--primary)" stop-opacity="0.28"/>
+                    <stop offset="100%" stop-color="var(--primary)" stop-opacity="0"/>
+                </linearGradient>
+            </defs>
+            ${gridLines}
+            ${annot(maxI, 'max', true)}
+            ${annot(minI, 'min', false)}
+            <path d="${areaPath}" fill="url(#${gradId})" stroke="none"/>
+            <path d="${linePath}" fill="none" stroke="var(--primary)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+            ${xLabels}
+            <g class="sd-chart-cross" style="display:none;">
+                <line class="sd-chart-crossline" y1="${padT}" y2="${padT + plotH}"/>
+                <circle class="sd-chart-crossdot" r="4"/>
+            </g>
+            <g class="sd-chart-tip" style="display:none;">
+                <rect rx="4" width="150" height="40"/>
+                <text class="sd-chart-tip-d" x="8" y="16"></text>
+                <text class="sd-chart-tip-p" x="8" y="32"></text>
+            </g>
+        </svg>`;
+    },
+
+    // Crosshair + tooltip handler (shared by all price charts via element id).
+    _priceHover(evt, id) {
+        const svg = document.getElementById(id);
+        if (!svg) return;
+        const pts = (svg.dataset.pts || '').split(',').map(s => { const [t, v] = s.split(':'); return [+t, +v]; });
+        if (!pts.length) return;
+        const [padL, padT, plotW, plotH, xMin, xMax, yMin, yMax] = svg.dataset.geo.split(',').map(Number);
+        const cur = svg.dataset.cur || 'USD';
+
+        // Map mouse → SVG user units (viewBox is 1000×380).
+        const rect = svg.getBoundingClientRect();
+        const vbW = 1000, vbH = 380;
+        const ux = ((evt.clientX - rect.left) / rect.width) * vbW;
+
+        const t = xMin + ((ux - padL) / (plotW || 1)) * (xMax - xMin);
+        // Nearest candle by time.
+        let best = 0, bestd = Infinity;
+        for (let i = 0; i < pts.length; i++) { const d = Math.abs(pts[i][0] - t); if (d < bestd) { bestd = d; best = i; } }
+        const [pt, pv] = pts[best];
+        const cx = padL + ((pt - xMin) / (xMax - xMin || 1)) * plotW;
+        const cy = padT + (1 - (pv - yMin) / (yMax - yMin || 1)) * plotH;
+
+        const cross = svg.querySelector('.sd-chart-cross');
+        const tip = svg.querySelector('.sd-chart-tip');
+        cross.style.display = '';
+        cross.querySelector('.sd-chart-crossline').setAttribute('x1', cx);
+        cross.querySelector('.sd-chart-crossline').setAttribute('x2', cx);
+        cross.querySelector('.sd-chart-crossdot').setAttribute('cx', cx);
+        cross.querySelector('.sd-chart-crossdot').setAttribute('cy', cy);
+
+        const dateStr = new Date(pt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+        tip.style.display = '';
+        tip.querySelector('.sd-chart-tip-d').textContent = dateStr;
+        tip.querySelector('.sd-chart-tip-p').textContent = this.moneyC(pv, cur);
+        const tipW = 150;
+        const tx = Math.max(padL, Math.min(cx + 10, padL + plotW - tipW));
+        tip.setAttribute('transform', `translate(${tx},${Math.max(padT, cy - 48)})`);
+    },
+
+    _priceHoverOut(id) {
+        const svg = document.getElementById(id);
+        if (!svg) return;
+        const c = svg.querySelector('.sd-chart-cross'); if (c) c.style.display = 'none';
+        const t = svg.querySelector('.sd-chart-tip'); if (t) t.style.display = 'none';
+    },
+
+    // "Nice" round tick values between lo and hi (~count steps).
+    _niceTicks(lo, hi, count) {
+        const span = hi - lo;
+        if (span <= 0) return [lo];
+        const raw = span / count;
+        const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+        const norm = raw / mag;
+        const step = (norm >= 5 ? 5 : norm >= 2 ? 2 : 1) * mag;
+        const start = Math.ceil(lo / step) * step;
+        const out = [];
+        for (let v = start; v <= hi; v += step) out.push(Math.round(v * 1e6) / 1e6);
+        return out;
+    },
+
+    _compactNum(v) {
+        const a = Math.abs(v);
+        if (a >= 1000) return (v / 1000).toFixed(a >= 10000 ? 0 : 1) + 'k';
+        return a >= 100 ? v.toFixed(0) : v.toFixed(a >= 1 ? 1 : 2);
     },
 
     renderDividends(cachedDividendsData, selectedAccountId = 'all') {

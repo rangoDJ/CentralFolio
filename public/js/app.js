@@ -757,7 +757,7 @@ const App = {
                 this.cachedStockRatings = new Map((ratings || []).map(r => [r.symbol, r]));
                 UI.stockRatings = this.cachedStockRatings;
                 UI.renderHoldingsRows();
-            }).catch(() => {});
+            }).catch((err) => console.warn('loadHoldings: stock ratings fetch failed', err));
 
             UI.stockRatings = this.cachedStockRatings || new Map();
             UI.renderAllHoldings(this.getFilteredHoldingsData());
@@ -822,14 +822,22 @@ const App = {
     // data is written. We react by silently refreshing the affected in-memory
     // caches and re-rendering the active page (and anything derived from it).
 
-    connectLiveSync() {
-        const token = localStorage.getItem('cf_token');
-        if (!token) return;
+    async connectLiveSync() {
+        if (!localStorage.getItem('cf_token')) return;
         if (this._sse) { try { this._sse.close(); } catch (_) {} this._sse = null; }
 
         this._livePending = this._livePending || new Set();
 
-        const es = new EventSource(`/api/events?token=${encodeURIComponent(token)}`);
+        let ticket;
+        try {
+            const res = await API._fetch('/api/events/ticket');
+            const data = await res.json();
+            ticket = data.ticket;
+        } catch (err) {
+            console.warn('liveSync: failed to get SSE ticket, live updates disabled', err);
+            return;
+        }
+        const es = new EventSource(`/api/events?ticket=${encodeURIComponent(ticket)}`);
         this._sse = es;
 
         es.addEventListener('data-changed', (e) => {
@@ -848,12 +856,14 @@ const App = {
 
         es.onopen = () => { this._sseErrors = 0; };
         es.onerror = () => {
-            // EventSource auto-reconnects on transient failures. Guard against a
-            // permanently-failing (e.g. revoked) token by giving up after a streak.
+            // Ticket is one-time-use, so auto-reconnect won't work. Close this
+            // stream and re-issue a new ticket after a brief backoff.
             this._sseErrors = (this._sseErrors || 0) + 1;
-            if (this._sseErrors > 12) {
-                try { es.close(); } catch (_) {}
-                this._sse = null;
+            try { es.close(); } catch (_) {}
+            if (this._sse === es) this._sse = null;
+            if (this._sseErrors <= 12) {
+                const delay = Math.min(1000 * this._sseErrors, 30_000);
+                setTimeout(() => this.connectLiveSync(), delay);
             }
         };
     },
@@ -869,7 +879,7 @@ const App = {
         this._liveTimer = setTimeout(() => {
             const domains = this._livePending;
             this._livePending = new Set();
-            this.applyLiveUpdate(domains).catch(() => {});
+            this.applyLiveUpdate(domains).catch((err) => console.warn('liveSync: applyLiveUpdate failed', err));
         }, 400);
     },
 
@@ -969,8 +979,8 @@ const App = {
     onJobStatusEvent(job) {
         // Keep the Scheduler → Background Jobs panel live while it's on screen.
         if (localStorage.getItem('activeMainTab') === 'settings' && localStorage.getItem('activeSettingsTab') === 'scheduler') {
-            API.getJobs().then(jobs => UI.renderJobsPanel(jobs)).catch(() => {});
-            API.getJobHistory().then(history => UI.renderJobHistoryPanel(history)).catch(() => {});
+            API.getJobs().then(jobs => UI.renderJobsPanel(jobs)).catch((err) => console.warn('onJobStatus: jobs fetch failed', err));
+            API.getJobHistory().then(history => UI.renderJobHistoryPanel(history)).catch((err) => console.warn('onJobStatus: job history fetch failed', err));
         }
         // The dividend-fetch finishing also flips the "Fetching…" loader to real
         // data; the `dividends` data-changed event drives the actual re-render.
@@ -1451,7 +1461,8 @@ const App = {
     async loadDiversification() {
         this._divDim = this._divDim || localStorage.getItem('cf_div_dim') || 'bySector';
         try {
-            const result = await API.getDiversification();
+            const accountIds = this._getSelectedAccountIds();
+            const result = await API.getDiversification(accountIds);
             this._divResult = result;
             this._divCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
             UI.renderDiversification(result, this._divDim, this._divCurrency);
@@ -1487,7 +1498,8 @@ const App = {
         }
 
         try {
-            const result = await API.getPortfolioHistory(benchSym);
+            const accountIds = this._getSelectedAccountIds();
+            const result = await API.getPortfolioHistory(benchSym, accountIds);
             this._perfResult = result;
             this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
             UI.renderPortfolioPerformance(result, this._perfRange, benchOn, this._perfCurrency);
@@ -2028,6 +2040,9 @@ const App = {
             this.activeHoldingsTabId = null;
             this.activeTransactionsTabId = null;
 
+            // Performance history is keyed to a specific set of accounts — must refetch.
+            this._perfResult = null;
+
             this.refreshActiveTab();
         };
     },
@@ -2078,6 +2093,14 @@ const App = {
     getSelectedUserPortfolio() {
         if (this.selectedUserPortfolioId === 'all') return null;
         return (this.userPortfolios || []).find(p => p.id === this.selectedUserPortfolioId) || null;
+    },
+
+    // Returns an array of account IDs for the selected user portfolio, or null for "all".
+    _getSelectedAccountIds() {
+        if (this.selectedUserPortfolioId === 'all') return null;
+        const portfolio = (this.userPortfolios || []).find(p => p.id === this.selectedUserPortfolioId);
+        if (!portfolio || !portfolio.accountIds || portfolio.accountIds.length === 0) return null;
+        return portfolio.accountIds;
     },
 
     getFilterAccountIds() {

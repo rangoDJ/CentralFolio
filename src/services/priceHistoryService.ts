@@ -24,18 +24,38 @@ let lastFetchAt = 0;
 
 // ── Symbol normalization ───────────────────────────────────────────────────────
 
+// SnapTrade exchange suffixes that Yahoo Finance spells differently.
+const EXCHANGE_REMAP: Record<string, string> = {
+  VN: "V", // TSX Venture Exchange: SnapTrade uses .VN, Yahoo uses .V
+};
+
 /**
  * SnapTrade symbols don't always match Yahoo tickers. Yahoo expects:
  *   - Canadian listings suffixed (e.g. "SHOP.TO"), class shares dotted ("BRK.B"),
  *   - dashes for some class shares rather than dots in raw broker form.
- * We keep this conservative: pass through clean tickers, map a few known shapes,
- * and store the resolved ticker so failures are visible rather than silent.
+ *   - Unit trusts / preferred shares with a class code use a dash before the class
+ *     (e.g. EIT.UN.TO → EIT-UN.TO, VITL.UN.TO → VITL-UN.TO).
  */
 export function toYahooSymbol(symbol: string): string {
   const s = symbol.toUpperCase().trim();
+
+  // TICKER.CLASS.EXCHANGE (e.g. EIT.UN.TO → EIT-UN.TO).
+  // Canadian unit trusts / preferred shares carry a class code (UN, PR, DB …)
+  // that Yahoo Finance joins to the ticker with a dash, not a dot.
+  const multiDot = s.match(/^([A-Z0-9]+)\.([A-Z]{1,4})\.([A-Z]{1,3})$/);
+  if (multiDot) {
+    const exchange = EXCHANGE_REMAP[multiDot[3]] ?? multiDot[3];
+    return `${multiDot[1]}-${multiDot[2]}.${exchange}`;
+  }
+
+  // Remap exchange suffix when SnapTrade and Yahoo disagree (e.g. .VN → .V).
+  const exchangeOnly = s.match(/^(.+)\.([A-Z]{2,3})$/);
+  if (exchangeOnly && EXCHANGE_REMAP[exchangeOnly[2]]) {
+    return `${exchangeOnly[1]}.${EXCHANGE_REMAP[exchangeOnly[2]]}`;
+  }
+
   // Already exchange-qualified (e.g. "SHOP.TO", "BMW.DE") — leave as-is.
   if (/\.[A-Z]{1,3}$/.test(s) && !/\.[A-Z]$/.test(s)) return s;
-  // Class shares written with a dash (broker style) → Yahoo uses a dash too (BRK-B).
   // Class shares written with a dot (BRK.B) → Yahoo prefers a dash.
   if (/^[A-Z]+\.[A-Z]$/.test(s)) return s.replace(".", "-");
   return s;

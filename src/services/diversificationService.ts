@@ -15,15 +15,16 @@ export interface DiversificationResult {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { ts: number; data: DiversificationResult } | null = null;
+const cache = new Map<string, { ts: number; data: DiversificationResult }>();
 
-/** Current market value held per symbol across all active accounts. */
-function holdingsValueBySymbol(): Map<string, number> {
+/** Current market value held per symbol, optionally limited to allowedIds. */
+function holdingsValueBySymbol(allowedIds: Set<string> | null): Map<string, number> {
   const activeIds = getActiveAccountIds();
   const out = new Map<string, number>();
   for (const portfolio of listPortfolios()) {
     for (const acct of getCachedAccounts(portfolio.id!)) {
       if (!activeIds.has(acct.id)) continue;
+      if (allowedIds && !allowedIds.has(acct.id)) continue;
       for (const pos of getCachedPositions(acct.id)) {
         const sym = norm(pos.symbol);
         if (!sym) continue;
@@ -42,10 +43,12 @@ function toSlices(buckets: Map<string, number>, total: number): Slice[] {
     .sort((a, b) => b.value - a.value);
 }
 
-export async function getDiversification(): Promise<DiversificationResult> {
-  if (cache && Date.now() - cache.ts < CACHE_TTL_MS) return cache.data;
+export async function getDiversification(allowedIds: Set<string> | null = null): Promise<DiversificationResult> {
+  const key = allowedIds ? Array.from(allowedIds).sort().join(',') : '';
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.data;
 
-  const valueBySymbol = holdingsValueBySymbol();
+  const valueBySymbol = holdingsValueBySymbol(allowedIds);
   const symbols = Array.from(valueBySymbol.keys());
   logger.info("Diversification", `Aggregating ${symbols.length} holding(s)`);
 
@@ -80,12 +83,12 @@ export async function getDiversification(): Promise<DiversificationResult> {
     byAssetType: toSlices(assetType, total),
     unclassified: round2(unclassified),
   };
-  cache = { ts: Date.now(), data };
+  cache.set(key, { ts: Date.now(), data });
   return data;
 }
 
 export function clearDiversificationCache(): void {
-  cache = null;
+  cache.clear();
 }
 
 function round2(n: number): number {

@@ -3,7 +3,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import apiRoutes from "./routes/apiRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
-import { requireAuth } from "./middleware/auth.js";
+import { requireAuth, issueSSETicket, consumeSSETicket } from "./middleware/auth.js";
+import { streamEvents } from "./controllers/eventsController.js";
 import { logger, requestLogger } from "./utils/logger.js";
 import { getAllDividendsForAllPortfolios } from "./services/dividendService.js";
 import { refreshAllHoldings } from "./services/holdingsService.js";
@@ -34,6 +35,12 @@ app.use(express.static(path.resolve(__dirname, "../public")));
 
 // --- Auth routes (public) ---
 app.use("/auth", authRoutes);
+
+// --- SSE event routes (own auth layer, mounted before global requireAuth) ---
+// /api/events/ticket  authenticated via Bearer, issues a 30-second one-time ticket.
+// /api/events         authenticated via ticket (EventSource cannot send headers).
+app.get("/api/events/ticket", requireAuth, issueSSETicket);
+app.get("/api/events", consumeSSETicket, streamEvents);
 
 // --- Protected API routes ---
 app.use("/api", requireAuth, apiRoutes);

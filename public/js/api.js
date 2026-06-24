@@ -190,15 +190,19 @@ const API = {
         return data;
     },
 
-    async getPortfolioHistory(benchmark = 'SPY') {
-        const res = await this._fetch(`/api/analytics/portfolio-history?benchmark=${encodeURIComponent(benchmark)}`);
+    async getPortfolioHistory(benchmark = 'SPY', accountIds = null) {
+        let url = `/api/analytics/portfolio-history?benchmark=${encodeURIComponent(benchmark)}`;
+        if (accountIds && accountIds.length > 0) url += `&accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to load portfolio history');
         return data;
     },
 
-    async getDiversification() {
-        const res = await this._fetch('/api/analytics/diversification');
+    async getDiversification(accountIds = null) {
+        let url = '/api/analytics/diversification';
+        if (accountIds && accountIds.length > 0) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to load diversification');
         return data;

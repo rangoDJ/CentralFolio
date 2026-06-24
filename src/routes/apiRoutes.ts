@@ -5,13 +5,9 @@ import adminRoutes from "./adminRoutes.js";
 import jobRoutes from "./jobRoutes.js";
 import analyticsRoutes from "./analyticsRoutes.js";
 import userPortfolioRoutes from "./userPortfolioRoutes.js";
-import { streamEvents } from "../controllers/eventsController.js";
 import { stockDetailHandler, priceHistoryHandler } from "../controllers/stockController.js";
 
 const router = Router();
-
-// Live updates (Server-Sent Events). Mounted before the catch-all 404.
-router.get("/events", streamEvents);
 
 // Stock detail page data (Snowball-derived asset info).
 router.get("/stock/:symbol", stockDetailHandler);

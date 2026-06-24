@@ -4,5 +4,3 @@ dist/
 user-credentials.json
 *.log
 .DS_Store
-*.db*
-.snaptrade*

@@ -71,7 +71,7 @@ const server = app.listen(port, () => {
       const totalEvents = results.reduce((s, r) => s + (r.dividends?.length ?? 0), 0);
       return `Processed ${results.length} account(s), projected ${totalEvents} dividend event(s)`;
     },
-    true
+    false
   );
 
   registerJob(
@@ -87,7 +87,12 @@ const server = app.listen(port, () => {
       const forceRefresh = (trigger === 'scheduled' || trigger === 'manual');
       logger.info('Scheduler', `Running holdings refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh})`);
       const stats = await refreshAllHoldings(hours * hourMs, forceRefresh);
-      return `Processed ${stats.processed} account(s), skipped ${stats.skipped}, errors: ${stats.errors}`;
+      const holdingParts = [`Processed ${stats.processed} account(s)`];
+      if (stats.skippedInactive > 0) holdingParts.push(`${stats.skippedInactive} inactive skipped`);
+      if (stats.skipped > 0) holdingParts.push(`${stats.skipped} cache-fresh skipped`);
+      holdingParts.push(`${stats.newHoldings} new holding(s)`);
+      holdingParts.push(`errors: ${stats.errors}`);
+      return holdingParts.join(', ');
     },
     false
   );
@@ -107,7 +112,11 @@ const server = app.listen(port, () => {
       const fullHistory = (trigger === 'manual');
       logger.info('Scheduler', `Running transactions refresh (trigger: ${trigger}, forceRefresh: ${forceRefresh}, fullHistory: ${fullHistory})`);
       const stats = await refreshAllTransactions(forceRefresh, hours * hourMs, fullHistory);
-      return `Processed ${stats.processedCount} account(s), errors: ${stats.errorCount}`;
+      const txnParts = [`Processed ${stats.processedCount} account(s)`];
+      if (stats.skippedInactive > 0) txnParts.push(`${stats.skippedInactive} inactive skipped`);
+      txnParts.push(`${stats.newTransactions} new transaction(s)`);
+      txnParts.push(`errors: ${stats.errorCount}`);
+      return txnParts.join(', ');
     },
     false
   );

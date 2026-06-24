@@ -102,9 +102,11 @@ export async function fetchTransactionsForAccount(accountId: string, portfolioId
   }
 }
 
-export async function refreshAllTransactions(forceRefresh: boolean = false, intervalMs: number = 24 * 60 * 60 * 1000, fullHistory: boolean = false): Promise<{ processedCount: number; errorCount: number }> {
+export async function refreshAllTransactions(forceRefresh: boolean = false, intervalMs: number = 24 * 60 * 60 * 1000, fullHistory: boolean = false): Promise<{ processedCount: number; errorCount: number; skippedInactive: number; newTransactions: number }> {
   let processedCount = 0;
   let errorCount = 0;
+  let skippedInactive = 0;
+  let newTransactions = 0;
   try {
     logger.info('Transactions', `Starting transaction refresh cycle${fullHistory ? ' (full history)' : ''}...`);
 
@@ -147,6 +149,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
           // Only process active accounts
           if (!activeAccountIds.has(account.id)) {
             logger.debug('Transactions', `Skipping inactive account ${account.id}`);
+            skippedInactive++;
             return;
           }
 
@@ -180,6 +183,8 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
               }
             }
 
+            const prevCount = getCachedTransactions(account.id).length;
+
             const transactions = await fetchTransactionsForAccount(
               account.id,
               portfolio.id!,
@@ -189,6 +194,8 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
             );
 
             saveCachedTransactions(account.id, transactions);
+            const afterCount = getCachedTransactions(account.id).length;
+            newTransactions += Math.max(0, afterCount - prevCount);
             processedCount++;
           } catch (err: any) {
             logger.warn('Transactions', `Error processing account ${account.id}: ${err.message}`);
@@ -203,10 +210,10 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
       }
     }
 
-    logger.info('Transactions', `Transaction refresh complete — processed ${processedCount} account(s), ${errorCount} error(s)`);
+    logger.info('Transactions', `Transaction refresh complete — processed ${processedCount} account(s), ${skippedInactive} inactive skipped, ${newTransactions} new transaction(s), ${errorCount} error(s)`);
   } catch (err: any) {
     logger.error('Transactions', `refreshAllTransactions fatal error: ${err.message}`);
     errorCount++;
   }
-  return { processedCount, errorCount };
+  return { processedCount, errorCount, skippedInactive, newTransactions };
 }

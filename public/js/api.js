@@ -204,6 +204,12 @@ const API = {
         return data;
     },
 
+    async getStockRatings() {
+        const res = await this._fetch('/api/analytics/stock-ratings');
+        if (!res.ok) return [];
+        return await this._json(res);
+    },
+
     async getJobs() {
         const res = await this._fetch('/api/jobs');
         const data = await this._json(res);

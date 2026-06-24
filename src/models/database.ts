@@ -198,6 +198,18 @@ const migrations: Array<{ name: string; sql: string }> = [
       cachedAt  DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ` },
+  { name: 'stock_ratings.create', sql: `
+    CREATE TABLE IF NOT EXISTS stock_ratings (
+      symbol      TEXT PRIMARY KEY,
+      score       INTEGER,   -- 1 (Strong Buy) … 5 (Risky)
+      label       TEXT,      -- Strong Buy / Buy / Hold / Caution / Risky
+      sentiment   TEXT,      -- positive / neutral / negative
+      summary     TEXT,
+      keyRisks    TEXT,      -- JSON array of strings
+      confidence  TEXT,      -- high / medium / low
+      analyzedAt  DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

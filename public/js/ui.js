@@ -1057,20 +1057,47 @@ const UI = {
             cols.push({ key: 'annualDiv', label: 'Annual income', cls: 'right' },
                       { key: 'yieldCur',  label: 'Yield',         cls: 'right' },
                       { key: 'yieldCost', label: 'Yield on cost', cls: 'right' },
-                      { key: 'value',     label: 'Current value', cls: 'right' });
+                      { key: 'value',     label: 'Current value', cls: 'right' },
+                      { key: 'aiRating',  label: 'AI rating',     cls: 'right' });
         } else if (view === 'returns') {
             cols.push({ key: 'cost',      label: 'Cost basis',    cls: 'right' },
                       { key: 'value',     label: 'Current value', cls: 'right' },
                       { key: 'profit',    label: 'Total profit',  cls: 'right' },
-                      { key: 'profitPct', label: 'Return %',      cls: 'right' });
+                      { key: 'profitPct', label: 'Return %',      cls: 'right' },
+                      { key: 'aiRating',  label: 'AI rating',     cls: 'right' });
         } else {
             cols.push({ key: 'cost',      label: 'Cost basis',    cls: 'right' },
                       { key: 'value',     label: 'Current value', cls: 'right' },
                       { key: 'annualDiv', label: 'Dividends',     cls: 'right' },
                       { key: 'yieldCur',  label: 'Div yield',     cls: 'right' },
-                      { key: 'profit',    label: 'Total profit',  cls: 'right' });
+                      { key: 'profit',    label: 'Total profit',  cls: 'right' },
+                      { key: 'aiRating',  label: 'AI rating',     cls: 'right' });
         }
         return cols;
+    },
+
+    _ratingColors: {
+        1: { bg: '#1a7a4a', text: '#6effa8', label: 'Strong Buy' },
+        2: { bg: '#1a5c7a', text: '#6ecfff', label: 'Buy'        },
+        3: { bg: '#4a4a1a', text: '#ffe86e', label: 'Hold'       },
+        4: { bg: '#6b3a1a', text: '#ffb36e', label: 'Caution'    },
+        5: { bg: '#6b1a1a', text: '#ff8080', label: 'Risky'      },
+    },
+
+    renderRatingBadge(symbol) {
+        const ratings = this.stockRatings;
+        if (!ratings || !ratings.size) return `<td class="right"><span class="ai-rating-na">—</span></td>`;
+        const r = ratings.get(symbol);
+        if (!r) return `<td class="right"><span class="ai-rating-na" title="Not yet analysed">—</span></td>`;
+        const c = this._ratingColors[r.score] || this._ratingColors[5];
+        const risks = (r.keyRisks || []).join(' · ');
+        const tooltip = `${r.summary}${risks ? '\n\nRisks: ' + risks : ''}\n\nConfidence: ${r.confidence}`;
+        return `<td class="right">
+            <span class="ai-rating-badge" style="background:${c.bg};color:${c.text};" title="${sanitize(tooltip)}">
+                <span class="ai-rating-score">${r.score}</span>
+                <span class="ai-rating-label">${sanitize(r.label)}</span>
+            </span>
+        </td>`;
     },
 
     renderHoldingsRows() {
@@ -1128,7 +1155,7 @@ const UI = {
             profit:    `<td class="right ${r.profit >= 0 ? 'pos' : 'neg'}">${r.profit < 0 ? '-' : '+'}${m(r.profit)}<div class="hb-sub ${r.profit >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profit)} ${this.pct(Math.abs(r.profitPct))}</div></td>`,
             profitPct: `<td class="right ${r.profitPct >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profitPct)} ${this.pct(Math.abs(r.profitPct))}</td>`,
         };
-        const cells = cols.slice(1).map(c => cell[c.key] || '<td class="right">—</td>').join('');
+        const cells = cols.slice(1).map(c => c.key === 'aiRating' ? this.renderRatingBadge(r.symbol) : (cell[c.key] || '<td class="right">—</td>')).join('');
         return `<tr>
             <td>
                 <div class="hb-holding stock-link" data-stock="${sanitize(r.symbol)}" title="View ${sanitize(r.symbol)} detail">

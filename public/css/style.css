@@ -1727,6 +1727,34 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 
 .hb-table .pos, .hb-summary .pos { color: var(--success); }
 .hb-table .neg, .hb-summary .neg { color: var(--danger); }
+
+/* AI rating badge */
+.ai-rating-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem 0.2rem 0.35rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: help;
+}
+.ai-rating-score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.15);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.ai-rating-na {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
 .hb-sub.pos { color: rgba(0,208,156,0.75); }
 .hb-sub.neg { color: rgba(245,82,82,0.75); }
 

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { getPortfolioHistory } from "../services/portfolioHistoryService.js";
 import { getDiversification } from "../services/diversificationService.js";
+import { getAllRatings } from "../repositories/stockRatingRepository.js";
 import { logger } from "../utils/logger.js";
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
@@ -19,6 +20,18 @@ export const portfolioHistoryHandler = async (req: Request, res: Response) => {
     res.json(result);
   } catch (err: any) {
     logger.error("Analytics", `portfolioHistory failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/stock-ratings
+// Returns cached AI ratings for all held symbols.
+export const stockRatingsHandler = (_req: Request, res: Response) => {
+  try {
+    const ratings = getAllRatings();
+    res.json(ratings);
+  } catch (err: any) {
+    logger.error("Analytics", `stockRatings failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };

@@ -9,6 +9,7 @@ import { getAllDividendsForAllPortfolios } from "./services/dividendService.js";
 import { refreshAllHoldings } from "./services/holdingsService.js";
 import { refreshAllTransactions } from "./services/transactionService.js";
 import { syncAllHeldSymbols } from "./services/priceHistoryService.js";
+import { refreshStockRatings } from "./services/stockRatingService.js";
 import { getSetting } from "./models/db.js";
 import { registerJob, updateJobInterval } from "./services/schedulerService.js";
 
@@ -133,6 +134,23 @@ const server = app.listen(port, () => {
       logger.info('Scheduler', `Running price history sync (trigger: ${trigger})`);
       const stats = await syncAllHeldSymbols();
       return `Synced ${stats.symbols} symbol(s), ${stats.updated} candle(s) written, errors: ${stats.errors}`;
+    },
+    false
+  );
+
+  registerJob(
+    'stock-rating',
+    'Stock Rating (AI)',
+    storedInterval('stock-rating', 7 * 24 * hourMs),
+    async (trigger: string) => {
+      if (trigger === 'startup') {
+        logger.info('Scheduler', 'Skipping stock rating on startup');
+        return 'Skipped on startup';
+      }
+      const forceRefresh = trigger === 'manual';
+      logger.info('Scheduler', `Running AI stock rating (trigger: ${trigger}, force: ${forceRefresh})`);
+      const stats = await refreshStockRatings(forceRefresh);
+      return `Analysed ${stats.analysed} symbol(s), skipped ${stats.skipped} (fresh), errors: ${stats.errors}`;
     },
     false
   );

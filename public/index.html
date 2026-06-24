@@ -662,6 +662,28 @@
                 <div id="portfolioList"></div>
               </div>
 
+              <!-- Anthropic AI key (for stock ratings) -->
+              <div class="card mb-3">
+                <div class="card-header" style="margin-bottom:0.75rem;">
+                  <span class="card-title">AI Stock Ratings</span>
+                </div>
+                <p class="text-muted text-sm mb-3">Powered by Claude AI — analyses Reddit sentiment and market data for each held stock. Ratings are cached for 7 days and refreshed by the weekly scheduled job.</p>
+                <div class="settings-row mb-2">
+                  <div class="settings-row-info">
+                    <label class="settings-row-label" for="anthropicKeyInput">Anthropic API key</label>
+                    <div class="settings-row-desc">Obtain from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener" style="color:var(--primary);">console.anthropic.com</a></div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;">
+                  <input type="password" id="anthropicKeyInput" class="form-input" placeholder="sk-ant-…" style="flex:1;font-family:monospace;font-size:0.85rem;">
+                  <button class="btn btn-primary btn-sm" onclick="App.saveAnthropicKey()">Save</button>
+                </div>
+                <div style="border-top:1px solid var(--border);padding-top:0.75rem;">
+                  <button class="btn btn-outline btn-sm" onclick="App.runStockRatingNow()" style="margin-right:0.5rem;">Run now</button>
+                  <span id="stockRatingStatus" class="text-muted text-sm"></span>
+                </div>
+              </div>
+
               <!-- Dividend provider -->
               <div class="card">
                 <div class="card-header" style="margin-bottom:0.75rem;">

@@ -668,6 +668,31 @@ const App = {
         }
     },
 
+    async saveAnthropicKey() {
+        const input = document.getElementById('anthropicKeyInput');
+        const key = (input?.value || '').trim();
+        if (!key) { UI.showToast('Enter an API key first', 'error'); return; }
+        try {
+            await API.updateSettings({ anthropic_api_key: key });
+            if (input) { input.value = ''; input.placeholder = '••••••••' + key.slice(-4); }
+            UI.showToast('Anthropic API key saved');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async runStockRatingNow() {
+        const statusEl = document.getElementById('stockRatingStatus');
+        if (statusEl) statusEl.textContent = 'Running…';
+        try {
+            const result = await API.triggerJob('stock-rating');
+            if (statusEl) statusEl.textContent = result?.detail || 'Job triggered — check the Jobs log for progress.';
+        } catch (err) {
+            if (statusEl) statusEl.textContent = err.message;
+            UI.showToast(err.message, 'error');
+        }
+    },
+
     async loadAllHoldings(forceRefresh = false) {
         const container = document.getElementById('holdings-tables');
         if (!container) return;
@@ -727,6 +752,14 @@ const App = {
             this.holdingsLastUpdated = new Date();
             this.updateHoldingsTimestamp();
 
+            // Load AI ratings in the background — non-blocking.
+            API.getStockRatings().then(ratings => {
+                this.cachedStockRatings = new Map((ratings || []).map(r => [r.symbol, r]));
+                UI.stockRatings = this.cachedStockRatings;
+                UI.renderHoldingsRows();
+            }).catch(() => {});
+
+            UI.stockRatings = this.cachedStockRatings || new Map();
             UI.renderAllHoldings(this.getFilteredHoldingsData());
         } catch (err) {
             container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
@@ -1713,6 +1746,14 @@ const App = {
             } catch (err) {
                 console.error('Failed to load portfolios:', err);
             }
+            // Load existing Anthropic key hint (masked)
+            try {
+                const settings = await API.getSettings();
+                const keyEl = document.getElementById('anthropicKeyInput');
+                if (keyEl && settings.anthropic_api_key) {
+                    keyEl.placeholder = '••••••••' + settings.anthropic_api_key.slice(-4);
+                }
+            } catch (_) {}
         } else if (paneId === 'portfolios') {
             this.loadUserPortfolios();
         } else if (paneId === 'connections') {

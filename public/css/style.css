@@ -1063,9 +1063,15 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   margin-bottom: 1rem;
 }
 
+.dash-alloc-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
 /* Let grid cells shrink below their content so inner tables/charts scroll
    within their own scroll containers rather than widening the whole page. */
-.dash-main-row > *, .dash-bottom-row > *, .stats-row > *, .dash-stats > * { min-width: 0; }
+.dash-main-row > *, .dash-bottom-row > *, .dash-alloc-row > *, .stats-row > *, .dash-stats > * { min-width: 0; }
 
 /* ── Upcoming dividend event cards ────────────── */
 
@@ -1211,7 +1217,8 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   /* Stack dashboard grids on mobile */
   .dash-stats         { grid-template-columns: 1fr 1fr; }
   .dash-main-row,
-  .dash-bottom-row    { grid-template-columns: 1fr; }
+  .dash-bottom-row,
+  .dash-alloc-row     { grid-template-columns: 1fr; }
 
   /* Stack settings grid on mobile */
   #settings-keys-pane > div,

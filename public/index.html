@@ -170,30 +170,31 @@
           </div>
         </div>
 
-        <!-- Portfolio allocation chart (holdings breakdown lives on the Holdings page) -->
-        <div class="card mb-3" id="dashboardChartContainer">
-          <div class="card-header">
-            <span class="card-title">Portfolio Allocation</span>
-          </div>
-          <div class="chart-container-lg" id="dashboardChartArea" style="position:relative; height:320px;">
-            <div class="empty-state">
-              <div class="empty-icon">📊</div>
-              <p>Add a connection in Settings to get started.</p>
+        <!-- Portfolio allocation + Diversification side by side -->
+        <div class="dash-alloc-row mb-3">
+          <div class="card" id="dashboardChartContainer">
+            <div class="card-header">
+              <span class="card-title">Portfolio Allocation</span>
+            </div>
+            <div class="chart-container-lg" id="dashboardChartArea" style="position:relative; height:320px;">
+              <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                <p>Add a connection in Settings to get started.</p>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Diversification (sector / geography / asset type) -->
-        <div class="card mb-3" id="divCard">
-          <div class="card-header" style="flex-wrap:wrap;gap:0.75rem;">
-            <span class="card-title">Diversification</span>
-            <div class="perf-pills" id="divDimPills"></div>
+          <div class="card" id="divCard">
+            <div class="card-header" style="flex-wrap:wrap;gap:0.75rem;">
+              <span class="card-title">Diversification</span>
+              <div class="perf-pills" id="divDimPills"></div>
+            </div>
+            <div class="div-body">
+              <div class="div-chart-wrap"><canvas id="divChart"></canvas></div>
+              <div class="div-legend" id="divLegend"></div>
+            </div>
+            <div id="divEmpty" class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading diversification…</p></div>
           </div>
-          <div class="div-body">
-            <div class="div-chart-wrap"><canvas id="divChart"></canvas></div>
-            <div class="div-legend" id="divLegend"></div>
-          </div>
-          <div id="divEmpty" class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading diversification…</p></div>
         </div>
 
         <!-- Upcoming dividend events -->

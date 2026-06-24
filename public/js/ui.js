@@ -2383,6 +2383,14 @@ const UI = {
         });
     },
 
+    // Calendar placement date for an event: a dividend that was actually
+    // received is shown on the date it was received (like Snowball), even if it
+    // matched a forecast event whose projected date differs. Forecast/expected
+    // events use their projected date.
+    _divDisplayDate(e) {
+        return (e._status === 'received' && e._recvDate) ? e._recvDate : e.date;
+    },
+
     renderDividendCalendar(cachedDividendsData, targetDate, selectedAccountId = 'all') {
         const gridEl  = document.getElementById('dividend-calendar-grid');
         const monthEl = document.getElementById('currentCalendarMonth');
@@ -2469,7 +2477,7 @@ const UI = {
         let monthTotal = 0;
         for (let day = 1; day <= daysInMonth; day++) {
             const dayEvents = displayEvents.filter(e => {
-                const d = new Date(e.date);
+                const d = new Date(this._divDisplayDate(e));
                 return d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day;
             });
             const dayTotal = dayEvents.reduce((s, e) => s + (e.amount || 0), 0);
@@ -2553,12 +2561,12 @@ const UI = {
         if (!el) return;
         // Timeline: the last 6 months of received dividends through upcoming ones.
         const floor = new Date(); floor.setMonth(floor.getMonth() - 6); floor.setHours(0, 0, 0, 0);
-        const rows = (events || []).filter(e => new Date(e.date) >= floor)
-            .sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 400);
+        const rows = (events || []).filter(e => new Date(this._divDisplayDate(e)) >= floor)
+            .sort((a, b) => new Date(this._divDisplayDate(a)) - new Date(this._divDisplayDate(b))).slice(0, 400);
         if (rows.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:1.5rem;">No dividends in the last 6 months or upcoming.</div>'; return; }
         const byDate = {};
         rows.forEach(e => {
-            const k = e.date.substring(0, 10);
+            const k = this._divDisplayDate(e).substring(0, 10);
             (byDate[k] = byDate[k] || []).push(e);
         });
         const curOf = e => e._cur || 'USD';

@@ -53,7 +53,7 @@ const App = {
 
         // Restore tab state and load data after we have loaded the portfolio definitions
         const savedMainTab = localStorage.getItem('activeMainTab') || 'dashboard';
-        const mainBtn = document.querySelector(`.sidebar-item[data-tab="${savedMainTab}"]`);
+        const mainBtn = document.querySelector(`.topnav-item[data-tab="${savedMainTab}"]`);
         this.switchMainTab(savedMainTab, mainBtn);
 
         const savedSettingsTab = localStorage.getItem('activeSettingsTab') || 'portfolios';
@@ -1246,7 +1246,7 @@ const App = {
         }
 
         if (!this.currentGroups || this.currentGroups.length === 0) {
-            const holdingsTable = document.getElementById('dashHoldingsTable');
+            const holdingsTable = document.getElementById('dashboardChartArea');
             if (holdingsTable) holdingsTable.innerHTML = `<div class="empty-state">
                 <div class="empty-icon">🔑</div>
                 <p><strong>No connections configured.</strong></p>
@@ -1504,16 +1504,18 @@ const App = {
         }
     },
 
+    // Toggles the mobile dropdown of the top navigation menu. (Named
+    // toggleSidebar for backwards-compatibility with existing onclick handlers.)
     toggleSidebar() {
-        const sidebar = document.querySelector('.app-sidebar');
+        const nav = document.querySelector('.app-topnav');
         const overlay = document.getElementById('sidebarOverlay');
-        sidebar.classList.toggle('sidebar-open');
-        overlay?.classList.toggle('visible');
+        const open = nav?.classList.toggle('nav-open');
+        overlay?.classList.toggle('visible', open);
     },
 
     closeSidebarOnMobile() {
         if (window.innerWidth <= 768) {
-            document.querySelector('.app-sidebar')?.classList.remove('sidebar-open');
+            document.querySelector('.app-topnav')?.classList.remove('nav-open');
             document.getElementById('sidebarOverlay')?.classList.remove('visible');
         }
     },
@@ -1527,12 +1529,12 @@ const App = {
     switchMainTab(tabId, btnElement) {
         this.closeSidebarOnMobile();
         localStorage.setItem('activeMainTab', tabId);
-        // Update active class on sidebar items
-        document.querySelectorAll('.sidebar-item').forEach(btn => btn.classList.remove('active'));
+        // Update active class on nav items
+        document.querySelectorAll('.topnav-item').forEach(btn => btn.classList.remove('active'));
         if (btnElement) {
             btnElement.classList.add('active');
         } else {
-            const btn = document.querySelector(`.sidebar-item[data-tab="${tabId}"]`);
+            const btn = document.querySelector(`.topnav-item[data-tab="${tabId}"]`);
             if (btn) btn.classList.add('active');
         }
 
@@ -1600,22 +1602,57 @@ const App = {
         }
         // Price history is independent of Snowball detail — load it after the
         // detail card is in the DOM (renderStockDetail recreates the placeholder).
-        this.loadPriceHistory(symbol, detailCurrency);
+        // Pass the active-portfolio cost basis + trades so the chart can draw the
+        // average-cost line and buy/sell markers.
+        const extras = {
+            avgCost: positions?.total?.avgCost || positions?.rows?.[0]?.avgCost || 0,
+            // Per-account cost-per-share lines (the breakdown shown on the cards).
+            costLines: (positions?.rows || [])
+                .filter(r => r.avgCost > 0)
+                .map(r => ({ label: r.accountName || 'Account', value: r.avgCost })),
+            trades: this.getSymbolTradesForChart(symbol),
+        };
+        this.loadPriceHistory(symbol, detailCurrency, extras);
+    },
+
+    // Buy/sell trades for a symbol in the currently active scope, for plotting
+    // transaction markers on the price chart.
+    getSymbolTradesForChart(symbol) {
+        const want = String(symbol || '').toUpperCase().trim();
+        const out = [];
+        (this.getFilteredTransactionsData() || []).forEach(acct => {
+            (acct.transactions || []).forEach(t => {
+                if (String(t.symbol || '').toUpperCase().trim() !== want) return;
+                const type = String(t.type || t.action || '').toUpperCase();
+                const isBuy = type.includes('BUY');
+                const isSell = type.includes('SELL');
+                if (!isBuy && !isSell) return;
+                if (!t.date) return;
+                out.push({
+                    date: String(t.date).slice(0, 10),
+                    action: isBuy ? 'BUY' : 'SELL',
+                    units: Math.abs(t.units || 0),
+                    price: Math.abs(t.price || (t.units ? (t.amount || 0) / t.units : 0)),
+                });
+            });
+        });
+        return out;
     },
 
     // Fetch the full price-history series once, cache it, and render the chart.
     // Range buttons then filter the cached series client-side (instant switching).
-    async loadPriceHistory(symbol, currency = 'USD') {
-        this._priceHistory = { symbol, currency, candles: null, range: this._priceHistoryRange || '5y' };
+    // `extras` carries the average cost line + transaction markers (active scope).
+    async loadPriceHistory(symbol, currency = 'USD', extras = {}) {
+        this._priceHistory = { symbol, currency, candles: null, range: this._priceHistoryRange || '5y', extras };
         try {
             const { candles } = await API.getStockPriceHistory(symbol, 'max');
             // Guard against the user navigating to another symbol mid-fetch.
             if (!this._priceHistory || this._priceHistory.symbol !== symbol) return;
             this._priceHistory.candles = candles;
-            UI.renderPriceHistory(symbol, candles, this._priceHistory.range, currency, 'ready');
+            UI.renderPriceHistory(symbol, candles, this._priceHistory.range, currency, 'ready', extras);
         } catch (_) {
             if (this._priceHistory && this._priceHistory.symbol === symbol) {
-                UI.renderPriceHistory(symbol, null, this._priceHistory.range, currency, 'error');
+                UI.renderPriceHistory(symbol, null, this._priceHistory.range, currency, 'error', extras);
             }
         }
     },
@@ -1625,7 +1662,7 @@ const App = {
         const ph = this._priceHistory;
         if (!ph || !ph.candles) return;
         ph.range = rangeKey;
-        UI.renderPriceHistory(ph.symbol, ph.candles, rangeKey, ph.currency, 'ready');
+        UI.renderPriceHistory(ph.symbol, ph.candles, rangeKey, ph.currency, 'ready', ph.extras || {});
     },
 
     closeStockDetail() {

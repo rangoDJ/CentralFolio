@@ -1980,7 +1980,7 @@ const UI = {
 
     // Render the price-history card for the given symbol. `candles` is the full
     // stored series; `rangeKey` selects the visible window.
-    renderPriceHistory(symbol, candles, rangeKey, cur, state = 'ready') {
+    renderPriceHistory(symbol, candles, rangeKey, cur, state = 'ready', extras = {}) {
         const card = document.getElementById('sd-pricehistory');
         if (!card) return;
 
@@ -2013,20 +2013,28 @@ const UI = {
                 ${summary}
             </div>
             <div class="sd-chart-pills">${pills}</div>
-            <div class="sd-chart-body">${this._buildPriceChartSVG(view, cur)}</div>`;
+            <div class="sd-chart-body">${this._buildPriceChartSVG(view, cur, extras)}</div>`;
     },
 
     // Build the SVG area/line chart (line + gradient fill, Y gridlines, X labels,
     // min/max annotations, and a hover crosshair driven by inline JS).
-    _buildPriceChartSVG(candles, cur) {
+    _buildPriceChartSVG(candles, cur, extras = {}) {
         const W = 1000, H = 380;
         const padL = 8, padR = 70, padT = 28, padB = 30;
         const plotW = W - padL - padR, plotH = H - padT - padB;
+        const trades = Array.isArray(extras.trades) ? extras.trades : [];
+        // Cost-per-share lines: prefer the per-account breakdown, else a single
+        // aggregate line (avgCost), else none.
+        const costLines = (Array.isArray(extras.costLines) && extras.costLines.length)
+            ? extras.costLines.filter(c => c.value > 0)
+            : (extras.avgCost > 0 ? [{ label: 'My cost', value: extras.avgCost }] : []);
 
         const xs = candles.map(c => Date.parse(c.date + 'T00:00:00Z'));
         const ys = candles.map(c => c.close ?? 0);
         const xMin = xs[0], xMax = xs[xs.length - 1] || xs[0] + 1;
         let yMin = Math.min(...ys), yMax = Math.max(...ys);
+        // Include the cost lines in the visible range so they never clip off.
+        costLines.forEach(c => { yMin = Math.min(yMin, c.value); yMax = Math.max(yMax, c.value); });
         if (yMin === yMax) { yMin -= 1; yMax += 1; }
         const yPad = (yMax - yMin) * 0.08;
         yMin -= yPad; yMax += yPad;
@@ -2070,6 +2078,46 @@ const UI = {
                     <text x="${(tx).toFixed(1)}" y="${(y + (above ? -6 : 14)).toFixed(1)}" class="sd-chart-minmax-lbl">${label}: ${this.moneyC(ys[i], cur)}</text>`;
         };
 
+        // Average cost-per-share lines, broken down by account (active scope).
+        // Each account gets its own colored dashed line + label; labels are
+        // staggered vertically so close cost bases don't overprint each other.
+        let costLine = '';
+        if (costLines.length) {
+            const items = costLines
+                .map((c, i) => ({ label: c.label, value: c.value, color: this._DIV_PALETTE[i % this._DIV_PALETTE.length], y: sy(c.value) }))
+                .sort((a, b) => a.y - b.y);
+            const lines = items.map(it =>
+                `<line x1="${padL}" y1="${it.y.toFixed(1)}" x2="${(padL + plotW).toFixed(1)}" y2="${it.y.toFixed(1)}" class="sd-chart-costline" style="stroke:${it.color};"/>`
+            ).join('');
+            let lastLabelY = -Infinity;
+            const single = items.length === 1;
+            const labels = items.map(it => {
+                let ly = it.y - 5;
+                if (ly < lastLabelY + 14) ly = lastLabelY + 14;
+                lastLabelY = ly;
+                const name = single ? 'My cost per share' : ((it.label || '').length > 18 ? it.label.slice(0, 17) + '…' : it.label);
+                return `<text x="${(padL + 6).toFixed(1)}" y="${ly.toFixed(1)}" class="sd-chart-cost-lbl" style="fill:${it.color};">${sanitize(name)}: ${this.moneyC(it.value, cur)}</text>`;
+            }).join('');
+            costLine = lines + labels;
+        }
+
+        // Buy/sell markers placed on the line at each trade's date.
+        const priceAt = t => {
+            let best = 0, bd = Infinity;
+            for (let i = 0; i < xs.length; i++) { const d = Math.abs(xs[i] - t); if (d < bd) { bd = d; best = i; } }
+            return ys[best];
+        };
+        const tradeDots = trades.map(tr => {
+            const t = Date.parse(tr.date + 'T00:00:00Z');
+            if (isNaN(t) || t < xMin || t > xMax) return '';
+            const x = sx(t), y = sy(priceAt(t));
+            const isBuy = tr.action === 'BUY';
+            const color = isBuy ? 'var(--success)' : 'var(--danger)';
+            const units = (tr.units || 0).toLocaleString(undefined, { maximumFractionDigits: 4 });
+            const title = `${isBuy ? 'Buy' : 'Sell'} ${units} @ ${this.moneyC(tr.price || 0, cur)} · ${tr.date}`;
+            return `<circle class="sd-chart-trade" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4.5" fill="${color}"><title>${sanitize(title)}</title></circle>`;
+        }).join('');
+
         const gradId = 'sdGrad';
         const cid = 'c' + Math.random().toString(36).slice(2, 8);
         // Serialize point data for the hover handler.
@@ -2090,6 +2138,8 @@ const UI = {
             ${annot(minI, 'min', false)}
             <path d="${areaPath}" fill="url(#${gradId})" stroke="none"/>
             <path d="${linePath}" fill="none" stroke="var(--primary)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+            ${costLine}
+            ${tradeDots}
             ${xLabels}
             <g class="sd-chart-cross" style="display:none;">
                 <line class="sd-chart-crossline" y1="${padT}" y2="${padT + plotH}"/>

@@ -17,12 +17,19 @@
 <body>
   <div class="app-wrapper">
 
-    <!-- ── Sidebar ── -->
-    <aside class="app-sidebar">
-      <div class="sidebar-logo">Central<span>Folio</span></div>
-      <nav class="sidebar-nav">
+    <!-- ── Top navigation bar ── -->
+    <header class="app-topnav">
+      <div class="topnav-brand">Central<span>Folio</span></div>
 
-        <button class="sidebar-item active" data-tab="dashboard" onclick="App.switchMainTab('dashboard', this)">
+      <button class="topnav-toggle" id="navToggle" title="Toggle menu" onclick="App.toggleSidebar()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+
+      <nav class="topnav-menu" id="topnavMenu">
+
+        <button class="topnav-item active" data-tab="dashboard" onclick="App.switchMainTab('dashboard', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
             <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
@@ -30,14 +37,14 @@
           <span>Dashboard</span>
         </button>
 
-        <button class="sidebar-item" data-tab="holdings" onclick="App.switchMainTab('holdings', this)">
+        <button class="topnav-item" data-tab="holdings" onclick="App.switchMainTab('holdings', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
           </svg>
           <span>Holdings</span>
         </button>
 
-        <button class="sidebar-item" data-tab="dividend-tracker" onclick="App.switchMainTab('dividend-tracker', this)">
+        <button class="topnav-item" data-tab="dividend-tracker" onclick="App.switchMainTab('dividend-tracker', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
             <polyline points="16 7 22 7 22 13"/>
@@ -45,7 +52,7 @@
           <span>Dividend Tracker</span>
         </button>
 
-        <button class="sidebar-item" data-tab="transactions" onclick="App.switchMainTab('transactions', this)">
+        <button class="topnav-item" data-tab="transactions" onclick="App.switchMainTab('transactions', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="12" y1="1" x2="12" y2="23"/>
             <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
@@ -53,7 +60,7 @@
           <span>Transactions</span>
         </button>
 
-        <button class="sidebar-item" data-tab="rebalance" onclick="App.switchMainTab('rebalance', this)">
+        <button class="topnav-item" data-tab="rebalance" onclick="App.switchMainTab('rebalance', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
             <path d="M21 3v5h-5"/>
@@ -63,7 +70,7 @@
           <span>Rebalancing</span>
         </button>
 
-        <button class="sidebar-item" data-tab="settings" onclick="App.switchMainTab('settings', this)">
+        <button class="topnav-item" data-tab="settings" onclick="App.switchMainTab('settings', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -72,42 +79,29 @@
         </button>
 
       </nav>
-      <div class="sidebar-footer">
-        <button class="sidebar-logout" onclick="App.logout()" title="Sign out">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+
+      <div class="topnav-actions">
+        <select id="globalPortfolioSelect" style="width: auto; padding: 0.35rem 1.75rem 0.35rem 0.75rem; font-size: 0.82rem; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; background: var(--surface) url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%25237c8496%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E') no-repeat right 0.6rem top 50%; background-size: 0.55rem auto; color: var(--text-primary); cursor: pointer; outline: none; transition: border-color 0.15s;">
+          <option value="all">All Portfolios</option>
+        </select>
+        <button id="themeToggleBtn" class="btn btn-outline btn-sm" onclick="App.toggleTheme()" title="Toggle Theme" style="padding: 0 0.5rem; height: 28px; border-radius: 6px; border-color: var(--border);">
+          <svg id="themeToggleIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+        <span id="connectionStatus" class="status-badge status-active">Connected</span>
+        <button class="topnav-logout" onclick="App.logout()" title="Sign out">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
             <polyline points="16 17 21 12 16 7"/>
             <line x1="21" y1="12" x2="9" y2="12"/>
           </svg>
-          <span>Sign Out</span>
         </button>
       </div>
-    </aside>
+    </header>
 
     <!-- ── Main content ── -->
     <div class="app-main">
-
-      <header class="topbar">
-        <div style="display:flex;align-items:center;gap:0.75rem;">
-          <button class="sidebar-toggle" id="sidebarToggle" title="Toggle navigation" onclick="App.toggleSidebar()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-          </button>
-          <span class="page-title" id="pageTitle">Dashboard</span>
-        </div>
-        <div class="topbar-actions">
-          <select id="globalPortfolioSelect" style="width: auto; padding: 0.35rem 1.75rem 0.35rem 0.75rem; font-size: 0.82rem; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; background: var(--surface) url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%25237c8496%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E') no-repeat right 0.6rem top 50%; background-size: 0.55rem auto; color: var(--text-primary); cursor: pointer; outline: none; transition: border-color 0.15s; margin-right: 0.5rem;">
-            <option value="all">All Portfolios</option>
-          </select>
-          <button id="themeToggleBtn" class="btn btn-outline btn-sm" onclick="App.toggleTheme()" title="Toggle Theme" style="padding: 0 0.5rem; height: 28px; border-radius: 6px; border-color: var(--border);">
-            <svg id="themeToggleIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-            </svg>
-          </button>
-          <span id="connectionStatus" class="status-badge status-active">Connected</span>
-        </div>
-      </header>
 
       <!-- Stock detail (opened by clicking a symbol) -->
       <div class="container tab-content" id="stock-detail-tab">
@@ -176,25 +170,15 @@
           </div>
         </div>
 
-        <!-- Redesigned Main Layout: Left = Chart, Right = Holdings breakdown -->
-        <div class="dashboard-grid">
-          <div class="card" id="dashboardChartContainer">
-            <div class="card-header">
-              <span class="card-title">Portfolio Allocation</span>
-            </div>
-            <div class="chart-container-lg" id="dashboardChartArea" style="position:relative; height:320px;">
-              <div class="empty-state">
-                <div class="empty-icon">📊</div>
-                <p>Add a connection in Settings to get started.</p>
-              </div>
-            </div>
+        <!-- Portfolio allocation chart (holdings breakdown lives on the Holdings page) -->
+        <div class="card mb-3" id="dashboardChartContainer">
+          <div class="card-header">
+            <span class="card-title">Portfolio Allocation</span>
           </div>
-          <div class="card">
-            <div class="card-header">
-              <span class="card-title">Holdings breakdown</span>
-            </div>
-            <div id="dashHoldingsTable" style="overflow-x:auto;">
-              <div class="empty-state" style="padding:1.5rem 0;"><p>No holdings loaded.</p></div>
+          <div class="chart-container-lg" id="dashboardChartArea" style="position:relative; height:320px;">
+            <div class="empty-state">
+              <div class="empty-icon">📊</div>
+              <p>Add a connection in Settings to get started.</p>
             </div>
           </div>
         </div>
@@ -567,7 +551,7 @@
 
         <!-- Scheduler pane (background jobs) -->
         <div id="settings-scheduler-pane" class="pane">
-          <div class="card" style="max-width:640px;">
+          <div class="card">
             <div class="card-header" style="margin-bottom:0.75rem;">
               <span class="card-title">Background Jobs</span>
             </div>
@@ -575,7 +559,7 @@
             <div id="jobsPanel"><div class="empty-state" style="padding:1rem;">Loading jobs…</div></div>
           </div>
           
-          <div class="card" style="max-width:640px; margin-top:1.5rem;">
+          <div class="card" style="margin-top:1.5rem;">
             <div class="card-header" style="margin-bottom:0.75rem;">
               <span class="card-title">Job Execution History</span>
             </div>

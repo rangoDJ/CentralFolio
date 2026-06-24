@@ -880,6 +880,8 @@ const App = {
                         transactions: group.transactions
                     }));
                 this.transactionsLastUpdated = new Date();
+                // Transactions changed — portfolio history needs a fresh fetch.
+                this._perfResult = null;
             } catch (err) { console.warn('liveUpdate: transactions refresh failed', err); }
         }
 
@@ -1443,6 +1445,13 @@ const App = {
         if (benchToggle) benchToggle.checked = benchOn;
         const benchLabel = document.getElementById('perfBenchLabel');
         if (benchLabel) benchLabel.textContent = benchSym;
+
+        // Re-use cached result unless it was invalidated (e.g. by a transaction sync).
+        if (this._perfResult) {
+            this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
+            UI.renderPortfolioPerformance(this._perfResult, this._perfRange, benchOn, this._perfCurrency);
+            return;
+        }
 
         try {
             const result = await API.getPortfolioHistory(benchSym);

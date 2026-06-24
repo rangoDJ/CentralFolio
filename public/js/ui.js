@@ -772,21 +772,28 @@ const UI = {
         const theme = this.getChartTheme();
         const fmt = v => this.moneyC(v, cur);
 
-        if (this.divChartInstance) this.divChartInstance.destroy();
-        this.divChartInstance = new Chart(canvas.getContext('2d'), {
-            type: 'doughnut',
-            data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: 'transparent', borderWidth: 0, hoverOffset: 6 }] },
-            options: {
-                responsive: true, maintainAspectRatio: false, cutout: '62%',
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1, padding: 8, cornerRadius: 6,
-                        callbacks: { label: c => ` ${c.label}: ${fmt(c.parsed)} (${(c.parsed / (result.totalValue || 1) * 100).toFixed(1)}%)` },
+        if (this.divChartInstance &&
+            JSON.stringify(this.divChartInstance.data.labels) === JSON.stringify(labels)) {
+            this.divChartInstance.data.datasets[0].data = data;
+            this.divChartInstance.data.datasets[0].backgroundColor = colors;
+            this.divChartInstance.update('none');
+        } else {
+            if (this.divChartInstance) this.divChartInstance.destroy();
+            this.divChartInstance = new Chart(canvas.getContext('2d'), {
+                type: 'doughnut',
+                data: { labels, datasets: [{ data, backgroundColor: colors, borderColor: 'transparent', borderWidth: 0, hoverOffset: 6 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '62%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: theme.tooltipBg, borderColor: theme.tooltipBorder, borderWidth: 1, padding: 8, cornerRadius: 6,
+                            callbacks: { label: c => ` ${c.label}: ${fmt(c.parsed)} (${(c.parsed / (result.totalValue || 1) * 100).toFixed(1)}%)` },
+                        },
                     },
                 },
-            },
-        });
+            });
+        }
 
         if (legendEl) {
             legendEl.innerHTML = view.map((s, i) =>
@@ -1603,54 +1610,69 @@ const UI = {
             return;
         }
 
-        const symbolMap = new Map();
+        // Build a map of portfolio name → total market value.
+        // When user portfolios are defined, each slice = one user portfolio.
+        // Fallback: each slice = one brokerage connection.
+        const portfolioMap = new Map();
+        const userPortfolios = (typeof App !== 'undefined' && App.userPortfolios && App.userPortfolios.length > 0)
+            ? App.userPortfolios : null;
 
-        holdingsData.forEach(acct => {
-            if (inactiveAccountIds && inactiveAccountIds.has(acct.accountId)) {
-                return;
-            }
-            if (acct.error) return;
+        if (userPortfolios) {
+            for (const up of userPortfolios) {
+                const accountIdSet = new Set(up.accountIds || []);
+                let val = 0;
 
-            (acct.holdings || []).forEach(pos => {
-                const sym = pos.symbol?.symbol?.symbol || pos.symbol?.symbol || pos.symbol || 'Unknown';
-                const units = pos.units || 0;
-                const price = pos.price || 0;
-                const val = pos.marketValue || (units * price) || 0;
-
-                if (!symbolMap.has(sym)) {
-                    symbolMap.set(sym, 0);
-                }
-                symbolMap.set(sym, symbolMap.get(sym) + val);
-            });
-        });
-
-        if (currentGroups) {
-            currentGroups.forEach(g => {
-                g.accounts.forEach(acc => {
-                    if (inactiveAccountIds && inactiveAccountIds.has(acc.id)) return;
-
-                    let isAccountInSelectedPortfolio = true;
-                    if (typeof App !== 'undefined' && App.selectedUserPortfolioId !== 'all') {
-                        const activePort = App.getSelectedUserPortfolio();
-                        const activePortAccountIds = new Set(activePort ? (activePort.accountIds || []) : []);
-                        isAccountInSelectedPortfolio = activePortAccountIds.has(acc.id);
-                    }
-
-                    if (isAccountInSelectedPortfolio) {
-                        const cashVal = acc.balance?.cash?.amount || 0;
-                        if (cashVal > 0) {
-                            const sym = 'CASH';
-                            if (!symbolMap.has(sym)) {
-                                symbolMap.set(sym, 0);
-                            }
-                            symbolMap.set(sym, symbolMap.get(sym) + cashVal);
-                        }
-                    }
+                holdingsData.forEach(acct => {
+                    if (!accountIdSet.has(acct.accountId)) return;
+                    if (inactiveAccountIds && inactiveAccountIds.has(acct.accountId)) return;
+                    if (acct.error) return;
+                    (acct.holdings || []).forEach(pos => {
+                        const units = pos.units || 0;
+                        const price = pos.price || 0;
+                        val += pos.marketValue || (units * price) || 0;
+                    });
                 });
+
+                if (currentGroups) {
+                    currentGroups.forEach(g => {
+                        (g.accounts || []).forEach(acc => {
+                            if (!accountIdSet.has(acc.id)) return;
+                            if (inactiveAccountIds && inactiveAccountIds.has(acc.id)) return;
+                            val += acc.balance?.cash?.amount || 0;
+                        });
+                    });
+                }
+
+                if (val > 0) portfolioMap.set(up.name, (portfolioMap.get(up.name) || 0) + val);
+            }
+        } else if (currentGroups) {
+            // Fallback: one slice per brokerage connection.
+            currentGroups.forEach(g => {
+                const name = g.name || g.portfolioName || 'Unknown';
+                let val = 0;
+
+                holdingsData.forEach(acct => {
+                    const belongs = (g.accounts || []).some(a => a.id === acct.accountId);
+                    if (!belongs) return;
+                    if (inactiveAccountIds && inactiveAccountIds.has(acct.accountId)) return;
+                    if (acct.error) return;
+                    (acct.holdings || []).forEach(pos => {
+                        const units = pos.units || 0;
+                        const price = pos.price || 0;
+                        val += pos.marketValue || (units * price) || 0;
+                    });
+                });
+
+                (g.accounts || []).forEach(acc => {
+                    if (inactiveAccountIds && inactiveAccountIds.has(acc.id)) return;
+                    val += acc.balance?.cash?.amount || 0;
+                });
+
+                if (val > 0) portfolioMap.set(name, (portfolioMap.get(name) || 0) + val);
             });
         }
 
-        const activeSlices = Array.from(symbolMap.entries())
+        const activeSlices = Array.from(portfolioMap.entries())
             .map(([label, value]) => ({ label, value }))
             .filter(slice => slice.value > 0);
 

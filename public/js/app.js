@@ -2185,11 +2185,14 @@ const App = {
     },
 
     async openUserPortfolioModal(id = null) {
-        // Fetch latest accounts to populate checkboxes
-        let accounts = [];
-        try {
-            accounts = await API.getAccounts();
-        } catch (e) { /* ignore */ }
+        // Prefer in-memory currentGroups (kept up-to-date after renames/toggles)
+        // so custom account names are always reflected without an extra round-trip.
+        let accounts = (this.currentGroups && this.currentGroups.length > 0)
+            ? this.currentGroups
+            : [];
+        if (accounts.length === 0) {
+            try { accounts = await API.getAccounts(); } catch (e) { /* ignore */ }
+        }
 
         const portfolio = id != null ? this.userPortfolios.find(p => p.id === id) : null;
         UI.openUserPortfolioModal(portfolio, accounts);

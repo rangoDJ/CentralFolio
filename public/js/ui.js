@@ -590,7 +590,7 @@ const UI = {
             this.dashFutureChartInstance.options.scales.x.ticks.color = theme.textColor;
             this.dashFutureChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
             this.dashFutureChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
-            this.dashFutureChartInstance.update();
+            this.dashFutureChartInstance.update('none');
         } else {
             this.dashFutureChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
         }
@@ -653,7 +653,7 @@ const UI = {
             this.dashReceivedChartInstance.options.scales.x.ticks.color = theme.textColor;
             this.dashReceivedChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
             this.dashReceivedChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
-            this.dashReceivedChartInstance.update();
+            this.dashReceivedChartInstance.update('none');
         } else {
             this.dashReceivedChartInstance = new Chart(canvas.getContext('2d'), chartCfg);
         }
@@ -1686,7 +1686,7 @@ const UI = {
             this.accountsChartInstance.data.datasets[0].backgroundColor    = bgColors;
             this.accountsChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
             this.accountsChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
-            this.accountsChartInstance.update();
+            this.accountsChartInstance.update('none');
             return;
         }
 
@@ -2412,7 +2412,7 @@ const UI = {
             this.dividendChartInstance.options.scales.x.ticks.color = theme.textColor;
             this.dividendChartInstance.options.plugins.tooltip.backgroundColor = theme.tooltipBg;
             this.dividendChartInstance.options.plugins.tooltip.borderColor = theme.tooltipBorder;
-            this.dividendChartInstance.update();
+            this.dividendChartInstance.update('none');
             return;
         }
 

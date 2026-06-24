@@ -1330,10 +1330,6 @@ const App = {
         }
 
         if (filteredGroups) {
-            if (UI.accountsChartInstance) {
-                UI.accountsChartInstance.destroy();
-                UI.accountsChartInstance = null;
-            }
             UI.renderDashboardChart(filteredGroups, this.inactiveAccountIds, filteredHoldings);
             UI.renderDashboardHoldingsTable(filteredGroups, this.inactiveAccountIds, filteredHoldings);
         }

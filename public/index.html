@@ -168,6 +168,16 @@
               <p class="text-muted text-sm">Loading performance…</p>
             </div>
           </div>
+          <div id="perfRisk" class="perf-risk"></div>
+        </div>
+
+        <!-- Top movers / performance attribution -->
+        <div class="card mb-3" id="moversCard">
+          <div class="card-header">
+            <span class="card-title">Top movers</span>
+            <span id="moversTotal" class="text-sm" style="color:var(--text-muted);font-weight:600;"></span>
+          </div>
+          <div id="moversBody"><div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading contributors…</p></div></div>
         </div>
 
         <!-- Portfolio allocation + Diversification side by side -->
@@ -195,6 +205,26 @@
             </div>
             <div id="divEmpty" class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading diversification…</p></div>
           </div>
+        </div>
+
+        <!-- Dividend withholding tax estimate -->
+        <div class="card mb-3" id="taxCard">
+          <div class="card-header">
+            <span class="card-title">Dividend withholding tax</span>
+            <span id="taxEffective" class="text-sm" style="color:var(--text-muted);font-weight:600;"></span>
+          </div>
+          <div id="taxBody"><div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading tax estimate…</p></div></div>
+          <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">Estimate only — assumes Canada–US treaty (RRSP exempt from US withholding; TFSA/taxable withheld 15%). Not tax advice.</p>
+        </div>
+
+        <!-- Realized capital gains -->
+        <div class="card mb-3" id="realizedCard">
+          <div class="card-header">
+            <span class="card-title">Realized capital gains</span>
+            <span id="realizedTotal" class="text-sm" style="font-weight:600;"></span>
+          </div>
+          <div id="realizedBody"><div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading realized gains…</p></div></div>
+          <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">ACB (average-cost) method. Taxable estimate uses Canada's 50% inclusion on non-registered accounts; RRSP/TFSA gains are tax-free. Not tax advice.</p>
         </div>
 
         <!-- Upcoming dividend events -->

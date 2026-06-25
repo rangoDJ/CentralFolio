@@ -261,5 +261,50 @@
         };
     }
 
-    return { tagDividendStatus, collectReceivedDividends, buildStockPositions, projectIncome };
+    // Heuristic dividend-safety grade (A–F) from the signals Snowball exposes:
+    // a long growth streak and positive 5-year dividend growth are safe; a cut
+    // (negative growth) or an abnormally high yield (yield trap) are risky.
+    // Returns null for non-dividend payers. This is a heuristic, not advice.
+    function dividendSafety(asset) {
+        if (!asset) return null;
+        const annual = asset.annualPayout;
+        const yield_ = asset.dividendYield;
+        // No dividend → no score.
+        if ((annual == null || annual <= 0) && (yield_ == null || yield_ <= 0)) return null;
+
+        const streak = Math.max(0, asset.growthStreak || 0);
+        const g5 = asset.growth5Y;            // 5yr CAGR, percent (may be null)
+        const y = yield_;                     // forward yield, percent (may be null)
+        const freq = asset.frequency || 0;
+
+        let score = 50;
+        const factors = [];
+
+        // Growth streak: up to +25 (1 pt/yr).
+        if (streak > 0) { const pts = Math.min(streak, 25); score += pts; factors.push(`${streak}-year growth streak`); }
+
+        // 5-year dividend growth.
+        if (g5 != null) {
+            if (g5 < 0)       { score -= 25; factors.push('Dividend was cut in last 5y'); }
+            else if (g5 >= 5) { score += 15; factors.push('Strong 5y dividend growth'); }
+            else if (g5 > 0)  { score += 8;  factors.push('Modest 5y dividend growth'); }
+            else              { factors.push('Flat 5y dividend'); }
+        }
+
+        // Yield sanity — very high yields often precede cuts.
+        if (y != null) {
+            if (y > 12)      { score -= 25; factors.push('Very high yield (cut risk)'); }
+            else if (y > 8)  { score -= 10; factors.push('Elevated yield'); }
+            else if (y > 0)  { score += 10; factors.push('Sustainable yield range'); }
+        }
+
+        // A regular payment cadence is a mild positive.
+        if (freq > 0) score += 5;
+
+        score = Math.max(0, Math.min(100, Math.round(score)));
+        const grade = score >= 85 ? 'A' : score >= 70 ? 'B' : score >= 55 ? 'C' : score >= 40 ? 'D' : 'F';
+        return { score, grade, factors };
+    }
+
+    return { tagDividendStatus, collectReceivedDividends, buildStockPositions, projectIncome, dividendSafety };
 });

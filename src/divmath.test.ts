@@ -16,6 +16,7 @@ const DivMath = sandbox.module.exports as {
   collectReceivedDividends: (events: any[], txData: any[], opts?: any) => any[];
   buildStockPositions: (symbol: string, ctx: any) => { rows: any[]; total: any };
   projectIncome: (params: any) => { points: any[]; summary: any };
+  dividendSafety: (asset: any) => { score: number; grade: string; factors: string[] } | null;
 };
 
 const approx = (a: number, b: number, msg?: string) => assert.ok(Math.abs(a - b) < 1e-6, `${msg ?? ''} expected ${b}, got ${a}`);
@@ -153,6 +154,33 @@ test('projectIncome: DRIP reinvests dividends into value', () => {
   // DRIP: value += income (105000); income += income*yield (5000 + 250 = 5250).
   approx(points[1].value, 105000, 'value after DRIP');
   approx(points[1].income, 5250, 'income after DRIP');
+});
+
+test('dividendSafety: non-payer returns null', () => {
+  assert.equal(DivMath.dividendSafety({ annualPayout: 0, dividendYield: 0 }), null);
+  assert.equal(DivMath.dividendSafety(null), null);
+});
+
+test('dividendSafety: long streak + healthy growth grades high', () => {
+  const r = DivMath.dividendSafety({ annualPayout: 2, dividendYield: 3, growthStreak: 25, growth5Y: 8, frequency: 4 })!;
+  // 50 + 25 (streak) + 15 (growth) + 10 (yield) + 5 (freq) = 105 → clamp 100 → A
+  assert.equal(r.score, 100);
+  assert.equal(r.grade, 'A');
+});
+
+test('dividendSafety: a cut tanks the grade', () => {
+  const r = DivMath.dividendSafety({ annualPayout: 1, dividendYield: 5, growthStreak: 0, growth5Y: -10, frequency: 4 })!;
+  // 50 - 25 (cut) + 10 (yield) + 5 (freq) = 40 → D
+  assert.equal(r.score, 40);
+  assert.equal(r.grade, 'D');
+  assert.ok(r.factors.some(f => /cut/i.test(f)));
+});
+
+test('dividendSafety: yield trap penalized', () => {
+  const r = DivMath.dividendSafety({ annualPayout: 3, dividendYield: 15, growthStreak: 0, growth5Y: 0, frequency: 4 })!;
+  // 50 - 25 (very high yield) + 5 (freq) = 30 → F
+  assert.equal(r.grade, 'F');
+  assert.ok(r.factors.some(f => /high yield/i.test(f)));
 });
 
 test('projectIncome: reports years to reach target income', () => {

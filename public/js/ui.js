@@ -703,7 +703,7 @@ const UI = {
 
     // Palette for diversification slices (cycled).
     _DIV_PALETTE: ['#00d09c', '#4f8ef7', '#f5a623', '#9c27b0', '#ff7043', '#26a69a', '#ec407a', '#ab47bc', '#66bb6a', '#42a5f5', '#ffa726', '#8d6e63', '#789262', '#5c6bc0'],
-    _DIV_DIMS: [['bySector', 'Sector'], ['byCountry', 'Geography'], ['byAssetType', 'Asset type']],
+    _DIV_DIMS: [['bySector', 'Sector'], ['byCountry', 'Geography'], ['byAssetType', 'Asset type'], ['byCurrency', 'Currency']],
 
     renderDiversification(result, dim, cur) {
         const canvas = document.getElementById('divChart');
@@ -769,14 +769,21 @@ const UI = {
         }
 
         if (legendEl) {
-            legendEl.innerHTML = view.map((s, i) =>
+            // For the currency view each slice is in its own currency, so label
+            // amounts with that currency; otherwise use the portfolio currency.
+            const isCurrency = dim === 'byCurrency';
+            const rowsHtml = view.map((s, i) =>
                 `<div class="div-legend-row">
                     <span class="div-legend-dot" style="background:${this._DIV_PALETTE[i % this._DIV_PALETTE.length]}"></span>
                     <span class="div-legend-name">${sanitize(s.key)}</span>
                     <span class="div-legend-pct">${this.pct(s.pct)}</span>
-                    <span class="div-legend-val text-muted">${fmt(s.value)}</span>
+                    <span class="div-legend-val text-muted">${this.moneyC(s.value, isCurrency ? (s.key || cur) : cur)}</span>
                 </div>`
             ).join('');
+            const fxNote = (isCurrency && result.totalValueBase)
+                ? `<div class="div-legend-fx text-muted">≈ ${this.moneyC(result.totalValueBase, result.baseCurrency)} total (FX-adjusted to ${sanitize(result.baseCurrency)})</div>`
+                : '';
+            legendEl.innerHTML = rowsHtml + fxNote;
         }
     },
 
@@ -806,6 +813,145 @@ const UI = {
     },
 
     // Render the portfolio performance (value / invested / benchmark) line chart.
+    // Render the realized capital-gains card.
+    renderRealizedGains(r) {
+        const body = document.getElementById('realizedBody');
+        const totalEl = document.getElementById('realizedTotal');
+        if (!body) return;
+        const cur = (r && r.currency) || 'CAD';
+
+        if (!r || !r.byYear || r.byYear.length === 0) {
+            if (totalEl) totalEl.textContent = '';
+            body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">No realized gains yet — sell transactions will appear here.</p></div>';
+            return;
+        }
+
+        if (totalEl) {
+            const g = r.totalGain;
+            totalEl.innerHTML = `<span class="${g >= 0 ? 'pos' : 'neg'}">${g >= 0 ? '+' : '-'}${this.moneyC(Math.abs(g), cur)} lifetime</span>`;
+        }
+
+        const summary = `<div class="tax-summary">
+            <div class="tax-stat"><span class="tax-stat-val ${r.taxableAccountGain >= 0 ? 'pos' : 'neg'}">${r.taxableAccountGain >= 0 ? '+' : '-'}${this.moneyC(Math.abs(r.taxableAccountGain), cur)}</span><span class="tax-stat-lbl">Taxable-account gains</span></div>
+            <div class="tax-stat"><span class="tax-stat-val">${this.pct(r.inclusionRate * 100)}</span><span class="tax-stat-lbl">Inclusion rate</span></div>
+            <div class="tax-stat"><span class="tax-stat-val">${this.moneyC(r.estimatedTaxableIncome, cur)}</span><span class="tax-stat-lbl">Est. taxable income</span></div>
+        </div>`;
+
+        const g = v => `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '-'}${this.moneyC(Math.abs(v), cur)}</span>`;
+        const yearRows = `<table class="tax-table">
+            <thead><tr><th>Year</th><th>Realized gain</th><th>Taxable portion</th></tr></thead>
+            <tbody>${r.byYear.map(y => `<tr>
+                <td>${y.year}</td>
+                <td>${g(y.gain)}</td>
+                <td>${g(y.taxableGain)}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+        const acctRows = `<table class="tax-table">
+            <thead><tr><th>By account</th><th>Realized gain</th><th>Tax status</th></tr></thead>
+            <tbody>${r.byAccount.map(a => `<tr>
+                <td>${sanitize(a.account)}</td>
+                <td>${g(a.gain)}</td>
+                <td class="text-muted">${a.registered ? 'Tax-free' : 'Taxable'}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+
+        body.innerHTML = summary + `<div class="tax-tables">${yearRows}${acctRows}</div>`;
+    },
+
+    // Render the top-movers / contribution-attribution card.
+    renderAttribution(result) {
+        const body = document.getElementById('moversBody');
+        const totalEl = document.getElementById('moversTotal');
+        if (!body) return;
+        const rows = (result && result.rows) || [];
+        if (!rows.length) {
+            if (totalEl) totalEl.textContent = '';
+            body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">No holdings to attribute yet.</p></div>';
+            return;
+        }
+        const cur = rows[0].currency || 'USD';
+        if (totalEl) {
+            const tr = result.totalReturn;
+            totalEl.innerHTML = `<span class="${tr >= 0 ? 'pos' : 'neg'}">${tr >= 0 ? '+' : '-'}${this.moneyC(Math.abs(tr), cur)} total</span>`;
+        }
+
+        // Largest absolute contribution drives the bar scale.
+        const maxAbs = Math.max(...rows.map(r => Math.abs(r.contributionPct)), 1);
+        const row = r => {
+            const pos = r.totalReturn >= 0;
+            const w = (Math.abs(r.contributionPct) / maxAbs) * 100;
+            const retPct = r.totalReturnPct != null ? ` (${this.arrow(r.totalReturn)} ${this.pct(Math.abs(r.totalReturnPct))})` : '';
+            return `<div class="mover-row stock-link" data-stock="${sanitize(r.symbol)}">
+                <div class="mover-head">
+                    <span class="mover-sym"><strong>${sanitize(r.symbol)}</strong> <span class="text-muted">${sanitize((r.name || '').slice(0, 22))}</span></span>
+                    <span class="mover-ret ${pos ? 'pos' : 'neg'}">${pos ? '+' : '-'}${this.moneyC(Math.abs(r.totalReturn), cur)}${retPct}</span>
+                </div>
+                <div class="mover-bar-track"><div class="mover-bar ${pos ? 'pos' : 'neg'}" style="width:${w.toFixed(1)}%;"></div></div>
+            </div>`;
+        };
+
+        // Top 5 gainers and bottom 5 detractors.
+        const gainers = rows.filter(r => r.totalReturn > 0).slice(0, 5);
+        const losers = rows.filter(r => r.totalReturn < 0).slice(-5).reverse();
+        const section = (title, list) => !list.length ? '' :
+            `<div class="mover-col"><div class="mover-col-title">${title}</div>${list.map(row).join('')}</div>`;
+        body.innerHTML = `<div class="mover-grid">${section('Top contributors', gainers)}${section('Top detractors', losers)}</div>`;
+    },
+
+    // Render the dividend withholding-tax breakdown card.
+    renderTax(t) {
+        const body = document.getElementById('taxBody');
+        const eff = document.getElementById('taxEffective');
+        if (!body) return;
+        const cur = (t && t.currency) || 'CAD';
+
+        if (!t || t.totalIncome <= 0) {
+            if (eff) eff.textContent = '';
+            body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">No projected dividend income to estimate tax on. Run a dividend fetch first.</p></div>';
+            return;
+        }
+
+        if (eff) eff.textContent = `${this.pct(t.effectiveRate * 100)} effective`;
+
+        const summary = `<div class="tax-summary">
+            <div class="tax-stat"><span class="tax-stat-val">${this.moneyC(t.totalIncome, cur)}</span><span class="tax-stat-lbl">Gross annual income</span></div>
+            <div class="tax-stat"><span class="tax-stat-val neg">-${this.moneyC(t.totalWithheld, cur)}</span><span class="tax-stat-lbl">Est. withholding tax</span></div>
+            <div class="tax-stat"><span class="tax-stat-val pos">${this.moneyC(t.afterTaxIncome, cur)}</span><span class="tax-stat-lbl">After-tax income</span></div>
+        </div>`;
+
+        const rows = (slices, head) => !slices.length ? '' : `<table class="tax-table">
+            <thead><tr><th>${head}</th><th>Income</th><th>Withheld</th><th>Rate</th></tr></thead>
+            <tbody>${slices.map(s => `<tr>
+                <td>${sanitize(s.key)}</td>
+                <td>${this.moneyC(s.income, cur)}</td>
+                <td class="${s.withheld > 0 ? 'neg' : ''}">${s.withheld > 0 ? '-' + this.moneyC(s.withheld, cur) : '—'}</td>
+                <td>${this.pct(s.rate * 100)}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+
+        body.innerHTML = summary +
+            `<div class="tax-tables">${rows(t.byAccount, 'By account')}${rows(t.byCountry, 'By source')}</div>`;
+    },
+
+    // Render the portfolio risk-metric chips below the performance chart.
+    renderRiskStats(risk) {
+        const el = document.getElementById('perfRisk');
+        if (!el) return;
+        if (!risk || (risk.volatility == null && risk.maxDrawdown == null && risk.sharpe == null && risk.beta == null)) {
+            el.innerHTML = '';
+            return;
+        }
+        const pct = v => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
+        const num = v => v == null ? '—' : v.toFixed(2);
+        const chip = (label, val, hint) => `<div class="risk-chip" title="${sanitize(hint)}">
+            <span class="risk-chip-val">${val}</span><span class="risk-chip-lbl">${label}</span></div>`;
+        el.innerHTML =
+            chip('Volatility', pct(risk.volatility), 'Annualized standard deviation of daily returns') +
+            chip('Max drawdown', pct(risk.maxDrawdown), 'Largest peak-to-trough decline') +
+            chip('Sharpe', num(risk.sharpe), 'Annualized return per unit of risk (risk-free rate assumed 0)') +
+            chip(`Beta vs ${sanitize(risk.benchmark || 'SPY')}`, num(risk.beta), 'Sensitivity to benchmark moves (1 = moves with the market)');
+    },
+
     renderPortfolioPerformance(result, rangeKey, benchOn, cur) {
         const canvas = document.getElementById('perfChart');
         const empty = document.getElementById('perfEmpty');
@@ -1906,8 +2052,14 @@ const UI = {
             const yocRow = yoc != null
                 ? row('Yield on cost', `<span class="pos">${this.pct(yoc)}</span>`)
                 : '';
+            // Heuristic dividend-safety grade (A–F) from streak / growth / yield.
+            const safety = DivMath.dividendSafety(asset);
+            const safetyRow = safety
+                ? row('Dividend safety', `<span class="div-grade div-grade-${safety.grade}" title="${sanitize(safety.factors.join(' · '))}">${safety.grade}</span> <span class="text-muted text-sm">(${safety.score}/100)</span>`)
+                : '';
             divPanel = `<div class="card sd-card">
                 <div class="card-title mb-2">Dividends</div>
+                ${safetyRow}
                 ${row('Dividend yield', asset.dividendYield != null ? this.pct(asset.dividendYield) : '—')}
                 ${yocRow}
                 ${row('Annual payout', asset.annualPayout != null ? this.moneyC(asset.annualPayout, cur) : '—')}

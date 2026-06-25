@@ -1,5 +1,6 @@
 import { listPortfolios, getCachedAccounts, getActiveAccountIds, getCachedPositions } from "../models/db.js";
 import { ensureProfiles } from "./assetProfileService.js";
+import { assetCurrency, convertToBase } from "./fxService.js";
 import { logger } from "../utils/logger.js";
 
 const norm = (s: unknown) => String(s ?? "").toUpperCase().trim();
@@ -11,6 +12,9 @@ export interface DiversificationResult {
   bySector: Slice[];
   byCountry: Slice[];
   byAssetType: Slice[];
+  byCurrency: Slice[];
+  baseCurrency: string;       // dominant holding currency
+  totalValueBase: number;     // FX-adjusted total in baseCurrency
   unclassified: number; // value with no profile/sector
 }
 
@@ -58,12 +62,17 @@ export async function getDiversification(allowedIds: Set<string> | null = null):
   const sector = new Map<string, number>();
   const country = new Map<string, number>();
   const assetType = new Map<string, number>();
+  const currency = new Map<string, number>();
   let unclassified = 0;
 
   for (const [sym, value] of valueBySymbol) {
     const p = profiles.get(sym);
     const t = p?.assetType || "Unknown";
     assetType.set(t, (assetType.get(t) ?? 0) + value);
+
+    // Currency exposure inferred from the symbol's exchange suffix.
+    const cur = assetCurrency(sym);
+    currency.set(cur, (currency.get(cur) ?? 0) + value);
 
     // ETFs/funds have no single sector or country — bucket them explicitly so
     // they don't distort equity sector weights.
@@ -75,12 +84,21 @@ export async function getDiversification(allowedIds: Set<string> | null = null):
     if (!isFund && !p?.sector) unclassified += value;
   }
 
+  // Base currency = the dominant holding currency; convert the rest to it (FX).
+  const baseCurrency = currency.size
+    ? Array.from(currency.entries()).sort((a, b) => b[1] - a[1])[0][0]
+    : "USD";
+  const totalValueBase = await convertToBase(currency, baseCurrency);
+
   const data: DiversificationResult = {
     totalValue: round2(total),
     holdings: symbols.length,
     bySector: toSlices(sector, total),
     byCountry: toSlices(country, total),
     byAssetType: toSlices(assetType, total),
+    byCurrency: toSlices(currency, total),
+    baseCurrency,
+    totalValueBase: round2(totalValueBase),
     unclassified: round2(unclassified),
   };
   cache.set(key, { ts: Date.now(), data });

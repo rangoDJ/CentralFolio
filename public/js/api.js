@@ -199,6 +199,42 @@ const API = {
         return data;
     },
 
+    async getRisk(benchmark = 'SPY', accountIds = null) {
+        let url = `/api/analytics/risk?benchmark=${encodeURIComponent(benchmark)}`;
+        if (accountIds && accountIds.length > 0) url += `&accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load risk metrics');
+        return data;
+    },
+
+    async getAttribution(accountIds = null) {
+        let url = '/api/analytics/attribution';
+        if (accountIds && accountIds.length > 0) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load attribution');
+        return data;
+    },
+
+    async getRealizedGains(accountIds = null) {
+        let url = '/api/analytics/realized-gains';
+        if (accountIds && accountIds.length > 0) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load realized gains');
+        return data;
+    },
+
+    async getTax(accountIds = null) {
+        let url = '/api/analytics/tax';
+        if (accountIds && accountIds.length > 0) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load tax estimate');
+        return data;
+    },
+
     async getDiversification(accountIds = null) {
         let url = '/api/analytics/diversification';
         if (accountIds && accountIds.length > 0) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;

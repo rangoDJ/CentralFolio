@@ -872,6 +872,15 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .sd-body { margin-bottom: 1.25rem; }
 .sd-card { max-width: 420px; }
 
+/* Dividend-safety grade badge (A–F). */
+.div-grade { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px;
+  padding: 0 6px; border-radius: 5px; font-size: 0.78rem; font-weight: 800; color: #0a0a0a; cursor: help; }
+.div-grade-A { background: #22c55e; }
+.div-grade-B { background: #84cc16; }
+.div-grade-C { background: #eab308; }
+.div-grade-D { background: #f97316; }
+.div-grade-F { background: #ef4444; color: #fff; }
+
 /* ── Portfolio performance card ──────────────────────────────────── */
 .perf-summary { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; margin-top: 0.3rem; font-feature-settings: "tnum"; }
 .perf-summary .perf-val { font-size: 1.1rem; font-weight: 700; color: var(--text); }
@@ -881,6 +890,45 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .perf-bench-toggle { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; color: var(--text-muted); cursor: pointer; user-select: none; }
 .perf-bench-toggle strong { color: #f5a623; }
 .perf-pills { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+/* Realized-gains / movers card use these utility colors. */
+#realizedTotal .pos, #realizedBody .pos, #moversTotal .pos { color: var(--success); }
+#realizedTotal .neg, #realizedBody .neg, #moversTotal .neg { color: var(--danger); }
+
+/* ── Top movers / attribution card ───────────────────────────────── */
+.mover-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+.mover-col-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 700; margin-bottom: 0.6rem; }
+.mover-row { padding: 0.4rem 0; cursor: pointer; }
+.mover-row:hover .mover-sym strong { text-decoration: underline; }
+.mover-head { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.85rem; margin-bottom: 0.3rem; }
+.mover-sym { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mover-ret { white-space: nowrap; font-weight: 600; font-feature-settings: "tnum"; }
+.mover-ret.pos { color: var(--success); }
+.mover-ret.neg { color: var(--danger); }
+.mover-bar-track { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.mover-bar { height: 100%; border-radius: 3px; }
+.mover-bar.pos { background: var(--success); }
+.mover-bar.neg { background: var(--danger); }
+
+/* ── Dividend withholding tax card ───────────────────────────────── */
+.tax-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+.tax-stat { display: flex; flex-direction: column; gap: 3px; }
+.tax-stat-val { font-size: 1.2rem; font-weight: 700; font-feature-settings: "tnum"; }
+.tax-stat-val.pos { color: var(--success); }
+.tax-stat-val.neg { color: var(--danger); }
+.tax-stat-lbl { font-size: 0.74rem; color: var(--text-muted); }
+.tax-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
+.tax-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.tax-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); font-weight: 600; padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); }
+.tax-table th:not(:first-child), .tax-table td:not(:first-child) { text-align: right; }
+.tax-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); font-feature-settings: "tnum"; }
+.tax-table td.neg { color: var(--danger); }
+
+.perf-risk { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+.perf-risk:empty { display: none; }
+.risk-chip { display: flex; flex-direction: column; gap: 2px; padding: 0.5rem 0.85rem; flex: 1; min-width: 110px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: help; }
+.risk-chip-val { font-size: 1.05rem; font-weight: 700; font-feature-settings: "tnum"; color: var(--text); }
+.risk-chip-lbl { font-size: 0.72rem; color: var(--text-muted); }
 
 /* ── Income projection (FIRE) card ───────────────────────────────── */
 .fire-body { display: grid; grid-template-columns: 240px 1fr; gap: 1.5rem; align-items: start; }
@@ -903,6 +951,7 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .div-legend-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .div-legend-pct { font-weight: 700; font-feature-settings: "tnum"; }
 .div-legend-val { font-size: 0.78rem; font-feature-settings: "tnum"; }
+.div-legend-fx { font-size: 0.76rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border); font-feature-settings: "tnum"; }
 @media (max-width: 640px) { .div-body { grid-template-columns: 1fr; } }
 
 /* ── Price history chart ─────────────────────────────────────────── */

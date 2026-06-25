@@ -1408,6 +1408,9 @@ const App = {
         // the synchronous dashboard widgets above.
         this.loadPortfolioPerformance();
         this.loadDiversification();
+        this.loadTax();
+        this.loadAttribution();
+        this.loadRealizedGains();
         this.updateProjection();
     },
 
@@ -1472,6 +1475,36 @@ const App = {
         }
     },
 
+    async loadTax() {
+        try {
+            const result = await API.getTax(this._getSelectedAccountIds());
+            UI.renderTax(result);
+        } catch (e) {
+            const body = document.getElementById('taxBody');
+            if (body) body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Could not load tax estimate.</p></div>';
+        }
+    },
+
+    async loadAttribution() {
+        try {
+            const result = await API.getAttribution(this._getSelectedAccountIds());
+            UI.renderAttribution(result);
+        } catch (e) {
+            const body = document.getElementById('moversBody');
+            if (body) body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Could not load contributors.</p></div>';
+        }
+    },
+
+    async loadRealizedGains() {
+        try {
+            const result = await API.getRealizedGains(this._getSelectedAccountIds());
+            UI.renderRealizedGains(result);
+        } catch (e) {
+            const body = document.getElementById('realizedBody');
+            if (body) body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Could not load realized gains.</p></div>';
+        }
+    },
+
     setDiversificationDim(dim) {
         this._divDim = dim;
         localStorage.setItem('cf_div_dim', dim);
@@ -1490,6 +1523,9 @@ const App = {
         const benchLabel = document.getElementById('perfBenchLabel');
         if (benchLabel) benchLabel.textContent = benchSym;
 
+        // Risk metrics load independently (server-cached); render alongside.
+        this.loadRiskMetrics(benchSym);
+
         // Re-use cached result unless it was invalidated (e.g. by a transaction sync).
         if (this._perfResult) {
             this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
@@ -1506,6 +1542,15 @@ const App = {
         } catch (e) {
             const empty = document.getElementById('perfEmpty');
             if (empty) { empty.style.display = 'flex'; empty.querySelector('p').textContent = 'Could not load performance data.'; }
+        }
+    },
+
+    async loadRiskMetrics(benchSym) {
+        try {
+            const risk = await API.getRisk(benchSym, this._getSelectedAccountIds());
+            UI.renderRiskStats(risk);
+        } catch (_) {
+            UI.renderRiskStats(null);
         }
     },
 

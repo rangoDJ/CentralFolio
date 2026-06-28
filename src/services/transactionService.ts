@@ -2,7 +2,11 @@ import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getAc
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
 import { randomUUID } from "crypto";
+
+// Max account transaction fetches in flight at once, to stay within SnapTrade rate limits.
+const ACCOUNT_FETCH_CONCURRENCY = 4;
 
 export interface Transaction {
   id: string;
@@ -145,7 +149,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
           }
         }
 
-        const accountPromises = cachedAccounts.map(async (account) => {
+        await mapWithConcurrency(cachedAccounts, ACCOUNT_FETCH_CONCURRENCY, async (account) => {
           // Only process active accounts
           if (!activeAccountIds.has(account.id)) {
             logger.debug('Transactions', `Skipping inactive account ${account.id}`);
@@ -202,8 +206,6 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
             errorCount++;
           }
         });
-
-        await Promise.all(accountPromises);
       } catch (err: any) {
         logger.warn('Transactions', `Error processing portfolio "${portfolio.name}": ${err.message}`);
         errorCount++;

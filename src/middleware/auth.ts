@@ -3,9 +3,27 @@ import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import { getJwtSecret, getPasswordHash } from "../models/db.js";
 
+export const AUTH_COOKIE = "cf_token";
+
+/** Minimal Cookie header parser — avoids pulling in a cookie-parser dependency. */
+function readCookie(req: Request, name: string): string | undefined {
+  const raw = req.headers.cookie;
+  if (!raw) return undefined;
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      return decodeURIComponent(part.slice(eq + 1).trim());
+    }
+  }
+  return undefined;
+}
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  // Accept the token from either the Authorization header (legacy/SPA bearer
+  // flow) or the httpOnly cookie (preferred — not readable by injected scripts).
   const header = req.headers.authorization;
-  const token = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+  const token = header?.startsWith("Bearer ") ? header.slice(7) : readCookie(req, AUTH_COOKIE);
   if (!token) {
     return res.status(401).json({ error: "Unauthorized" });
   }

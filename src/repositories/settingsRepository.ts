@@ -32,16 +32,25 @@ const stmtSetJwtSecret = db.prepare(
   "INSERT OR REPLACE INTO global_settings (key, value) VALUES ('jwt_secret', ?)"
 );
 
+// Keys whose values must never be written to logs in plaintext (API keys,
+// secrets, password hashes). Mirrors the masking done in adminController.
+const SENSITIVE_KEY_RE = /api_key|_secret|_hash/i;
+
+function maskValue(key: string, value: string | null): string {
+  if (value && SENSITIVE_KEY_RE.test(key)) return '***';
+  return value === null ? 'null' : `"${value}"`;
+}
+
 // ── General settings ──────────────────────────────────────────────────────────
 
 export function getSetting(key: string): string | null {
   const row = stmtGetSetting.get(key) as any;
-  logger.debug('DB', `getSetting("${key}") → ${row ? '"' + row.value + '"' : 'null'}`);
+  logger.debug('DB', `getSetting("${key}") → ${maskValue(key, row ? row.value : null)}`);
   return row ? row.value : null;
 }
 
 export function setSetting(key: string, value: string) {
-  logger.info('DB', `setSetting("${key}") = "${value}"`);
+  logger.info('DB', `setSetting("${key}") = ${maskValue(key, value)}`);
   stmtSetSetting.run(key, value);
 }
 

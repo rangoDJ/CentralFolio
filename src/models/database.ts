@@ -210,6 +210,24 @@ const migrations: Array<{ name: string; sql: string }> = [
       analyzedAt  DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ` },
+  { name: 'dividend_history.create', sql: `
+    CREATE TABLE IF NOT EXISTS dividend_history (
+      symbol   TEXT NOT NULL,
+      exDate   TEXT NOT NULL,            -- 'YYYY-MM-DD' (ex-dividend date)
+      amount   REAL NOT NULL,           -- cash dividend per share, in the listing currency
+      provider TEXT NOT NULL DEFAULT 'yahoo',
+      cachedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (symbol, exDate)
+    )
+  ` },
+  { name: 'dividend_history.idx_symbol', sql: `CREATE INDEX IF NOT EXISTS idx_dividend_history_symbol ON dividend_history(symbol)` },
+  { name: 'watchlist.create', sql: `
+    CREATE TABLE IF NOT EXISTS watchlist (
+      symbol  TEXT PRIMARY KEY,
+      notes   TEXT,
+      addedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);
@@ -231,7 +249,10 @@ for (const m of migrations) {
       markApplied.run(m.name); // record as applied so we never try again
       logger.info('Migration', `Already present (backfilled): ${m.name}`);
     } else {
+      // An unexpected migration failure leaves the schema half-applied. Fail
+      // loudly at startup rather than booting on a corrupt schema.
       logger.error('Migration', `Failed to apply "${m.name}": ${e.message}`);
+      throw new Error(`Migration "${m.name}" failed: ${e.message}`);
     }
   }
 }

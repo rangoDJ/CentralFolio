@@ -4,3 +4,11 @@ dist/
 user-credentials.json
 *.log
 .DS_Store
+
+# SQLite database + WAL/SHM sidecars (may contain secrets — never commit)
+*.db
+*.db-shm
+*.db-wal
+
+# Scratch / inspection dirs
+tmp_*/

@@ -3,6 +3,22 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { getPasswordHash, setPasswordHash, getJwtSecret } from "../models/db.js";
 import { logger } from "../utils/logger.js";
+import { AUTH_COOKIE } from "../middleware/auth.js";
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, matches the JWT expiry
+
+// Sets the session token as an httpOnly cookie so it is not exposed to JS (XSS).
+// `secure` follows the connection (respects `trust proxy`), so it still works on
+// plain-http localhost while being secure behind an HTTPS proxy in production.
+function setAuthCookie(req: Request, res: Response, token: string) {
+  res.cookie(AUTH_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "strict",
+    secure: req.secure,
+    maxAge: SESSION_TTL_MS,
+    path: "/",
+  });
+}
 
 // Simple in-memory rate limiter: max 10 attempts per IP per 15 minutes
 const loginAttempts = new Map<string, { count: number; firstAt: number }>();
@@ -79,8 +95,16 @@ export const login = async (req: Request, res: Response) => {
   }
   clearRateLimit(ip);
   const token = jwt.sign({ app: "centralfolio" }, getJwtSecret() + (hash || ""), { expiresIn: "7d" });
+  setAuthCookie(req, res, token);
   logger.info("Auth", `Successful login from ${ip}`);
+  // Token is also returned in the body for backwards compatibility with the
+  // existing bearer-based frontend; new clients can rely on the cookie instead.
   res.json({ token });
+};
+
+export const logout = (_req: Request, res: Response) => {
+  res.clearCookie(AUTH_COOKIE, { path: "/" });
+  res.json({ success: true });
 };
 
 export const changePassword = async (req: Request, res: Response) => {

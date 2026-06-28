@@ -1,7 +1,10 @@
 import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios, saveCachedAccounts, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
-import { sleep } from "../utils/sleep.js";
+import { mapWithConcurrency } from "../utils/concurrency.js";
+
+// Max account position fetches in flight at once, to stay within SnapTrade rate limits.
+const ACCOUNT_FETCH_CONCURRENCY = 4;
 
 export async function refreshAllHoldings(intervalMs: number, forceRefresh: boolean = false): Promise<{ processed: number; skipped: number; skippedInactive: number; errors: number; newHoldings: number }> {
   logger.info('Holdings', 'Starting holdings refresh cycle...');
@@ -41,7 +44,7 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
       }
     }
 
-    const accountPromises = accounts.map(async (account) => {
+    await mapWithConcurrency(accounts, ACCOUNT_FETCH_CONCURRENCY, async (account) => {
       if (!activeAccountIds.has(account.id)) {
         skippedInactive++;
         return;
@@ -83,8 +86,6 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
         errors++;
       }
     });
-
-    await Promise.all(accountPromises);
   }
 
   logger.info('Holdings', `Holdings refresh complete — ${processed} refreshed, ${skipped} skipped (cache fresh), ${skippedInactive} skipped (inactive), ${newHoldings} new holding(s), ${errors} errors`);

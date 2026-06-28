@@ -52,4 +52,15 @@ Dividend metadata (frequency, ex-date, amount per share) is fetched automaticall
 
 CentralFolio is single-user and protected by a password (bcrypt-hashed) with a JWT session secret, both stored in the local SQLite database. **No secrets ever leave your server.**
 
-The database and credentials live under the mounted `./data` volume and must **never** be committed to source control: `snaptrade.db` and its WAL sidecars (`snaptrade.db-shm`, `snaptrade.db-wal`), `user-credentials.json`, and `.env`. These hold SnapTrade API keys, the password hash, and the JWT secret.
+On login the session token is set as an `httpOnly`, `SameSite=Strict` cookie (`secure` when served over HTTPS), so it is not readable by injected scripts. `requireAuth` accepts the token from either that cookie or an `Authorization: Bearer` header, and `POST /auth/logout` clears the cookie. The bundled frontend still keeps a copy in `localStorage` for the bearer flow; a future hardening step is to drop the `localStorage` copy entirely and rely on the cookie alone.
+
+The database and credentials live under the mounted `./data` volume and must **never** be committed to source control: `snaptrade.db` and its WAL sidecars (`snaptrade.db-shm`, `snaptrade.db-wal`), `user-credentials.json`, and `.env`. These hold SnapTrade API keys, the password hash, and the JWT secret. Do not place `DATA_DIR` inside a cloud-synced folder (Dropbox, Nextcloud, iCloud, etc.) — the database holds plaintext secrets that would then be replicated to that service.
+
+### Single-instance deployment
+
+CentralFolio is designed to run as **a single process**. Login rate-limiting and short-lived SSE auth tickets are held in memory, not in the database, so:
+
+- Running more than one replica (e.g. scaling the container horizontally) will split this state and break rate-limiting and live-update tickets.
+- A restart resets the in-memory login rate-limit counters.
+
+For the intended single-user, single-container setup this is fine. If you ever need multiple instances, these stores must be moved to the shared SQLite database first.

@@ -940,6 +940,9 @@ const App = {
             this.updateTransactionsTimestamp();
         } else if (activeTab === 'rebalance' && (holdingsChanged || targetsChanged)) {
             this.loadRebalanceTab(false);
+        } else if (activeTab === 'watchlist' && (dividendsChanged || domains.has('priceHistory'))) {
+            // A background sync refreshed price/dividend data behind a watched symbol.
+            this.loadWatchlist();
         } else if (activeTab === 'dividend-tracker' && (dividendsChanged || transactionsChanged)) {
             // transactionsChanged also re-renders so newly-logged dividends recolor
             // expected → received in the forecast/calendar without a reload.
@@ -1412,6 +1415,25 @@ const App = {
         this.loadAttribution();
         this.loadRealizedGains();
         this.updateProjection();
+        this.applyDividendGrowthDefault();
+    },
+
+    // Prefill the income projection's "dividend growth %/yr" with the portfolio's
+    // actual market-value-weighted DGR (from dividend history). Runs once per
+    // session and never overwrites a value the user has typed.
+    async applyDividendGrowthDefault() {
+        if (this._dgrDefaultApplied) return;
+        this._dgrDefaultApplied = true;
+        try {
+            const { portfolioDgr } = await API.getHeldDividendGrowth();
+            if (portfolioDgr == null || this._userEditedDgr) return;
+            const el = document.getElementById('fireDgr');
+            if (!el) return;
+            el.value = (portfolioDgr * 100).toFixed(1);
+            el.title = 'Auto-filled from your holdings’ historical dividend growth — edit to override';
+            el.addEventListener('input', () => { this._userEditedDgr = true; }, { once: true });
+            this.updateProjection();
+        } catch (_) { /* leave the manual default in place */ }
     },
 
     // Current portfolio value + annual dividend income, used as the projection
@@ -1618,7 +1640,9 @@ const App = {
     logout() {
         this.disconnectLiveSync();
         localStorage.removeItem('cf_token');
-        window.location.href = '/login.html';
+        // Best-effort: clear the httpOnly session cookie server-side, then redirect.
+        const done = () => { window.location.href = '/login.html'; };
+        fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }).then(done, done);
     },
 
     switchMainTab(tabId, btnElement) {
@@ -1636,7 +1660,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', transactions: 'Transactions', rebalance: 'Rebalancing', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', rebalance: 'Rebalancing', settings: 'Settings' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -1662,6 +1686,64 @@ const App = {
             }
         } else if (tabId === 'rebalance') {
             this.loadRebalanceTab();
+        } else if (tabId === 'watchlist') {
+            this.loadWatchlist();
+        }
+    },
+
+    // ── Watchlist / dividend screener ──────────────────────────────────────────
+    _watchlistRows: [],
+
+    async loadWatchlist(force = false) {
+        const btn = document.getElementById('refreshWatchlistBtn');
+        if (force && btn) btn.classList.add('loading');
+        const container = document.getElementById('watchlist-content');
+        try {
+            this._watchlistRows = await API.getWatchlist();
+            this.renderWatchlistFiltered();
+        } catch (err) {
+            if (container) container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    },
+
+    renderWatchlistFiltered() {
+        const filter = (document.getElementById('watchlistFilter')?.value || '').toUpperCase().trim();
+        const rows = !filter ? this._watchlistRows
+            : this._watchlistRows.filter(r =>
+                (r.symbol || '').toUpperCase().includes(filter) ||
+                (r.name || '').toUpperCase().includes(filter) ||
+                (r.sector || '').toUpperCase().includes(filter));
+        UI.renderWatchlist(rows);
+    },
+
+    async addWatchlistSymbol() {
+        const input = document.getElementById('watchlistSymbolInput');
+        const status = document.getElementById('watchlistStatus');
+        const symbol = (input?.value || '').toUpperCase().trim();
+        if (!symbol) return;
+        if (status) status.textContent = `Adding ${symbol}…`;
+        try {
+            await API.addWatchlist(symbol);
+            if (input) input.value = '';
+            if (status) status.textContent = '';
+            UI.showToast(`${symbol} added to watchlist`);
+            await this.loadWatchlist();
+        } catch (err) {
+            if (status) status.textContent = '';
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async removeWatchlistSymbol(symbol) {
+        if (!symbol) return;
+        try {
+            await API.removeWatchlist(symbol);
+            UI.showToast(`${symbol} removed`);
+            await this.loadWatchlist();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
         }
     },
 

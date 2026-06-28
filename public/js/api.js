@@ -465,4 +465,37 @@ const API = {
         return data;
     },
 
+    // ── Watchlist / dividend screener ──────────────────────────────────────────
+    async getWatchlist() {
+        const res = await this._fetch('/api/watchlist');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load watchlist');
+        return data;
+    },
+
+    async addWatchlist(symbol, notes) {
+        const res = await this._fetch('/api/watchlist', {
+            method: 'POST',
+            body: JSON.stringify({ symbol, notes })
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to add to watchlist');
+        return data;
+    },
+
+    async removeWatchlist(symbol) {
+        const res = await this._fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to remove from watchlist');
+        return true;
+    },
+
+    // ── Dividend growth ────────────────────────────────────────────────────────
+    async getHeldDividendGrowth() {
+        const res = await this._fetch('/api/dividend-growth');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load dividend growth');
+        return data;
+    },
+
 };

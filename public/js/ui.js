@@ -1,16 +1,8 @@
 /**
  * UI rendering for CentralFolio — Wealthsimple-style theme
+ *
+ * `sanitize()` now lives in format.js (loaded first) as a shared global.
  */
-
-function sanitize(str) {
-    if (str == null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
 
 function findAccountInGroups(groups, aid) {
     for (const g of groups) {
@@ -55,6 +47,91 @@ const UI = {
         this.toast.className = `toast visible ${type}`;
         clearTimeout(this._toastTimer);
         this._toastTimer = setTimeout(() => this.toast.classList.remove('visible'), 4000);
+    },
+
+    // ── Watchlist / dividend screener ──────────────────────────────────────────
+    _wlRows: [],
+    _wlSort: { key: 'symbol', dir: 1 },
+
+    sortWatchlist(key) {
+        if (this._wlSort.key === key) this._wlSort.dir *= -1;
+        else this._wlSort = { key, dir: 1 };
+        this.renderWatchlist(this._wlRows);
+    },
+
+    renderWatchlist(rows) {
+        this._wlRows = rows || [];
+        const container = document.getElementById('watchlist-content');
+        if (!container) return;
+        if (this._wlRows.length === 0) {
+            container.innerHTML = '<div class="empty-state">No symbols match. Add a ticker above to start your watchlist.</div>';
+            return;
+        }
+
+        const { key, dir } = this._wlSort;
+        const sorted = [...this._wlRows].sort((a, b) => {
+            const av = a[key], bv = b[key];
+            if (av == null && bv == null) return 0;
+            if (av == null) return 1;            // nulls always sort last
+            if (bv == null) return -1;
+            if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+            return String(av).localeCompare(String(bv)) * dir;
+        });
+
+        const num = (v, dp = 2) => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
+        const pct = (v, dp = 1) => (v == null || isNaN(v)) ? '—' : `${Number(v).toFixed(dp)}%`;
+        const ratingColors = { 1: '#16c784', 2: '#2dce89', 3: '#f5a623', 4: '#f76b1c', 5: '#ea3943' };
+        const dgrCell = (v) => {
+            if (v == null || isNaN(v)) return '<span class="text-muted">—</span>';
+            const color = v >= 0 ? 'var(--primary)' : 'var(--danger)';
+            return `<span style="color:${color};font-weight:600;">${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%</span>`;
+        };
+        const streakCell = (n) => n > 0
+            ? `<span title="${n} consecutive year(s) of non-decreasing dividends">🔥 ${n}y</span>`
+            : '<span class="text-muted">—</span>';
+        const ratingCell = (r) => r.ratingLabel
+            ? `<span style="font-size:0.72rem;font-weight:600;padding:0.1rem 0.45rem;border-radius:999px;background:${ratingColors[r.ratingScore] || 'var(--surface-2)'}22;color:${ratingColors[r.ratingScore] || 'var(--text-muted)'};">${sanitize(r.ratingLabel)}</span>`
+            : '<span class="text-muted text-sm">—</span>';
+
+        const arrow = (k) => key === k ? (dir === 1 ? ' ▲' : ' ▼') : '';
+        const th = (k, label, align = 'left') =>
+            `<th style="text-align:${align};cursor:pointer;user-select:none;white-space:nowrap;" onclick="UI.sortWatchlist('${k}')">${label}${arrow(k)}</th>`;
+
+        const body = sorted.map(r => `
+            <tr>
+                <td><span class="stock-link" data-stock="${sanitize(r.symbol)}" style="font-weight:600;cursor:pointer;">${sanitize(r.symbol)}</span></td>
+                <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${sanitize(r.name || '')}">${sanitize(r.name || '—')}</td>
+                <td class="text-muted">${sanitize(r.sector || '—')}</td>
+                <td style="text-align:right;">${num(r.price)}</td>
+                <td style="text-align:right;font-weight:600;">${pct(r.yieldPct)}</td>
+                <td style="text-align:right;">${dgrCell(r.dgr5yPct)}</td>
+                <td style="text-align:center;">${streakCell(r.growthStreakYears)}</td>
+                <td style="text-align:center;">${ratingCell(r)}</td>
+                <td style="text-align:right;">
+                    <button class="btn btn-outline btn-sm" title="Remove from watchlist"
+                        onclick="App.removeWatchlistSymbol('${sanitize(r.symbol)}')"
+                        style="padding:0.15rem 0.5rem;line-height:1;">&times;</button>
+                </td>
+            </tr>`).join('');
+
+        container.innerHTML = `
+            <div class="card" style="overflow-x:auto;">
+                <table class="data-table watchlist-table" style="width:100%;">
+                    <thead><tr>
+                        ${th('symbol', 'Symbol')}
+                        ${th('name', 'Name')}
+                        ${th('sector', 'Sector')}
+                        ${th('price', 'Price', 'right')}
+                        ${th('yieldPct', 'Yield', 'right')}
+                        ${th('dgr5yPct', 'DGR', 'right')}
+                        ${th('growthStreakYears', 'Streak', 'center')}
+                        ${th('ratingScore', 'Rating', 'center')}
+                        <th></th>
+                    </tr></thead>
+                    <tbody>${body}</tbody>
+                </table>
+                <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">Yield = trailing-12-month dividends ÷ latest close. DGR = compound annual growth of yearly dividends (best of 5y/3y/1y). Data from Yahoo; may lag or be missing for some listings.</p>
+            </div>`;
     },
 
     openModal(portfolio = null) {

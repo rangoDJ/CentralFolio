@@ -9,6 +9,8 @@ import {
   getHeldSymbols,
   type PriceCandle,
 } from "../repositories/priceHistoryRepository.js";
+import { upsertDividendHistory } from "../repositories/dividendHistoryRepository.js";
+import type { DividendPayment } from "./dividendGrowth.js";
 
 // One shared client. v3 requires instantiation; suppress the interactive notices
 // (survey / "ripHistorical") so they don't spam server logs.
@@ -78,7 +80,9 @@ async function fetchAndStore(symbol: string, period1: string): Promise<number> {
   }
   lastFetchAt = Date.now();
 
-  const result = await yahoo.chart(yahooSymbol, { period1, interval: "1d" });
+  // `events: "div"` returns dividend events alongside candles in the same call,
+  // so dividend history stays in sync with price history at no extra API cost.
+  const result = await yahoo.chart(yahooSymbol, { period1, interval: "1d", events: "div" });
   const quotes = result?.quotes ?? [];
 
   const candles: PriceCandle[] = quotes
@@ -92,6 +96,20 @@ async function fetchAndStore(symbol: string, period1: string): Promise<number> {
       adjClose: q.adjclose ?? null,
       volume: q.volume ?? null,
     }));
+
+  // Persist dividend events (best-effort: never let this break candle storage).
+  try {
+    const divs = (result as any)?.events?.dividends as Array<{ amount: number; date: Date }> | undefined;
+    if (Array.isArray(divs) && divs.length > 0) {
+      const payments: DividendPayment[] = divs
+        .filter(d => d?.date != null && d?.amount != null && d.amount > 0)
+        .map(d => ({ exDate: isoDay(new Date(d.date as any)), amount: d.amount }));
+      const m = upsertDividendHistory(symbol, payments, "yahoo");
+      if (m > 0) emitDataChanged("dividends");
+    }
+  } catch (e: any) {
+    logger.debug("PriceHistory", `dividend-event store for ${symbol} failed: ${e?.message ?? e}`);
+  }
 
   const n = upsertCandles(symbol, candles, { provider: "yahoo", yahooSymbol });
   if (n > 0) emitDataChanged("priceHistory");
@@ -153,7 +171,8 @@ export async function syncAllHeldSymbols(): Promise<{ symbols: number; updated: 
   for (const sym of symbols) {
     try {
       updated += await syncSymbol(sym);
-    } catch {
+    } catch (e: any) {
+      logger.debug("PriceHistory", `syncSymbol("${sym}") failed: ${e?.message ?? e}`);
       errors++;
     }
   }
@@ -177,7 +196,12 @@ export async function getPriceHistory(
     // Block on first-ever fetch so the caller gets data; otherwise refresh in
     // the background and serve what we have.
     if (!latest) {
-      try { await syncSymbol(key); } catch { /* fall through to whatever is stored */ }
+      try {
+        await syncSymbol(key);
+      } catch (e: any) {
+        // Fall through to whatever is stored (likely empty on first fetch).
+        logger.debug("PriceHistory", `initial syncSymbol("${key}") failed: ${e?.message ?? e}`);
+      }
     } else {
       syncSymbol(key).catch(() => {});
     }

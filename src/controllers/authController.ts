@@ -94,7 +94,7 @@ export const login = async (req: Request, res: Response) => {
     return res.status(401).json({ error: "Invalid password." });
   }
   clearRateLimit(ip);
-  const token = jwt.sign({ app: "centralfolio" }, getJwtSecret() + (hash || ""), { expiresIn: "7d" });
+  const token = jwt.sign({ app: "centralfolio" }, getJwtSecret() + (hash || ""), { expiresIn: "7d", algorithm: "HS256" });
   setAuthCookie(req, res, token);
   logger.info("Auth", `Successful login from ${ip}`);
   // Token is also returned in the body for backwards compatibility with the

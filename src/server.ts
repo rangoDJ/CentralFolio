@@ -29,8 +29,21 @@ function storedInterval(jobName: string, defaultMs: number): number {
 }
 
 app.set('trust proxy', 1);
-app.use(express.json());
+// Caps request bodies well above any legitimate payload (trade orders, settings)
+// while blocking unbounded uploads from exhausting memory.
+app.use(express.json({ limit: '1mb' }));
 app.use(requestLogger);
+
+// Baseline security headers — cheap to set, no dependency needed for this small a set.
+app.use((req, res, next) => {
+  res.set({
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+  });
+  next();
+});
+
 app.use(express.static(path.resolve(__dirname, "../public")));
 
 // --- Auth routes (public) ---

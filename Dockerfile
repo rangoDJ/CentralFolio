@@ -23,6 +23,10 @@ COPY . .
 # Fail the build on type errors (tsx runs untyped at runtime, so this is the gate).
 RUN npx tsc --noEmit
 
+# Run as a non-root user rather than the container default (root).
+RUN chown -R node:node /app
+USER node
+
 # Expose the application port
 EXPOSE 3000
 

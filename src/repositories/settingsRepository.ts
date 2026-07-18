@@ -34,7 +34,7 @@ const stmtSetJwtSecret = db.prepare(
 
 // Keys whose values must never be written to logs in plaintext (API keys,
 // secrets, password hashes). Mirrors the masking done in adminController.
-const SENSITIVE_KEY_RE = /api_key|_secret|_hash/i;
+const SENSITIVE_KEY_RE = /api_key|_secret|_hash|webhook_url/i;
 
 function maskValue(key: string, value: string | null): string {
   if (value && SENSITIVE_KEY_RE.test(key)) return '***';

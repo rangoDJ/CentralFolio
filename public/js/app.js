@@ -79,6 +79,10 @@ const App = {
         document.getElementById('userPortfolioModalClose').onclick = () => UI.closeUserPortfolioModal();
         document.getElementById('userPortfolioForm').onsubmit = (e) => this.handleUserPortfolioSubmit(e);
 
+        // Manual asset modal
+        document.getElementById('manualAssetModalClose').onclick = () => UI.closeManualAssetModal();
+        document.getElementById('manualAssetForm').onsubmit = (e) => this.handleManualAssetSubmit(e);
+
         // Rebalancing targets form
         document.getElementById('rebalanceTargetsForm').onsubmit = (e) => this.handleSaveTargets(e);
 
@@ -106,6 +110,7 @@ const App = {
             if (e.target === UI.portfolioModal) UI.closeModal();
             if (e.target === document.getElementById('tradeModal')) this.closeTradeModal();
             if (e.target === document.getElementById('userPortfolioModal')) UI.closeUserPortfolioModal();
+            if (e.target === document.getElementById('manualAssetModal')) UI.closeManualAssetModal();
         };
 
         // Clicking any element tagged with data-stock opens the stock detail page.
@@ -125,6 +130,7 @@ const App = {
         document.getElementById('wipeBtn').onclick = () => this.handleWipeUsers();
         document.getElementById('purgeDataBtn').onclick = () => this.handlePurgeData();
         document.getElementById('clearDividendCacheBtn').onclick = () => this.handleClearDividendCache();
+        document.getElementById('testNotificationBtn').onclick = () => this.handleTestNotification();
     },
 
     async loadPortfolios() {
@@ -647,8 +653,57 @@ const App = {
                     }
                 };
             }
+            // Load notification settings
+            const notifEnabled = settings.notification_webhook_enabled === 'true';
+            const notifToggle = document.getElementById('notificationEnabledToggle');
+            if (notifToggle) {
+                notifToggle.checked = notifEnabled;
+                notifToggle.onchange = async () => {
+                    try {
+                        await API.updateSettings({
+                            notification_webhook_enabled: notifToggle.checked ? 'true' : 'false'
+                        });
+                        UI.showToast('Notification setting saved.');
+                    } catch (err) {
+                        UI.showToast('Failed to save notification setting.', 'error');
+                        notifToggle.checked = !notifToggle.checked;
+                    }
+                };
+            }
+            const notifUrlInput = document.getElementById('notificationWebhookUrlInput');
+            if (notifUrlInput && settings.notification_webhook_url) {
+                notifUrlInput.placeholder = '•••••••• (saved)';
+            }
         } catch (err) {
             console.error('Failed to load settings:', err);
+        }
+    },
+
+    async saveNotificationWebhookUrl() {
+        const input = document.getElementById('notificationWebhookUrlInput');
+        const url = (input?.value || '').trim();
+        if (!url) { UI.showToast('Enter a webhook URL first', 'error'); return; }
+        try {
+            await API.updateSettings({ notification_webhook_url: url });
+            if (input) { input.value = ''; input.placeholder = '•••••••• (saved)'; }
+            UI.showToast('Webhook URL saved');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async handleTestNotification() {
+        const btn = document.getElementById('testNotificationBtn');
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            await API.testNotification();
+            UI.showToast('Test notification sent');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
         }
     },
 
@@ -1414,6 +1469,7 @@ const App = {
         this.loadTax();
         this.loadAttribution();
         this.loadRealizedGains();
+        this.loadManualAssets();
         this.updateProjection();
         this.applyDividendGrowthDefault();
     },
@@ -1500,6 +1556,7 @@ const App = {
     async loadTax() {
         try {
             const result = await API.getTax(this._getSelectedAccountIds());
+            this.taxData = result;
             UI.renderTax(result);
         } catch (e) {
             const body = document.getElementById('taxBody');
@@ -1520,10 +1577,76 @@ const App = {
     async loadRealizedGains() {
         try {
             const result = await API.getRealizedGains(this._getSelectedAccountIds());
+            this.realizedGainsData = result;
             UI.renderRealizedGains(result);
         } catch (e) {
             const body = document.getElementById('realizedBody');
             if (body) body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Could not load realized gains.</p></div>';
+        }
+    },
+
+    // ── Manual (off-brokerage) assets ──────────────────────────────────────────
+    async loadManualAssets() {
+        try {
+            const [assets, summary] = await Promise.all([
+                API.getManualAssets(),
+                API.getManualAssetsSummary()
+            ]);
+            this.manualAssets = assets;
+            UI.renderManualAssets(assets, summary);
+        } catch (e) {
+            const body = document.getElementById('manualAssetsBody');
+            if (body) body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Could not load other assets.</p></div>';
+        }
+    },
+
+    openManualAssetModal(id = null) {
+        const asset = id != null ? (this.manualAssets || []).find(a => a.id === id) : null;
+        UI.openManualAssetModal(asset);
+    },
+
+    async handleManualAssetSubmit(e) {
+        e.preventDefault();
+        const saveBtn = document.getElementById('saveManualAssetBtn');
+        const errEl   = document.getElementById('maErrorMsg');
+        if (errEl) errEl.style.display = 'none';
+        saveBtn.classList.add('loading');
+        saveBtn.disabled = true;
+
+        const id = document.getElementById('maId').value;
+        const asset = {
+            name: document.getElementById('maName').value.trim(),
+            category: document.getElementById('maCategory').value.trim() || 'Other',
+            value: document.getElementById('maValue').value,
+            currency: (document.getElementById('maCurrency').value.trim() || 'CAD').toUpperCase(),
+            notes: document.getElementById('maNotes').value.trim() || null,
+        };
+
+        try {
+            if (id) {
+                await API.updateManualAsset(parseInt(id), asset);
+            } else {
+                await API.addManualAsset(asset);
+            }
+            UI.closeManualAssetModal();
+            await this.loadManualAssets();
+            UI.showToast(id ? 'Asset updated' : 'Asset added');
+        } catch (err) {
+            if (errEl) { errEl.textContent = err.message || 'Something went wrong.'; errEl.style.display = 'block'; }
+        } finally {
+            saveBtn.classList.remove('loading');
+            saveBtn.disabled = false;
+        }
+    },
+
+    async deleteManualAsset(id) {
+        if (!confirm('Delete this asset?')) return;
+        try {
+            await API.deleteManualAsset(id);
+            await this.loadManualAssets();
+            UI.showToast('Asset deleted');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
         }
     },
 

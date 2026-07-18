@@ -228,6 +228,18 @@ const migrations: Array<{ name: string; sql: string }> = [
       addedAt DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ` },
+  { name: 'manual_assets.create', sql: `
+    CREATE TABLE IF NOT EXISTS manual_assets (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      name      TEXT NOT NULL,
+      category  TEXT NOT NULL DEFAULT 'Other',
+      value     REAL NOT NULL,
+      currency  TEXT NOT NULL DEFAULT 'CAD',
+      notes     TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

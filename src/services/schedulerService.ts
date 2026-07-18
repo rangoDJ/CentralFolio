@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { logger } from "../utils/logger.js";
 import { emitJobStatus } from "./eventBus.js";
 import { getJobState, saveJobState, addJobRun } from "../models/db.js";
+import { sendWebhookNotification } from "./notificationService.js";
 
 export type JobStatus = 'idle' | 'running' | 'completed' | 'failed';
 
@@ -156,6 +157,11 @@ async function runJob(job: RegisteredJob, trigger: string): Promise<void> {
       error: err.message,
       info: null
     });
+
+    void sendWebhookNotification(
+      `${job.state.label} failed`,
+      `Trigger: ${trigger} · Error: ${err.message}`
+    );
   }
   emitJobStatus(job.state);
 }

@@ -498,4 +498,54 @@ const API = {
         return data;
     },
 
+    // ── Manual (off-brokerage) assets ──────────────────────────────────────────
+    async getManualAssets() {
+        const res = await this._fetch('/api/manual-assets');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load manual assets');
+        return data;
+    },
+
+    async getManualAssetsSummary() {
+        const res = await this._fetch('/api/manual-assets/summary');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load manual assets summary');
+        return data;
+    },
+
+    async addManualAsset(asset) {
+        const res = await this._fetch('/api/manual-assets', {
+            method: 'POST',
+            body: JSON.stringify(asset)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to add manual asset');
+        return data;
+    },
+
+    async updateManualAsset(id, asset) {
+        const res = await this._fetch(`/api/manual-assets/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(asset)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to update manual asset');
+        return data;
+    },
+
+    async deleteManualAsset(id) {
+        const res = await this._fetch(`/api/manual-assets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete manual asset');
+        return true;
+    },
+
+    // ── Notifications ───────────────────────────────────────────────────────────
+    async testNotification() {
+        const res = await this._fetch('/api/admin/test-notification', { method: 'POST' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to send test notification');
+        return data;
+    },
+
 };

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listUsers, deleteUser, wipeAllUsers, getSettings, updateSettings, clearCache, purgeData } from "../controllers/adminController.js";
+import { listUsers, deleteUser, wipeAllUsers, getSettings, updateSettings, clearCache, purgeData, testNotification } from "../controllers/adminController.js";
 
 const router = Router();
 
@@ -10,5 +10,6 @@ router.post("/purge-data", purgeData);
 router.post("/clear-cache", clearCache);
 router.get("/settings", getSettings);
 router.post("/settings", updateSettings);
+router.post("/test-notification", testNotification);
 
 export default router;

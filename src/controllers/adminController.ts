@@ -4,6 +4,7 @@ import { listSettings, setSetting, clearAllUserPortfolios } from "../models/db.j
 import { clearAllCaches } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 import { emitDataChanged } from "../services/eventBus.js";
+import { sendWebhookNotification } from "../services/notificationService.js";
 
 // Keys that must never be written via the settings API — only set internally
 const PROTECTED_SETTINGS = new Set(['jwt_secret', 'auth_password_hash']);
@@ -18,11 +19,13 @@ const ALLOWED_SETTINGS = new Set([
   'yahoo_api_key',
   'job_dividend-fetch_interval_hours',
   'job_holdings-refresh_interval_hours',
-  'job_transactions-refresh_interval_hours'
+  'job_transactions-refresh_interval_hours',
+  'notification_webhook_url',
+  'notification_webhook_enabled'
 ]);
 
 // Pattern for values that must be masked before sending to the client
-const SENSITIVE_KEY_RE = /api_key|_secret|_hash/i;
+const SENSITIVE_KEY_RE = /api_key|_secret|_hash|webhook_url/i;
 
 function maskSettings(settings: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
@@ -156,6 +159,15 @@ export const updateSettings = (req: Request, res: Response) => {
     logger.error('Admin', `updateSettings error: ${err.message}`);
     res.status(500).json({ error: "Failed to update settings", detail: err.message });
   }
+};
+
+export const testNotification = async (_req: Request, res: Response) => {
+  logger.info('Admin', 'POST /admin/test-notification');
+  const result = await sendWebhookNotification('CentralFolio test notification', 'Your webhook is configured correctly.');
+  if (!result.sent) {
+    return res.status(400).json({ error: result.error || 'Failed to send test notification' });
+  }
+  res.json({ success: true });
 };
 
 export const purgeData = async (req: Request, res: Response) => {

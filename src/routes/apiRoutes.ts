@@ -6,6 +6,7 @@ import jobRoutes from "./jobRoutes.js";
 import analyticsRoutes from "./analyticsRoutes.js";
 import userPortfolioRoutes from "./userPortfolioRoutes.js";
 import watchlistRoutes from "./watchlistRoutes.js";
+import manualAssetRoutes from "./manualAssetRoutes.js";
 import { stockDetailHandler, priceHistoryHandler } from "../controllers/stockController.js";
 
 const router = Router();
@@ -22,6 +23,7 @@ router.use("/admin", adminRoutes);
 router.use("/jobs", jobRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/user-portfolios", userPortfolioRoutes);
+router.use("/manual-assets", manualAssetRoutes);
 router.use("/", watchlistRoutes);
 router.use("/", snapTradeRoutes);
 

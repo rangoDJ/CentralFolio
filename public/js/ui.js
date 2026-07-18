@@ -935,6 +935,63 @@ const UI = {
         body.innerHTML = summary + `<div class="tax-tables">${yearRows}${acctRows}</div>`;
     },
 
+    // Render the manual (off-brokerage) assets card: real estate, GICs, crypto, etc.
+    renderManualAssets(assets, summary) {
+        const body = document.getElementById('manualAssetsBody');
+        const totalEl = document.getElementById('manualAssetsTotal');
+        if (!body) return;
+
+        if (totalEl) {
+            totalEl.textContent = summary && summary.count > 0
+                ? this.moneyC(summary.totalValueBase, summary.baseCurrency)
+                : '';
+        }
+
+        if (!assets || assets.length === 0) {
+            body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">No manual assets yet — add real estate, GICs, or anything else outside your connected brokerages.</p></div>';
+            return;
+        }
+
+        const rows = assets.map(a => `<tr>
+            <td>${sanitize(a.name)}</td>
+            <td class="text-muted">${sanitize(a.category)}</td>
+            <td class="right">${this.moneyC(a.value, a.currency)}</td>
+            <td class="right" style="white-space:nowrap;">
+                <button class="btn btn-outline btn-sm" onclick="App.openManualAssetModal(${a.id})">Edit</button>
+                <button class="btn btn-outline btn-sm" onclick="App.deleteManualAsset(${a.id})">Delete</button>
+            </td>
+        </tr>`).join('');
+
+        body.innerHTML = `<table class="tax-table">
+            <thead><tr><th>Name</th><th>Category</th><th>Value</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    },
+
+    openManualAssetModal(asset) {
+        const errEl = document.getElementById('maErrorMsg');
+        if (errEl) errEl.style.display = 'none';
+        const modal = document.getElementById('manualAssetModal');
+        const title = document.getElementById('manualAssetModalTitle');
+        const form  = document.getElementById('manualAssetForm');
+
+        form.reset();
+        document.getElementById('maId').value = asset ? asset.id : '';
+        document.getElementById('maName').value = asset ? asset.name : '';
+        document.getElementById('maCategory').value = asset ? asset.category : '';
+        document.getElementById('maValue').value = asset ? asset.value : '';
+        document.getElementById('maCurrency').value = asset ? asset.currency : 'CAD';
+        document.getElementById('maNotes').value = asset ? (asset.notes || '') : '';
+        title.textContent = asset ? 'Edit Asset' : 'Add Asset';
+
+        modal.classList.add('open');
+    },
+
+    closeManualAssetModal() {
+        const modal = document.getElementById('manualAssetModal');
+        if (modal) modal.classList.remove('open');
+    },
+
     // Render the top-movers / contribution-attribution card.
     renderAttribution(result) {
         const body = document.getElementById('moversBody');
@@ -1641,6 +1698,50 @@ const UI = {
         document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
         this.showToast('Transactions exported');
+    },
+
+    _downloadCsv(filename, header, rows) {
+        const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const lines = [header.join(','), ...rows.map(r => r.map(esc).join(','))];
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    },
+
+    exportTax() {
+        const t = App.taxData;
+        if (!t || !t.byAccount || t.byAccount.length === 0) { this.showToast('No tax data to export', 'error'); return; }
+        const rows = [
+            ...t.byAccount.map(a => ['By account', a.key, a.income, a.withheld, a.rate]),
+            ...t.byCountry.map(c => ['By country', c.key, c.income, c.withheld, c.rate]),
+            ['Total', '', t.totalIncome, t.totalWithheld, t.effectiveRate],
+        ];
+        this._downloadCsv(
+            `centralfolio-dividend-tax-${new Date().toISOString().slice(0, 10)}.csv`,
+            ['Breakdown', 'Key', 'Income', 'Withheld', 'Rate'],
+            rows
+        );
+        this.showToast('Tax estimate exported');
+    },
+
+    exportRealizedGains() {
+        const r = App.realizedGainsData;
+        if (!r || !r.byYear || r.byYear.length === 0) { this.showToast('No realized gains to export', 'error'); return; }
+        const rows = [
+            ...r.byYear.map(y => ['By year', y.year, y.gain, y.taxableGain]),
+            ...r.byAccount.map(a => ['By account', a.account, a.gain, a.registered ? 'Tax-free' : 'Taxable']),
+            ['Total', '', r.totalGain, r.taxableAccountGain],
+        ];
+        this._downloadCsv(
+            `centralfolio-realized-gains-${new Date().toISOString().slice(0, 10)}.csv`,
+            ['Breakdown', 'Key', 'Gain', 'Taxable/Status'],
+            rows
+        );
+        this.showToast('Realized gains exported');
     },
 
     renderJobsPanel(jobs) {

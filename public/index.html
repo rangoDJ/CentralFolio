@@ -218,7 +218,10 @@
         <div class="card mb-3" id="taxCard">
           <div class="card-header">
             <span class="card-title">Dividend withholding tax</span>
-            <span id="taxEffective" class="text-sm" style="color:var(--text-muted);font-weight:600;"></span>
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+              <span id="taxEffective" class="text-sm" style="color:var(--text-muted);font-weight:600;"></span>
+              <button class="btn btn-outline btn-sm" onclick="UI.exportTax()">Export CSV</button>
+            </div>
           </div>
           <div id="taxBody"><div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading tax estimate…</p></div></div>
           <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">Estimate only — assumes Canada–US treaty (RRSP exempt from US withholding; TFSA/taxable withheld 15%). Not tax advice.</p>
@@ -228,10 +231,26 @@
         <div class="card mb-3" id="realizedCard">
           <div class="card-header">
             <span class="card-title">Realized capital gains</span>
-            <span id="realizedTotal" class="text-sm" style="font-weight:600;"></span>
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+              <span id="realizedTotal" class="text-sm" style="font-weight:600;"></span>
+              <button class="btn btn-outline btn-sm" onclick="UI.exportRealizedGains()">Export CSV</button>
+            </div>
           </div>
           <div id="realizedBody"><div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading realized gains…</p></div></div>
           <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">ACB (average-cost) method. Taxable estimate uses Canada's 50% inclusion on non-registered accounts; RRSP/TFSA gains are tax-free. Not tax advice.</p>
+        </div>
+
+        <!-- Manual (off-brokerage) assets: real estate, private investments, etc. -->
+        <div class="card mb-3" id="manualAssetsCard">
+          <div class="card-header">
+            <span class="card-title">Other Assets</span>
+            <div style="display:flex;align-items:center;gap:0.75rem;">
+              <span id="manualAssetsTotal" class="text-sm" style="font-weight:600;"></span>
+              <button class="btn btn-primary btn-sm" onclick="UI.openManualAssetModal()">Add Asset</button>
+            </div>
+          </div>
+          <p class="text-muted text-sm mb-2">Assets not tracked by a connected brokerage — real estate, GICs, private investments, crypto — included in your net worth.</p>
+          <div id="manualAssetsBody"><div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading…</p></div></div>
         </div>
 
         <!-- Upcoming dividend events -->
@@ -752,7 +771,7 @@
               </div>
 
               <!-- Dividend provider -->
-              <div class="card">
+              <div class="card mb-3">
                 <div class="card-header" style="margin-bottom:0.75rem;">
                   <span class="card-title">Dividend Data Provider</span>
                 </div>
@@ -769,6 +788,37 @@
                 </div>
                 <div style="border-top:1px solid var(--border);padding-top:1rem;display:flex;flex-direction:column;gap:0.5rem;">
                   <button id="clearDividendCacheBtn" class="btn btn-outline w-full">Clear Dividend Cache</button>
+                </div>
+              </div>
+
+              <!-- Notifications -->
+              <div class="card">
+                <div class="card-header" style="margin-bottom:0.75rem;">
+                  <span class="card-title">Notifications</span>
+                </div>
+                <p class="text-muted text-sm mb-3">Get a webhook call when a background sync job fails. Works with any generic JSON webhook receiver — the payload includes a Discord-compatible <code>content</code> field, so a Discord channel webhook URL works unmodified.</p>
+                <div class="settings-row mb-2">
+                  <div class="settings-row-info">
+                    <label class="settings-row-label" for="notificationWebhookUrlInput">Webhook URL</label>
+                    <div class="settings-row-desc">e.g. a Discord channel webhook, or ntfy/custom endpoint</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;">
+                  <input type="password" id="notificationWebhookUrlInput" class="form-input" placeholder="https://…" style="flex:1;font-family:monospace;font-size:0.85rem;">
+                  <button class="btn btn-primary btn-sm" onclick="App.saveNotificationWebhookUrl()">Save</button>
+                </div>
+                <div class="settings-row mb-3">
+                  <div class="settings-row-info">
+                    <div class="settings-row-label">Enable notifications</div>
+                    <div class="settings-row-desc">Send a webhook call on job failures</div>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="notificationEnabledToggle">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div style="border-top:1px solid var(--border);padding-top:1rem;display:flex;align-items:center;gap:0.75rem;">
+                  <button id="testNotificationBtn" class="btn btn-outline w-full">Send Test Notification</button>
                 </div>
               </div>
             </div>
@@ -876,6 +926,52 @@
         <button type="submit" id="saveUserPortBtn" class="btn btn-primary w-full">
           <span class="loader"></span>
           <span class="btn-text">Save Portfolio</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manual Asset Modal -->
+  <div id="manualAssetModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:420px;">
+      <button class="modal-close" id="manualAssetModalClose">&times;</button>
+      <h2 class="modal-title" id="manualAssetModalTitle">Add Asset</h2>
+      <form id="manualAssetForm">
+        <input type="hidden" id="maId">
+        <div class="form-group">
+          <label for="maName">Name</label>
+          <input type="text" id="maName" placeholder="e.g. Cottage, GIC, Crypto wallet" required maxlength="120">
+        </div>
+        <div class="form-group">
+          <label for="maCategory">Category</label>
+          <input type="text" id="maCategory" placeholder="Real Estate, GIC, Crypto, …" maxlength="60" list="maCategoryOptions">
+          <datalist id="maCategoryOptions">
+            <option value="Real Estate"></option>
+            <option value="GIC / Term Deposit"></option>
+            <option value="Crypto"></option>
+            <option value="Private Investment"></option>
+            <option value="Vehicle"></option>
+            <option value="Other"></option>
+          </datalist>
+        </div>
+        <div style="display:flex;gap:0.75rem;">
+          <div class="form-group" style="flex:1;">
+            <label for="maValue">Value</label>
+            <input type="number" id="maValue" step="0.01" min="0" required>
+          </div>
+          <div class="form-group" style="width:110px;">
+            <label for="maCurrency">Currency</label>
+            <input type="text" id="maCurrency" value="CAD" maxlength="3" style="text-transform:uppercase;">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="maNotes">Notes <span class="text-muted">(optional)</span></label>
+          <input type="text" id="maNotes" maxlength="500">
+        </div>
+        <div id="maErrorMsg" style="display:none;color:var(--danger,#ef4444);font-size:0.85rem;padding:0.5rem 0.75rem;background:rgba(239,68,68,0.1);border-radius:var(--radius-sm,6px);margin-bottom:0.75rem;"></div>
+        <button type="submit" id="saveManualAssetBtn" class="btn btn-primary w-full">
+          <span class="loader"></span>
+          <span class="btn-text">Save Asset</span>
         </button>
       </form>
     </div>

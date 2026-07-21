@@ -40,6 +40,10 @@ export interface T5008Transaction {
   amount?: number | null;
   date?: string | null;
   currencyCode?: string | null;
+  // Carried through to the disposition for display. ACB pooling deliberately
+  // ignores these — see computeDispositions.
+  account?: string | null;
+  accountId?: string | null;
 }
 
 export interface Disposition {
@@ -49,7 +53,22 @@ export interface Disposition {
   year: number;
   quantity: number;            // Box 16
   currency: string;            // Box 13 — currency the trade settled in
-  securityType: string;        // Box 15 — SHS / MFT / BON
+  securityType: string;        // Box 15 — SHS / MFT / BON / CRYPTO
+  account: string;
+  accountId: string;
+
+  /**
+   * Crypto is a capital asset but not a security: it belongs on Schedule 3 and
+   * no broker issues a T5008 for it. Surfaced so the UI can separate the two.
+   */
+  isCrypto: boolean;
+
+  /**
+   * True when the sale was matched against no recorded purchase, so the cost
+   * base is 0 and the entire proceeds show up as gain. Almost always means the
+   * buy predates the broker's transaction window, not that the units were free.
+   */
+  missingCostBasis: boolean;
 
   // Native-currency figures, as the broker's slip will show them.
   proceedsNative: number;      // Box 21
@@ -139,8 +158,24 @@ function saleAmountsOf(t: T5008Transaction, units: number): { proceeds: number; 
   return { proceeds: net ?? gross ?? 0, outlays: 0 };
 }
 
+/**
+ * Common crypto tickers. Crypto disposals are taxable capital dispositions but
+ * are NOT securities — no T5008 is issued for them — so they are tagged rather
+ * than given a CRA security type code.
+ */
+const CRYPTO = new Set([
+  "BTC", "ETH", "USDC", "USDT", "SOL", "ADA", "XRP", "DOGE", "LTC", "DOT",
+  "AVAX", "MATIC", "LINK", "UNI", "BCH", "XLM", "ATOM", "ALGO", "SHIB", "AAVE",
+]);
+
+export function isCryptoSymbol(symbol: string, accountName = ""): boolean {
+  const s = norm(symbol).replace(/[-/](CAD|USD)$/, "");
+  return CRYPTO.has(s) || /\bCRYPTO\b/.test(norm(accountName));
+}
+
 /** CRA security type code, inferred from the instrument. */
-function securityType(symbol: string, description: string): string {
+function securityType(symbol: string, description: string, crypto: boolean): string {
+  if (crypto) return "CRYPTO";
   const s = `${symbol} ${description}`.toUpperCase();
   if (/\bBOND\b|\bDEBENTURE\b/.test(s)) return "BON";
   if (/\bFUND\b|\bETF\b|\bTRUST\b|\bINDEX\b/.test(s)) return "MFT";
@@ -164,6 +199,14 @@ export interface FxLookup {
 
 /**
  * Build dispositions from a transaction list.
+ *
+ * IMPORTANT — pass transactions for ALL of the taxpayer's non-registered
+ * accounts in a single call. Cost base is pooled per *symbol*, deliberately
+ * ignoring which account a trade sat in, because CRA treats identical property
+ * as one pool across everything the taxpayer owns. Running this once per
+ * account instead would produce a different (wrong) cost base for any security
+ * held in more than one account. Each disposition still reports the account it
+ * occurred in, for display only.
  *
  * @param txns   all buy/sell transactions for the reportable (non-registered)
  *               accounts. Pass every year — ACB depends on the full history, so
@@ -270,6 +313,8 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
 
       const allowableGain = gain + superficialLoss;
       const description = String(t.description ?? "").trim() || symbol;
+      const account = String(t.account ?? "").trim() || "Account";
+      const crypto = isCryptoSymbol(symbol, account);
 
       dispositions.push({
         symbol,
@@ -278,7 +323,11 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
         year: Number(t._date.slice(0, 4)),
         quantity: round2(soldUnits),
         currency,
-        securityType: securityType(symbol, description),
+        securityType: securityType(symbol, description, crypto),
+        account,
+        accountId: String(t.accountId ?? ""),
+        isCrypto: crypto,
+        missingCostBasis: costBasis === 0 && proceeds > 0,
         proceedsNative: round2(proceedsNative),
         costBasisNative: round2(costBasisNative),
         proceeds: round2(proceeds),
@@ -301,6 +350,28 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
   }
 
   dispositions.sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
+
+  // A zero cost base is almost never real — it means the purchase happened
+  // before the broker's transaction window, so the whole proceeds are being
+  // reported as gain. Surface it rather than letting it inflate the return.
+  const noCost = dispositions.filter(d => d.missingCostBasis);
+  if (noCost.length > 0) {
+    const overstated = round2(noCost.reduce((s, d) => s + d.proceeds, 0));
+    warnings.push(
+      `${noCost.length} disposition(s) have no recorded purchase (${noCost.map(d => d.symbol).join(", ")}). ` +
+      `Their cost base is 0, so ${overstated} of proceeds is counted entirely as gain. ` +
+      `Enter the real ACB from your broker's records before filing.`
+    );
+  }
+
+  const crypto = dispositions.filter(d => d.isCrypto);
+  if (crypto.length > 0) {
+    warnings.push(
+      `${crypto.length} disposition(s) are crypto assets. These are taxable capital dispositions ` +
+      `and belong on Schedule 3, but brokers do NOT issue a T5008 for them — do not expect a ` +
+      `matching slip.`
+    );
+  }
 
   return { dispositions, summaryByYear: summarizeByYear(dispositions), warnings };
 }

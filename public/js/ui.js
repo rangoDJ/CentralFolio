@@ -1120,6 +1120,8 @@ const UI = {
         const rows = ds.map(d => {
             const flags = [];
             if (d.superficialLoss > 0) flags.push(`<span class="t5008-flag t5008-flag-warn" title="${sanitize(d.superficialNote || '')}">superficial loss</span>`);
+            if (d.missingCostBasis) flags.push('<span class="t5008-flag t5008-flag-danger" title="No purchase was found for these units, so the cost base is 0 and the full proceeds are counted as gain. Enter the real ACB from your broker before filing.">no cost base</span>');
+            if (d.isCrypto) flags.push('<span class="t5008-flag t5008-flag-info" title="Crypto is a taxable capital disposition and belongs on Schedule 3, but no T5008 slip is issued for it">crypto — no slip</span>');
             if (d.fxRateMissing) flags.push('<span class="t5008-flag t5008-flag-warn" title="No exchange rate found for this date — 1.0 was assumed">FX missing</span>');
 
             const nativeLine = d.currency !== cur

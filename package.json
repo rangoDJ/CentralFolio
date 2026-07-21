@@ -8,7 +8,7 @@
     "register": "tsx src/scripts/register.ts",
     "login": "tsx src/scripts/login.ts",
     "list-users": "tsx src/scripts/list-users.ts",
-    "start": "tsx src/server.ts",
+    "start": "tsx --env-file=.env src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
@@ -17,7 +17,7 @@
     "@google/genai": "^2.5.0",
     "@types/node-cron": "^3.0.11",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^12.11.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.2.1",

@@ -18,10 +18,8 @@ import { logger } from "../utils/logger.js";
 
 const BASE_CURRENCY = "CAD";
 
-export interface AccountDisposition extends Disposition {
-  account: string;
-  accountId: string;
-}
+/** Dispositions already carry their account label from the pooled pass. */
+export type AccountDisposition = Disposition;
 
 export interface T5008Report extends Omit<T5008Result, "dispositions"> {
   dispositions: AccountDisposition[];
@@ -55,7 +53,8 @@ function collectReportableAccounts(allowedIds?: Set<string> | null): {
       const label = acct.customName || acct.name || "Account";
       const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
       if (cls !== "taxable") {
-        excluded.push(label);
+        // Several accounts can share a broker-assigned name; only list each once.
+        if (!excluded.includes(label)) excluded.push(label);
         continue;
       }
 
@@ -125,29 +124,17 @@ export async function getT5008Report(
 
   const lookup = (currency: string, date: string) => fxRateOn(currency, BASE_CURRENCY, date);
 
-  const allDispositions: AccountDisposition[] = [];
-  const warnings: string[] = [];
+  // ONE pooled pass over every taxable account. CRA treats identical property as
+  // a single pool across all of a taxpayer's non-registered accounts, so the
+  // transactions are tagged with their account and then merged — computing per
+  // account would give a different cost base for anything held in two places.
+  const pooled = accounts.flatMap(a =>
+    a.txns.map(t => ({ ...t, account: a.label, accountId: a.accountId }))
+  );
 
-  // Run per account — ACB pools are per-account here rather than per-taxpayer.
-  // (CRA technically pools identical property across all non-registered accounts;
-  // see the note surfaced in the UI when more than one taxable account is in play.)
-  for (const acct of accounts) {
-    const result = computeDispositions(acct.txns, lookup);
-    for (const d of result.dispositions) {
-      allDispositions.push({ ...d, account: acct.label, accountId: acct.accountId });
-    }
-    for (const w of result.warnings) if (!warnings.includes(w)) warnings.push(w);
-  }
-
-  if (accounts.length > 1) {
-    warnings.push(
-      `ACB is pooled per account across ${accounts.length} taxable accounts. CRA pools identical ` +
-      `property across all your non-registered accounts — if you hold the same security in more ` +
-      `than one, the combined cost base differs from the per-account figures below.`
-    );
-  }
-
-  allDispositions.sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
+  const result = computeDispositions(pooled, lookup);
+  const allDispositions: AccountDisposition[] = result.dispositions;
+  const warnings: string[] = [...result.warnings];
 
   const availableYears = Array.from(new Set(allDispositions.map(d => d.year))).sort((a, b) => b - a);
   const filtered = year ? allDispositions.filter(d => d.year === year) : allDispositions;

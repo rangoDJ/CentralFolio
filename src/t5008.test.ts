@@ -238,6 +238,76 @@ test("security type codes are inferred from the instrument", () => {
   assert.equal(dispositions.find(d => d.symbol === "ACME")!.securityType, "SHS");
 });
 
+test("ACB is pooled across accounts, not computed per account", () => {
+  // Same security bought in two accounts, sold from one. CRA pools identical
+  // property, so the cost base is the blended average of BOTH purchases.
+  const { dispositions } = computeDispositions([
+    { ...buy("ACME", "2024-01-10", 100, 10), account: "Margin A", accountId: "a" },  // $1000
+    { ...buy("ACME", "2024-02-10", 100, 30), account: "Margin B", accountId: "b" },  // $3000
+    { ...sell("ACME", "2024-06-10", 100, 25), account: "Margin A", accountId: "a" },
+  ], par);
+
+  assert.equal(dispositions.length, 1);
+  // Pooled: 200 units / $4000 → avg $20. Per-account would wrongly give $10.
+  assert.equal(dispositions[0].costBasis, 2000);
+  assert.equal(dispositions[0].gain, 500);
+  assert.equal(dispositions[0].account, "Margin A", "still reports where it happened");
+});
+
+test("superficial loss is detected across accounts", () => {
+  // Selling at a loss in one account and rebuying in another is still a
+  // superficial loss — the taxpayer, not the account, is what matters.
+  const { dispositions } = computeDispositions([
+    { ...buy("ACME", "2024-01-10", 100, 20), account: "Margin A", accountId: "a" },
+    { ...sell("ACME", "2024-06-10", 100, 10), account: "Margin A", accountId: "a" },
+    { ...buy("ACME", "2024-06-20", 100, 11), account: "Margin B", accountId: "b" },
+  ], par);
+
+  assert.equal(dispositions[0].superficialLoss, 1000);
+  assert.equal(dispositions[0].allowableGain, 0);
+});
+
+test("a sale with no recorded purchase is flagged, not silently zero-cost", () => {
+  const { dispositions, warnings } = computeDispositions([
+    sell("ACME", "2024-06-10", 50, 10),
+  ], par);
+
+  assert.equal(dispositions[0].missingCostBasis, true);
+  assert.equal(dispositions[0].costBasis, 0);
+  assert.ok(warnings.some(w => w.includes("no recorded purchase")));
+});
+
+test("a normal disposition is not flagged as missing cost basis", () => {
+  const { dispositions } = computeDispositions([
+    buy("ACME", "2024-01-10", 50, 10),
+    sell("ACME", "2024-06-10", 50, 12),
+  ], par);
+
+  assert.equal(dispositions[0].missingCostBasis, false);
+});
+
+test("crypto is tagged and called out as having no T5008 slip", () => {
+  const { dispositions, warnings } = computeDispositions([
+    { ...buy("BTC", "2024-01-10", 1, 40000), account: "Wealthsimple CRYPTO", accountId: "c" },
+    { ...sell("BTC", "2024-06-10", 1, 50000), account: "Wealthsimple CRYPTO", accountId: "c" },
+  ], par);
+
+  assert.equal(dispositions[0].isCrypto, true);
+  assert.equal(dispositions[0].securityType, "CRYPTO");
+  assert.equal(dispositions[0].gain, 10000, "still a reportable capital gain");
+  assert.ok(warnings.some(w => w.includes("do NOT issue a T5008")));
+});
+
+test("equities are not mistaken for crypto", () => {
+  const { dispositions } = computeDispositions([
+    { ...buy("ACME", "2024-01-10", 10, 10), account: "Margin", accountId: "a" },
+    { ...sell("ACME", "2024-06-10", 10, 12), account: "Margin", accountId: "a" },
+  ], par);
+
+  assert.equal(dispositions[0].isCrypto, false);
+  assert.equal(dispositions[0].securityType, "SHS");
+});
+
 test("dispositions come back in chronological order", () => {
   const { dispositions } = computeDispositions([
     buy("BBB", "2023-01-01", 10, 10),

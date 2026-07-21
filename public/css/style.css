@@ -935,6 +935,8 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .t5008-flag { display: inline-block; margin-top: 3px; padding: 1px 6px; border-radius: 999px;
   font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; cursor: help; }
 .t5008-flag-warn { background: color-mix(in srgb, var(--warning, #d97706) 18%, transparent); color: var(--warning, #d97706); }
+.t5008-flag-danger { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+.t5008-flag-info { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-muted); }
 .t5008-warnings { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
 .t5008-warning { padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.8rem;
   background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent);

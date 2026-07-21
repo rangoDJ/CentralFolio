@@ -12,3 +12,7 @@ user-credentials.json
 
 # Scratch / inspection dirs
 tmp_*/
+
+# Database backups / salvaged copies (same secrets as the live DB)
+backup_db_*/
+*.db.CORRUPT

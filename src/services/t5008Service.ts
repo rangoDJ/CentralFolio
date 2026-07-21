@@ -14,6 +14,7 @@ import { listPortfolios, getCachedAccounts, getActiveAccountIds, getCachedTransa
 import { classifyAccount } from "./taxRules.js";
 import { primeFxHistory, fxRateOn, assetCurrency } from "./fxService.js";
 import { computeDispositions, summarizeByYear, type Disposition, type T5008Result, type T5008Transaction } from "./t5008.js";
+import { computeCarryingCharges, type CarryingChargesResult, type CCTransaction } from "./carryingCharges.js";
 import { logger } from "../utils/logger.js";
 
 const BASE_CURRENCY = "CAD";
@@ -27,17 +28,32 @@ export interface T5008Report extends Omit<T5008Result, "dispositions"> {
   availableYears: number[];
   baseCurrency: string;
   excludedRegisteredAccounts: string[];
+  /**
+   * Schedule 4 / line 22100 — carrying charges and interest expense. Delivered
+   * on the same payload because it shares this screen and the same year filter,
+   * but it is a different line on the return from the T5008 dispositions.
+   */
+  carryingCharges: CarryingChargesResult;
 }
 
-/** Transactions for one reportable account, tagged with its label. */
+/** Transactions for one account, tagged with its label and registration class. */
 interface AccountTxns {
   accountId: string;
   label: string;
+  registered: boolean;
   txns: T5008Transaction[];
 }
 
-/** Collect buy/sell transactions from every active, non-registered account. */
-function collectReportableAccounts(allowedIds?: Set<string> | null): {
+/**
+ * Collect transactions from every active account, tagged with whether the
+ * account is registered.
+ *
+ * Registered accounts are kept rather than dropped here because the two
+ * consumers need different things: dispositions must exclude them (not
+ * reportable), while carrying charges need to see them in order to report how
+ * many non-deductible entries were skipped.
+ */
+function collectAccounts(allowedIds?: Set<string> | null): {
   accounts: AccountTxns[];
   excluded: string[];
 } {
@@ -52,14 +68,12 @@ function collectReportableAccounts(allowedIds?: Set<string> | null): {
 
       const label = acct.customName || acct.name || "Account";
       const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
-      if (cls !== "taxable") {
-        // Several accounts can share a broker-assigned name; only list each once.
-        if (!excluded.includes(label)) excluded.push(label);
-        continue;
-      }
+      const registered = cls !== "taxable";
+      // Several accounts can share a broker-assigned name; only list each once.
+      if (registered && !excluded.includes(label)) excluded.push(label);
 
       const txns = getCachedTransactions(acct.id) as T5008Transaction[];
-      if (txns.length > 0) accounts.push({ accountId: acct.id, label, txns });
+      if (txns.length > 0) accounts.push({ accountId: acct.id, label, registered, txns });
     }
   }
 
@@ -113,7 +127,7 @@ export async function getT5008Report(
   year?: number | null,
   allowedIds?: Set<string> | null
 ): Promise<T5008Report> {
-  const { accounts, excluded } = collectReportableAccounts(allowedIds);
+  const { accounts, excluded } = collectAccounts(allowedIds);
 
   // Normalize currency once so the FX prime and the math agree on it.
   for (const a of accounts) {
@@ -124,24 +138,38 @@ export async function getT5008Report(
 
   const lookup = (currency: string, date: string) => fxRateOn(currency, BASE_CURRENCY, date);
 
+  // Tag every transaction with its account once; both passes below need it.
+  const tagged = accounts.flatMap(a =>
+    a.txns.map(t => ({ ...t, account: a.label, accountId: a.accountId, registered: a.registered }))
+  );
+
   // ONE pooled pass over every taxable account. CRA treats identical property as
   // a single pool across all of a taxpayer's non-registered accounts, so the
   // transactions are tagged with their account and then merged — computing per
   // account would give a different cost base for anything held in two places.
-  const pooled = accounts.flatMap(a =>
-    a.txns.map(t => ({ ...t, account: a.label, accountId: a.accountId }))
-  );
-
-  const result = computeDispositions(pooled, lookup);
+  // Registered accounts are dropped here: their dispositions are not reportable.
+  const result = computeDispositions(tagged.filter(t => !t.registered), lookup);
   const allDispositions: AccountDisposition[] = result.dispositions;
   const warnings: string[] = [...result.warnings];
 
-  const availableYears = Array.from(new Set(allDispositions.map(d => d.year))).sort((a, b) => b - a);
+  // Carrying charges see EVERY account, including registered ones, so the
+  // non-deductible entries can be counted and explained rather than vanishing.
+  const allCharges = computeCarryingCharges(tagged as CCTransaction[], lookup);
+  const carryingCharges = year
+    ? filterChargesToYear(allCharges, year)
+    : allCharges;
+
+  const availableYears = Array.from(new Set([
+    ...allDispositions.map(d => d.year),
+    ...allCharges.charges.map(c => c.year),
+  ])).sort((a, b) => b - a);
+
   const filtered = year ? allDispositions.filter(d => d.year === year) : allDispositions;
 
   logger.info(
     "T5008",
     `year=${year ?? "all"} accounts=${accounts.length} dispositions=${filtered.length} ` +
+    `carryingCharges=${carryingCharges.charges.length} (${carryingCharges.total}) ` +
     `excludedRegistered=${excluded.length}`
   );
 
@@ -154,6 +182,28 @@ export async function getT5008Report(
     availableYears,
     baseCurrency: BASE_CURRENCY,
     excludedRegisteredAccounts: excluded,
+    carryingCharges,
+  };
+}
+
+/**
+ * Narrow a carrying-charges result to one tax year, recomputing the totals so
+ * the headline figures match the rows on screen. Warnings are kept as-is —
+ * they describe the whole dataset, not the selected slice.
+ */
+function filterChargesToYear(r: CarryingChargesResult, year: number): CarryingChargesResult {
+  const charges = r.charges.filter(c => c.year === year);
+  const sum = (kind: string) =>
+    Math.round(charges.filter(c => c.kind === kind).reduce((s, c) => s + c.amount, 0) * 100) / 100;
+  const totalInterest = sum("interest");
+  const totalFees = sum("fee");
+  return {
+    ...r,
+    charges,
+    byYear: r.byYear.filter(y => y.year === year),
+    totalInterest,
+    totalFees,
+    total: Math.round((totalInterest + totalFees) * 100) / 100,
   };
 }
 
@@ -186,7 +236,37 @@ const CSV_HEADERS = [
   "Notes",
 ];
 
-export function dispositionsToCsv(dispositions: AccountDisposition[]): string {
+/**
+ * Carrying charges appended as a labelled second block after the dispositions.
+ * Kept in the same file because they belong to the same tax year and the user
+ * exports them together, but separated by a blank line and their own header so
+ * nothing reads them as dispositions — they are a different line on the return.
+ */
+function carryingChargesCsvBlock(cc: CarryingChargesResult): string {
+  if (cc.charges.length === 0) return "";
+  const header = ["Date", "Charge type", "Description", "Account", "Currency", "Amount (native)", "FX rate to CAD", "Amount (CAD)"];
+  const rows = cc.charges.map(c => [
+    c.date,
+    c.label,
+    c.description,
+    c.account,
+    c.currency,
+    c.amountNative,
+    c.fxRate == null ? "" : Math.round(c.fxRate * 1e6) / 1e6,
+    c.amount,
+  ]);
+  const total = ["", "", "", "", "", "", "TOTAL (Schedule 4, line 22100)", cc.total];
+
+  return [
+    "",
+    "CARRYING CHARGES AND INTEREST EXPENSE - Schedule 4 line 22100 (NOT part of the T5008)",
+    header.map(csvCell).join(","),
+    ...rows.map(r => r.map(csvCell).join(",")),
+    total.map(csvCell).join(","),
+  ].join("\r\n");
+}
+
+export function dispositionsToCsv(dispositions: AccountDisposition[], carryingCharges?: CarryingChargesResult): string {
   const rows = dispositions.map(d => [
     d.account,
     d.date,
@@ -208,7 +288,11 @@ export function dispositionsToCsv(dispositions: AccountDisposition[]): string {
       .filter(Boolean).join("; "),
   ]);
 
-  return [CSV_HEADERS, ...rows]
+  const dispositionBlock = [CSV_HEADERS, ...rows]
     .map(r => r.map(csvCell).join(","))
     .join("\r\n");
+
+  return carryingCharges
+    ? dispositionBlock + carryingChargesCsvBlock(carryingCharges)
+    : dispositionBlock;
 }

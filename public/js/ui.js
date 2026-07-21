@@ -1108,6 +1108,10 @@ const UI = {
             </table>`;
         }
 
+        // Rendered before the early return below so charges still show on a
+        // year where nothing was sold but interest was still charged.
+        this.renderCarryingCharges((r && r.carryingCharges) || null, cur);
+
         // ── Per-disposition table ─────────────────────────────────────────────
         const ds = (r && r.dispositions) || [];
         if (countEl) countEl.textContent = ds.length > 0 ? `${ds.length} disposition${ds.length === 1 ? '' : 's'}` : '';
@@ -1157,6 +1161,68 @@ const UI = {
                 <th>Outlays</th>
                 <th>Reportable gain</th>
             </tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>`;
+    },
+
+    /**
+     * Carrying charges and interest expense (Schedule 4, line 22100).
+     *
+     * Deliberately kept separate from the disposition table: these are a
+     * different line on the return, and margin interest is only deductible
+     * where the borrowing earns investment income — a test this data cannot
+     * make, so the figure is presented as a candidate total.
+     */
+    renderCarryingCharges(cc, cur) {
+        const body = document.getElementById('ccBody');
+        const totalEl = document.getElementById('ccTotal');
+        if (!body) return;
+
+        const money = v => this.moneyC(v, cur || 'CAD');
+        const charges = (cc && cc.charges) || [];
+
+        if (totalEl) totalEl.textContent = cc && cc.total > 0 ? `${money(cc.total)} total` : '';
+
+        if (charges.length === 0) {
+            // Distinguish "none exist" from "some existed but none deductible".
+            const excluded = (cc && cc.excludedRegistered) || 0;
+            const why = excluded > 0
+                ? `${excluded} interest/fee entr${excluded === 1 ? 'y was' : 'ies were'} found, but all sit in registered accounts where they are not deductible.`
+                : 'No interest or fees were charged in your non-registered accounts for this period. Margin interest appears here once your broker reports it.';
+            body.innerHTML = `<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">${sanitize(why)}</p></div>`;
+            return;
+        }
+
+        const stats = `<div class="tax-summary">
+            <div class="tax-stat"><span class="tax-stat-val neg">${money(cc.totalInterest)}</span><span class="tax-stat-lbl">Interest expense</span></div>
+            <div class="tax-stat"><span class="tax-stat-val neg">${money(cc.totalFees)}</span><span class="tax-stat-lbl">Investment fees</span></div>
+            <div class="tax-stat"><span class="tax-stat-val">${money(cc.total)}</span><span class="tax-stat-lbl">Total (line 22100)</span></div>
+        </div>`;
+
+        const yearRows = (cc.byYear || []).length <= 1 ? '' : `<table class="tax-table mb-3">
+            <thead><tr><th>Year</th><th>Interest</th><th>Fees</th><th>Total</th></tr></thead>
+            <tbody>${cc.byYear.map(y => `<tr>
+                <td>${y.year}</td><td>${money(y.interest)}</td><td>${money(y.fees)}</td><td>${money(y.total)}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+
+        const rows = charges.map(c => {
+            const native = c.currency !== (cur || 'CAD')
+                ? `<div class="t5008-native">${sanitize(c.currency)} ${c.amountNative.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ ${c.fxRate ? c.fxRate.toFixed(4) : '—'}</div>`
+                : '';
+            const flag = c.fxRateMissing
+                ? ' <span class="t5008-flag t5008-flag-warn" title="No exchange rate found for this date — 1.0 was assumed">FX missing</span>'
+                : '';
+            return `<tr>
+                <td>${sanitize(c.date)}</td>
+                <td>${sanitize(c.label)}${flag}<div class="t5008-desc">${sanitize(c.description)}</div></td>
+                <td>${sanitize(c.account)}</td>
+                <td>${money(c.amount)}${native}</td>
+            </tr>`;
+        }).join('');
+
+        body.innerHTML = stats + yearRows + `<div class="t5008-scroll"><table class="tax-table">
+            <thead><tr><th>Date</th><th>Charge</th><th>Account</th><th>Amount</th></tr></thead>
             <tbody>${rows}</tbody>
         </table></div>`;
     },

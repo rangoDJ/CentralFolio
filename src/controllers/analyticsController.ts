@@ -135,7 +135,7 @@ export const t5008CsvHandler = async (req: Request, res: Response) => {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     // Excel needs a BOM to read UTF-8 CSV correctly.
-    res.send("﻿" + dispositionsToCsv(report.dispositions));
+    res.send("﻿" + dispositionsToCsv(report.dispositions, report.carryingCharges));
   } catch (err: any) {
     logger.error("Analytics", `t5008 CSV failed: ${err.message}`);
     res.status(500).json({ error: err.message });

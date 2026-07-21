@@ -1040,7 +1040,36 @@ const UI = {
      * proceeds/cost are kept in a secondary line so the figures can be checked
      * against the slip the broker actually issues.
      */
-    renderT5008(r) {
+    /**
+     * Shown when the selected portfolio contains no accounts. Deliberately not
+     * a silent blank: the user needs to know the report is empty because of the
+     * filter, not because they had no dispositions.
+     */
+    renderT5008Empty(scopeLabel) {
+        this._setT5008Scope(scopeLabel);
+        const msg = `<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">` +
+            `“${sanitize(scopeLabel || 'This portfolio')}” has no accounts assigned, so there is nothing to report. ` +
+            `Assign accounts to it in Settings → Portfolios.</p></div>`;
+        for (const id of ['t5008SummaryBody', 't5008Body', 'ccBody']) {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = msg;
+        }
+        for (const id of ['t5008Count', 't5008SummaryNote', 'ccTotal']) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '';
+        }
+        const warn = document.getElementById('t5008Warnings');
+        if (warn) warn.innerHTML = '';
+    },
+
+    /** Name the account scope every figure on the page is derived from. */
+    _setT5008Scope(scopeLabel) {
+        const el = document.getElementById('t5008Scope');
+        if (el) el.textContent = scopeLabel ? `Scope: ${scopeLabel}` : '';
+    },
+
+    renderT5008(r, scopeLabel) {
+        this._setT5008Scope(scopeLabel);
         const summaryBody = document.getElementById('t5008SummaryBody');
         const body = document.getElementById('t5008Body');
         const countEl = document.getElementById('t5008Count');

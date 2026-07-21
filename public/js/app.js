@@ -1571,8 +1571,20 @@ const App = {
         const yearEl = document.getElementById('t5008Year');
         const year = yearEl && yearEl.value ? Number(yearEl.value) : null;
 
+        const scope = this._t5008Scope();
+
+        // A selected portfolio that resolves to no accounts must report NOTHING.
+        // Sending an empty filter would be read as "no filter" and silently
+        // report every account — the opposite of what was asked for, and on a
+        // tax page that is a number someone might file.
+        if (scope.empty) {
+            UI.renderT5008Empty(scope.label);
+            if (btn) btn.classList.remove('loading');
+            return;
+        }
+
         try {
-            const result = await API.getT5008(year, this._getSelectedAccountIds());
+            const result = await API.getT5008(year, scope.accountIds);
             this._t5008Year = year;
 
             if (yearEl) {
@@ -1584,7 +1596,7 @@ const App = {
                 yearEl.value = years.includes(Number(desired)) ? desired : '';
             }
 
-            UI.renderT5008(result);
+            UI.renderT5008(result, scope.label);
         } catch (e) {
             const body = document.getElementById('t5008Body');
             if (body) body.innerHTML = `<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Could not load T5008 report: ${sanitize(e.message)}</p></div>`;
@@ -1593,12 +1605,36 @@ const App = {
         }
     },
 
+    /**
+     * Which accounts the tax report covers, resolved from the global portfolio
+     * selector.
+     *
+     * `empty` distinguishes "a portfolio is selected but contains no accounts"
+     * from "no portfolio filter at all". They both yield an empty id list, but
+     * they mean opposite things — see loadT5008.
+     */
+    _t5008Scope() {
+        if (this.selectedUserPortfolioId === 'all') {
+            return { accountIds: null, label: 'All portfolios', empty: false };
+        }
+        const portfolio = this.getSelectedUserPortfolio();
+        const label = portfolio ? portfolio.name : 'Unknown portfolio';
+        const accountIds = (portfolio && portfolio.accountIds) || [];
+        return { accountIds, label, empty: accountIds.length === 0 };
+    },
+
     async exportT5008Csv() {
         const btn = document.getElementById('t5008ExportBtn');
         if (btn) btn.classList.add('loading');
         const yearEl = document.getElementById('t5008Year');
+        const scope = this._t5008Scope();
+        if (scope.empty) {
+            alert(`"${scope.label}" has no accounts, so there is nothing to export.`);
+            if (btn) btn.classList.remove('loading');
+            return;
+        }
         try {
-            await API.downloadT5008Csv(yearEl && yearEl.value ? Number(yearEl.value) : null, this._getSelectedAccountIds());
+            await API.downloadT5008Csv(yearEl && yearEl.value ? Number(yearEl.value) : null, scope.accountIds);
         } catch (e) {
             alert('Export failed: ' + e.message);
         } finally {
@@ -2362,6 +2398,12 @@ const App = {
             UI.renderAllTransactions(this.getFilteredTransactionsData());
         } else if (activeTab === 'rebalance') {
             this.loadRebalanceTab();
+        } else if (activeTab === 'tax') {
+            // Dispositions are account-scoped, so the whole report has to be
+            // refetched — the ACB pool itself changes with the account set.
+            this.loadT5008();
+        } else if (activeTab === 'watchlist') {
+            this.loadWatchlist();
         } else if (activeTab === 'dividend-tracker') {
             const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
             const filteredDivs = this.getFilteredDividendsData();

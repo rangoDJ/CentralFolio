@@ -6,6 +6,7 @@ import { computeRiskMetrics } from "../services/riskMetrics.js";
 import { getDividendTaxBreakdown } from "../services/taxService.js";
 import { getAttribution } from "../services/attributionService.js";
 import { getRealizedGains } from "../services/realizedGainsService.js";
+import { getT5008Report, dispositionsToCsv } from "../services/t5008Service.js";
 import { logger } from "../utils/logger.js";
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
@@ -94,6 +95,49 @@ export const realizedGainsHandler = (req: Request, res: Response) => {
     res.json(getRealizedGains(allowedIds));
   } catch (err: any) {
     logger.error("Analytics", `realizedGains failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/** Parse an optional 4-digit tax year. Returns null for "all years". */
+function parseYear(raw: unknown): number | null {
+  if (raw == null || raw === "" || raw === "all") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1970 || n > 2100) return null;
+  return n;
+}
+
+// GET /api/analytics/t5008?year=2025&accountIds=id1,id2
+// Per-disposition T5008 slip data + Schedule 3 roll-up for non-registered
+// accounts, in CAD at each trade's own exchange rate, with superficial losses
+// identified and denied.
+export const t5008Handler = async (req: Request, res: Response) => {
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  const year = parseYear(req.query.year);
+  logger.info("Analytics", `GET /api/analytics/t5008 year=${year ?? 'all'} accountIds=${allowedIds ? allowedIds.size : 'all'}`);
+  try {
+    res.json(await getT5008Report(year, allowedIds));
+  } catch (err: any) {
+    logger.error("Analytics", `t5008 failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/t5008.csv?year=2025&accountIds=id1,id2
+// Same data as a CSV download for import into tax software or a spreadsheet.
+export const t5008CsvHandler = async (req: Request, res: Response) => {
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  const year = parseYear(req.query.year);
+  logger.info("Analytics", `GET /api/analytics/t5008.csv year=${year ?? 'all'}`);
+  try {
+    const report = await getT5008Report(year, allowedIds);
+    const filename = `t5008-${year ?? "all-years"}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    // Excel needs a BOM to read UTF-8 CSV correctly.
+    res.send("﻿" + dispositionsToCsv(report.dispositions));
+  } catch (err: any) {
+    logger.error("Analytics", `t5008 CSV failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };

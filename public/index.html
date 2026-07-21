@@ -67,6 +67,16 @@
           <span>Transactions</span>
         </button>
 
+        <button class="topnav-item" data-tab="tax" onclick="App.switchMainTab('tax', this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="9" y1="15" x2="15" y2="15"/>
+            <line x1="9" y1="18" x2="13" y2="18"/>
+          </svg>
+          <span>Tax / T5008</span>
+        </button>
+
         <button class="topnav-item" data-tab="rebalance" onclick="App.switchMainTab('rebalance', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
@@ -508,6 +518,48 @@
         <div id="transactions-tabs" class="pill-tabs mb-3" style="display:none;"></div>
         <div id="transactions-tables">
           <div class="empty-state">Select an account in Settings to view transactions.</div>
+        </div>
+      </div>
+
+      <!-- Tax / T5008 -->
+      <div class="container tab-content" id="tax-tab">
+        <div class="page-header">
+          <h1 class="page-heading">Tax &amp; T5008</h1>
+          <div class="page-actions">
+            <select id="t5008Year" class="form-select btn-sm" onchange="App.loadT5008()" aria-label="Tax year">
+              <option value="">All years</option>
+            </select>
+            <button id="t5008ExportBtn" class="btn btn-outline btn-sm" onclick="App.exportT5008Csv()">
+              <span class="loader"></span>
+              <span class="btn-text">Export CSV</span>
+            </button>
+            <button id="refreshT5008Btn" class="btn btn-outline btn-sm" onclick="App.loadT5008(true)">
+              <span class="loader"></span>
+              <span class="btn-text">Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="t5008Warnings"></div>
+
+        <div class="card mb-3">
+          <div class="card-header">
+            <h3 class="card-title">Schedule 3 summary</h3>
+            <span id="t5008SummaryNote" class="text-muted text-sm"></span>
+          </div>
+          <div id="t5008SummaryBody">
+            <div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading…</p></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Dispositions (T5008 boxes)</h3>
+            <span id="t5008Count" class="text-muted text-sm"></span>
+          </div>
+          <div id="t5008Body">
+            <div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading dispositions…</p></div>
+          </div>
         </div>
       </div>
 

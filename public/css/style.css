@@ -923,6 +923,23 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 .tax-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); font-feature-settings: "tnum"; }
 .tax-table td.neg { color: var(--danger); }
 
+/* ── T5008 / tax report ─────────────────────────────────────────────────────*/
+/* The disposition table has nine columns, so it scrolls inside its own box
+   rather than forcing the page to scroll sideways on narrow screens. */
+.t5008-scroll { overflow-x: auto; }
+.t5008-table { min-width: 820px; }
+.t5008-table td { vertical-align: top; }
+.t5008-sym { font-weight: 600; }
+.t5008-desc { font-size: 0.72rem; color: var(--text-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t5008-native { font-size: 0.7rem; color: var(--text-muted); font-feature-settings: "tnum"; }
+.t5008-flag { display: inline-block; margin-top: 3px; padding: 1px 6px; border-radius: 999px;
+  font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; cursor: help; }
+.t5008-flag-warn { background: color-mix(in srgb, var(--warning, #d97706) 18%, transparent); color: var(--warning, #d97706); }
+.t5008-warnings { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1rem; }
+.t5008-warning { padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.8rem;
+  background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning, #d97706) 30%, transparent); color: var(--text); }
+
 .perf-risk { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
 .perf-risk:empty { display: none; }
 .risk-chip { display: flex; flex-direction: column; gap: 2px; padding: 0.5rem 0.85rem; flex: 1; min-width: 110px;

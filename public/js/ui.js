@@ -1033,6 +1033,132 @@ const UI = {
     },
 
     // Render the dividend withholding-tax breakdown card.
+    /**
+     * T5008 dispositions + Schedule 3 roll-up.
+     *
+     * Everything shown is in CAD converted at each trade's own date. Native
+     * proceeds/cost are kept in a secondary line so the figures can be checked
+     * against the slip the broker actually issues.
+     */
+    renderT5008(r) {
+        const summaryBody = document.getElementById('t5008SummaryBody');
+        const body = document.getElementById('t5008Body');
+        const countEl = document.getElementById('t5008Count');
+        const noteEl = document.getElementById('t5008SummaryNote');
+        const warnEl = document.getElementById('t5008Warnings');
+        if (!body || !summaryBody) return;
+
+        const cur = (r && r.baseCurrency) || 'CAD';
+        const money = v => this.moneyC(v, cur);
+        const signed = v => `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : '-'}${money(Math.abs(v))}</span>`;
+
+        // ── Warnings (missing FX, cross-account ACB pooling) ──────────────────
+        if (warnEl) {
+            const items = (r && r.warnings) || [];
+            warnEl.innerHTML = items.length === 0 ? '' : `<div class="t5008-warnings">
+                ${items.map(w => `<div class="t5008-warning">⚠ ${sanitize(w)}</div>`).join('')}
+            </div>`;
+        }
+
+        // ── Schedule 3 summary ────────────────────────────────────────────────
+        const years = (r && r.summaryByYear) || [];
+        if (noteEl) {
+            const excluded = (r && r.excludedRegisteredAccounts) || [];
+            noteEl.textContent = excluded.length > 0
+                ? `${excluded.length} registered account(s) excluded — not reportable`
+                : '';
+        }
+
+        if (years.length === 0) {
+            summaryBody.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">No dispositions in the selected period.</p></div>';
+        } else {
+            const total = years.reduce((a, y) => ({
+                proceeds: a.proceeds + y.proceeds,
+                costBasis: a.costBasis + y.costBasis,
+                outlays: a.outlays + y.outlays,
+                netGain: a.netGain + y.netGain,
+                deniedLosses: a.deniedLosses + y.deniedLosses,
+                taxableCapitalGain: a.taxableCapitalGain + y.taxableCapitalGain,
+            }), { proceeds: 0, costBasis: 0, outlays: 0, netGain: 0, deniedLosses: 0, taxableCapitalGain: 0 });
+
+            const stats = `<div class="tax-summary">
+                <div class="tax-stat"><span class="tax-stat-val">${money(total.proceeds)}</span><span class="tax-stat-lbl">Proceeds of disposition</span></div>
+                <div class="tax-stat"><span class="tax-stat-val">${money(total.costBasis)}</span><span class="tax-stat-lbl">Adjusted cost base</span></div>
+                <div class="tax-stat"><span class="tax-stat-val">${money(total.outlays)}</span><span class="tax-stat-lbl">Outlays &amp; expenses</span></div>
+                <div class="tax-stat"><span class="tax-stat-val ${total.netGain >= 0 ? 'pos' : 'neg'}">${total.netGain >= 0 ? '+' : '-'}${money(Math.abs(total.netGain))}</span><span class="tax-stat-lbl">Net capital gain</span></div>
+                <div class="tax-stat"><span class="tax-stat-val">${money(total.taxableCapitalGain)}</span><span class="tax-stat-lbl">Taxable capital gain (50%)</span></div>
+            </div>`;
+
+            const rows = years.map(y => `<tr>
+                <td>${y.year}</td>
+                <td>${money(y.proceeds)}</td>
+                <td>${money(y.costBasis)}</td>
+                <td>${money(y.outlays)}</td>
+                <td>${signed(y.netGain)}</td>
+                <td>${y.deniedLosses > 0 ? money(y.deniedLosses) : '—'}</td>
+                <td>${money(y.taxableCapitalGain)}</td>
+            </tr>`).join('');
+
+            summaryBody.innerHTML = stats + `<table class="tax-table">
+                <thead><tr>
+                    <th>Year</th><th>Proceeds</th><th>ACB</th><th>Outlays</th>
+                    <th>Net gain</th><th>Denied (superficial)</th><th>Taxable gain</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        }
+
+        // ── Per-disposition table ─────────────────────────────────────────────
+        const ds = (r && r.dispositions) || [];
+        if (countEl) countEl.textContent = ds.length > 0 ? `${ds.length} disposition${ds.length === 1 ? '' : 's'}` : '';
+
+        if (ds.length === 0) {
+            body.innerHTML = '<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">No dispositions found. Sell transactions in non-registered accounts appear here.</p></div>';
+            return;
+        }
+
+        const rows = ds.map(d => {
+            const flags = [];
+            if (d.superficialLoss > 0) flags.push(`<span class="t5008-flag t5008-flag-warn" title="${sanitize(d.superficialNote || '')}">superficial loss</span>`);
+            if (d.fxRateMissing) flags.push('<span class="t5008-flag t5008-flag-warn" title="No exchange rate found for this date — 1.0 was assumed">FX missing</span>');
+
+            const nativeLine = d.currency !== cur
+                ? `<div class="t5008-native">${sanitize(d.currency)} ${d.proceedsNative.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} @ ${d.fxRate ? d.fxRate.toFixed(4) : '—'}</div>`
+                : '';
+
+            return `<tr>
+                <td>${sanitize(d.date)}</td>
+                <td>
+                    <div class="t5008-sym">${sanitize(d.symbol)}</div>
+                    <div class="t5008-desc">${sanitize(d.description)}</div>
+                    ${flags.join(' ')}
+                </td>
+                <td>${sanitize(d.account)}</td>
+                <td>${d.securityType}</td>
+                <td>${d.quantity.toLocaleString()}</td>
+                <td>${money(d.proceeds)}${nativeLine}</td>
+                <td>${money(d.costBasis)}</td>
+                <td>${d.outlays > 0 ? money(d.outlays) : '—'}</td>
+                <td>${signed(d.allowableGain)}</td>
+            </tr>`;
+        }).join('');
+
+        body.innerHTML = `<div class="t5008-scroll"><table class="tax-table t5008-table">
+            <thead><tr>
+                <th title="Box 14">Date</th>
+                <th title="Box 17">Security</th>
+                <th>Account</th>
+                <th title="Box 15">Type</th>
+                <th title="Box 16">Qty</th>
+                <th title="Box 21">Proceeds</th>
+                <th title="Box 20">Cost / book value</th>
+                <th>Outlays</th>
+                <th>Reportable gain</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+        </table></div>`;
+    },
+
     renderTax(t) {
         const body = document.getElementById('taxBody');
         const eff = document.getElementById('taxEffective');

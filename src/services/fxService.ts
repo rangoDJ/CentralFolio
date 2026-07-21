@@ -1,5 +1,6 @@
 import YahooFinance from "yahoo-finance2";
 import { logger } from "../utils/logger.js";
+import { saveFxRates, getFxRateOnDate, getFxCoverage } from "../repositories/fxRateRepository.js";
 
 // Shared Yahoo client for FX pairs (e.g. "USDCAD=X").
 const yahoo = new YahooFinance({ suppressNotices: ["yahooSurvey", "ripHistorical"] });
@@ -40,6 +41,53 @@ export async function getFxRate(from: string, to: string): Promise<number> {
     logger.warn("FX", `getFxRate(${f}->${t}) failed: ${e.message}`);
     return 1;
   }
+}
+
+// ── Historical (per-date) rates ───────────────────────────────────────────────
+
+/**
+ * Backfill the daily rate cache for a pair over [from, to]. Yahoo returns one
+ * row per trading day; weekends/holidays are absent by design and resolved by
+ * `getFxRateOnDate`'s on-or-before lookup.
+ *
+ * Skips the network entirely when the cache already spans the window.
+ */
+export async function primeFxHistory(from: string, to: string, fromDate: string, toDate: string): Promise<void> {
+  const f = (from || "").toUpperCase(), t = (to || "").toUpperCase();
+  if (!f || !t || f === t) return;
+  const pair = `${f}${t}`;
+
+  const cov = getFxCoverage(pair);
+  if (cov.n > 0 && cov.minDate && cov.maxDate && cov.minDate <= fromDate && cov.maxDate >= toDate) {
+    logger.debug("FX", `primeFxHistory(${pair}) — cache already covers ${fromDate}..${toDate}`);
+    return;
+  }
+
+  try {
+    // Pad the start so a trade on the first day still finds an on-or-before rate.
+    const period1 = new Date(new Date(fromDate).getTime() - 10 * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const res = await yahoo.chart(`${pair}=X`, { period1, period2: toDate, interval: "1d" });
+    const rows = (res?.quotes ?? [])
+      .filter(q => q.close != null && q.date != null)
+      .map(q => ({ date: new Date(q.date).toISOString().slice(0, 10), rate: q.close! }));
+    saveFxRates(pair, rows);
+    logger.info("FX", `primeFxHistory(${pair}) — fetched ${rows.length} daily rate(s) for ${fromDate}..${toDate}`);
+  } catch (e: any) {
+    logger.warn("FX", `primeFxHistory(${pair}) failed: ${e.message}`);
+  }
+}
+
+/**
+ * Rate from `from` to `to` on a specific date, using the cache primed by
+ * `primeFxHistory`. Returns null when no rate is known — callers decide whether
+ * to fall back (tax math must surface the gap rather than silently use 1.0).
+ */
+export function fxRateOn(from: string, to: string, date: string): number | null {
+  const f = (from || "").toUpperCase(), t = (to || "").toUpperCase();
+  if (!f || !t) return null;
+  if (f === t) return 1;
+  return getFxRateOnDate(`${f}${t}`, String(date).slice(0, 10));
 }
 
 /** Convert a map of {currency → amount in that currency} into a single base currency. */

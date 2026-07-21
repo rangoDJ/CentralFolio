@@ -240,6 +240,17 @@ const migrations: Array<{ name: string; sql: string }> = [
       updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ` },
+  { name: 'fx_rates.create', sql: `
+    CREATE TABLE IF NOT EXISTS fx_rates (
+      pair     TEXT NOT NULL,            -- e.g. 'USDCAD' (from → to)
+      date     TEXT NOT NULL,            -- 'YYYY-MM-DD' (UTC trading day)
+      rate     REAL NOT NULL,
+      provider TEXT NOT NULL DEFAULT 'yahoo',
+      cachedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (pair, date)
+    )
+  ` },
+  { name: 'fx_rates.idx_pair', sql: `CREATE INDEX IF NOT EXISTS idx_fx_rates_pair ON fx_rates(pair)` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

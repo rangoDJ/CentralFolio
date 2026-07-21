@@ -995,6 +995,10 @@ const App = {
             this.updateTransactionsTimestamp();
         } else if (activeTab === 'rebalance' && (holdingsChanged || targetsChanged)) {
             this.loadRebalanceTab(false);
+        } else if (activeTab === 'tax' && transactionsChanged) {
+            // A new buy or sell changes the ACB pool, so every disposition after
+            // it can move — reload the whole report rather than patching a row.
+            this.loadT5008();
         } else if (activeTab === 'watchlist' && (dividendsChanged || domains.has('priceHistory'))) {
             // A background sync refreshed price/dividend data behind a watched symbol.
             this.loadWatchlist();
@@ -1553,6 +1557,55 @@ const App = {
         }
     },
 
+    /**
+     * Load the T5008 / Schedule 3 report for the selected year and accounts.
+     *
+     * The year dropdown is repopulated from whatever years the data actually
+     * contains, preserving the current selection so a live refresh does not
+     * bounce the user back to "All years".
+     */
+    async loadT5008(showSpinner = false) {
+        const btn = document.getElementById('refreshT5008Btn');
+        if (showSpinner && btn) btn.classList.add('loading');
+
+        const yearEl = document.getElementById('t5008Year');
+        const year = yearEl && yearEl.value ? Number(yearEl.value) : null;
+
+        try {
+            const result = await API.getT5008(year, this._getSelectedAccountIds());
+            this._t5008Year = year;
+
+            if (yearEl) {
+                const years = result.availableYears || [];
+                const desired = yearEl.value;
+                yearEl.innerHTML = '<option value="">All years</option>' +
+                    years.map(y => `<option value="${y}">${y}</option>`).join('');
+                // Keep the selection only if that year still exists in the data.
+                yearEl.value = years.includes(Number(desired)) ? desired : '';
+            }
+
+            UI.renderT5008(result);
+        } catch (e) {
+            const body = document.getElementById('t5008Body');
+            if (body) body.innerHTML = `<div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Could not load T5008 report: ${sanitize(e.message)}</p></div>`;
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    },
+
+    async exportT5008Csv() {
+        const btn = document.getElementById('t5008ExportBtn');
+        if (btn) btn.classList.add('loading');
+        const yearEl = document.getElementById('t5008Year');
+        try {
+            await API.downloadT5008Csv(yearEl && yearEl.value ? Number(yearEl.value) : null, this._getSelectedAccountIds());
+        } catch (e) {
+            alert('Export failed: ' + e.message);
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    },
+
     async loadTax() {
         try {
             const result = await API.getTax(this._getSelectedAccountIds());
@@ -1783,7 +1836,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', rebalance: 'Rebalancing', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', tax: 'Tax & T5008', rebalance: 'Rebalancing', settings: 'Settings' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -1811,6 +1864,8 @@ const App = {
             this.loadRebalanceTab();
         } else if (tabId === 'watchlist') {
             this.loadWatchlist();
+        } else if (tabId === 'tax') {
+            this.loadT5008();
         }
     },
 

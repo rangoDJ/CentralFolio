@@ -226,6 +226,40 @@ const API = {
         return data;
     },
 
+    async getT5008(year = null, accountIds = null) {
+        const params = new URLSearchParams();
+        if (year) params.set('year', year);
+        if (accountIds && accountIds.length > 0) params.set('accountIds', accountIds.join(','));
+        const qs = params.toString();
+        const res = await this._fetch('/api/analytics/t5008' + (qs ? `?${qs}` : ''));
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load T5008 report');
+        return data;
+    },
+
+    /**
+     * Download the T5008 CSV. Auth is a Bearer header, so a plain <a href> would
+     * hit the endpoint unauthenticated — fetch it and hand the browser a blob.
+     */
+    async downloadT5008Csv(year = null, accountIds = null) {
+        const params = new URLSearchParams();
+        if (year) params.set('year', year);
+        if (accountIds && accountIds.length > 0) params.set('accountIds', accountIds.join(','));
+        const qs = params.toString();
+        const res = await this._fetch('/api/analytics/t5008.csv' + (qs ? `?${qs}` : ''));
+        if (!res.ok) throw new Error((await this._json(res)).error || 'Failed to export CSV');
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `t5008-${year || 'all-years'}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    },
+
     async getTax(accountIds = null) {
         let url = '/api/analytics/tax';
         if (accountIds && accountIds.length > 0) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;

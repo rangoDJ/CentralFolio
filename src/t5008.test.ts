@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeDispositions, summarizeByYear, type T5008Transaction, type FxLookup } from "./services/t5008.js";
+import { computeDispositions, summarizeByYear, poolKey, type T5008Transaction, type FxLookup } from "./services/t5008.js";
 
 /** Rate lookup that always returns 1 — isolates the ACB math from FX. */
 const par: FxLookup = () => 1;
@@ -306,6 +306,113 @@ test("equities are not mistaken for crypto", () => {
 
   assert.equal(dispositions[0].isCrypto, false);
   assert.equal(dispositions[0].securityType, "SHS");
+});
+
+test("a same-day buy is applied before the sell it supplied", () => {
+  // Feed the sell first, as the DB's DESC ordering does. With no time component
+  // the buy-before-sell tiebreak must still avoid a phantom zero-cost disposal.
+  const { dispositions } = computeDispositions([
+    sell("AQN.TO", "2025-10-15", 1.2048, 8.2918),
+    buy("AQN.TO", "2025-10-15", 1.2048, 8.3001),
+  ], par);
+
+  assert.equal(dispositions.length, 1);
+  assert.ok(dispositions[0].costBasis > 0, "cost base must not be zero");
+  assert.equal(dispositions[0].missingCostBasis, false);
+  assert.ok(Math.abs(dispositions[0].gain) < 0.05, "a same-day round trip is roughly flat");
+});
+
+test("intraday timestamps drive the order, not an assumption about sides", () => {
+  // Buy 100 @ $10 in the morning, sell 100 @ $12 midday, buy 100 @ $20 at night.
+  // Only the morning lot backs the sale, so the gain is $200. Assuming all
+  // same-day buys come first would blend in the $20 lot and report a $-300 loss.
+  const { dispositions } = computeDispositions([
+    { symbol: "OPEN", date: "2025-09-11T21:44:00.000Z", type: "BUY", units: 100, price: 20, amount: -2000 },
+    { symbol: "OPEN", date: "2025-09-11T16:40:00.000Z", type: "BUY", units: 100, price: 10, amount: -1000 },
+    { symbol: "OPEN", date: "2025-09-11T17:55:00.000Z", type: "SELL", units: -100, price: 12, amount: 1200 },
+  ], par);
+
+  assert.equal(dispositions.length, 1);
+  assert.equal(dispositions[0].costBasis, 1000, "only the pre-sale lot counts");
+  assert.equal(dispositions[0].gain, 200);
+});
+
+test("a later same-day buy still raises the cost base of a subsequent sale", () => {
+  const { dispositions } = computeDispositions([
+    { symbol: "OPEN", date: "2025-09-11T16:40:00.000Z", type: "BUY", units: 100, price: 10, amount: -1000 },
+    { symbol: "OPEN", date: "2025-09-11T17:55:00.000Z", type: "SELL", units: -50, price: 12, amount: 600 },
+    { symbol: "OPEN", date: "2025-09-11T21:44:00.000Z", type: "BUY", units: 50, price: 20, amount: -1000 },
+    { symbol: "OPEN", date: "2025-09-12T15:00:00.000Z", type: "SELL", units: -100, price: 15, amount: 1500 },
+  ], par);
+
+  assert.equal(dispositions.length, 2);
+  assert.equal(dispositions[0].costBasis, 500, "first sale draws on the $10 lot only");
+  // Remaining after sale 1: 50 units @ $500, plus 50 @ $1000 = 100 units @ $1500.
+  assert.equal(dispositions[1].costBasis, 1500);
+  assert.equal(dispositions[1].gain, 0);
+});
+
+test("a transfer in is an acquisition with a real cost base", () => {
+  const { dispositions } = computeDispositions([
+    { symbol: "USDC", date: "2024-11-11", type: "TRANSFER", units: 990, price: 1.3911, amount: 1377.16 },
+    { symbol: "USDC", date: "2024-11-12", type: "TRANSFER", units: 4990, price: 1.3915, amount: 6943.39 },
+    { symbol: "USDC", date: "2024-12-24", type: "SELL", units: -5980, price: 1.4228, amount: 8508.34 },
+  ], par);
+
+  assert.equal(dispositions.length, 1);
+  assert.equal(dispositions[0].costBasis, 8320.55, "sum of both transfers in");
+  assert.equal(dispositions[0].missingCostBasis, false);
+  assert.ok(dispositions[0].gain < 200, "a stablecoin should not show a 100% gain");
+});
+
+test("a transfer out is a disposition", () => {
+  const { dispositions } = computeDispositions([
+    buy("ACME", "2024-01-10", 100, 10),
+    { symbol: "ACME", date: "2024-06-10", type: "TRANSFER", units: -100, price: 12, amount: 1200 },
+  ], par);
+
+  assert.equal(dispositions.length, 1);
+  assert.equal(dispositions[0].costBasis, 1000);
+  assert.equal(dispositions[0].gain, 200);
+});
+
+test("poolKey folds a USD listing into its CAD twin but leaves class shares alone", () => {
+  assert.equal(poolKey("DLR.U.TO"), "DLR.TO");
+  assert.equal(poolKey("dlr.u.to"), "DLR.TO");
+  assert.equal(poolKey("DLR.TO"), "DLR.TO");
+  assert.equal(poolKey("BRK.B"), "BRK.B", "class shares must not be folded");
+  assert.equal(poolKey("BIP.UN.TO"), "BIP.UN.TO", ".UN is not the .U currency marker");
+  assert.equal(poolKey("AAPL"), "AAPL");
+});
+
+test("Norbert's Gambit is a currency conversion, not a zero-cost disposition", () => {
+  // Buy DLR.TO in CAD, journal the units to the USD listing, sell there.
+  const { dispositions } = computeDispositions([
+    { symbol: "DLR.TO", date: "2026-04-17", type: "BUY", units: 100.9372, price: 13.87, amount: -1400, currencyCode: "CAD" },
+    { symbol: "DLR.TO", date: "2026-04-21", type: "JOURNAL_SHARES", units: 100.9372, price: 10.13, amount: 1022.49, currencyCode: "USD" },
+    { symbol: "DLR.U.TO", date: "2026-04-21", type: "SELL", units: -100.9372, price: 10.14, amount: 1023.5, currencyCode: "USD" },
+  ], table({ "2026-04-17": 1.38, "2026-04-21": 1.38 }));
+
+  assert.equal(dispositions.length, 1, "the journal is not itself a disposition");
+  const d = dispositions[0];
+  assert.equal(d.symbol, "DLR.U.TO", "reported under the ticker actually sold");
+  assert.equal(d.costBasis, 1400, "cost base carries across from the CAD listing");
+  assert.equal(d.missingCostBasis, false);
+  // Proceeds 1023.50 USD x 1.38 = 1412.43 CAD against a 1400 CAD cost.
+  assert.ok(Math.abs(d.gain - 12.43) < 0.01, `expected ~12.43 gain, got ${d.gain}`);
+});
+
+test("a journal does not inflate units or cost base", () => {
+  const { dispositions } = computeDispositions([
+    buy("ACME", "2024-01-10", 100, 10),
+    { symbol: "ACME", date: "2024-02-10", type: "JOURNAL_SHARES", units: 100, price: 10, amount: 1000 },
+    sell("ACME", "2024-06-10", 100, 15),
+  ], par);
+
+  // Without the journal being a no-op the pool would hold 200 units at $2000,
+  // halving the reported gain.
+  assert.equal(dispositions[0].costBasis, 1000);
+  assert.equal(dispositions[0].gain, 500);
 });
 
 test("dispositions come back in chronological order", () => {

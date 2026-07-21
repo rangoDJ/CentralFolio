@@ -115,14 +115,63 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const BUY_TYPES = new Set(["BUY", "BUYTOOPEN", "REINVEST", "DRIP"]);
 const SELL_TYPES = new Set(["SELL", "SELLTOCLOSE"]);
 
-/** A transaction's effective side, checking both `type` and `action`. */
-function sideOf(t: T5008Transaction): "buy" | "sell" | null {
+/**
+ * Types that move units in or out without being a market trade. Direction comes
+ * from the sign of `units`, not the type name.
+ *
+ * A transfer IN is an acquisition with a real cost base — treating it as
+ * "not a buy" leaves the eventual sale with a cost base of zero and reports the
+ * entire proceeds as a gain.
+ */
+const SIGNED_TYPES = new Set(["TRANSFER", "JOURNAL_SHARES", "JOURNAL"]);
+
+/** Internal moves between two listings of the same security (see poolKey). */
+const JOURNAL_TYPES = new Set(["JOURNAL_SHARES", "JOURNAL"]);
+
+export type Side = "buy" | "sell" | "journal";
+
+/**
+ * A transaction's effective side, checking both `type` and `action`.
+ *
+ * `journal` means the units moved between two currency listings of the same
+ * security — it changes nothing about what is owned or what it cost, so the
+ * caller skips it rather than treating it as a purchase.
+ */
+function sideOf(t: T5008Transaction): Side | null {
+  const units = t.units ?? 0;
   for (const raw of [t.type, t.action]) {
     const v = norm(raw);
     if (BUY_TYPES.has(v)) return "buy";
     if (SELL_TYPES.has(v)) return "sell";
+    if (JOURNAL_TYPES.has(v)) {
+      // Because cost base is pooled across every account AND across the CAD/USD
+      // listings of one security, a journal can never change what the taxpayer
+      // owns in aggregate. Counting it would double both units and cost base.
+      return "journal";
+    }
+    if (SIGNED_TYPES.has(v)) {
+      if (units > 0) return "buy";
+      if (units < 0) return "sell";
+      return null;
+    }
   }
   return null;
+}
+
+/**
+ * The ACB pool a symbol belongs to.
+ *
+ * A USD-denominated listing of a Canadian fund (`DLR.U.TO`) is the same
+ * property as its CAD listing (`DLR.TO`) — they differ only in trading
+ * currency. Pooling them is what makes Norbert's Gambit come out right: buying
+ * DLR.TO, journalling to DLR.U.TO and selling is a currency conversion, not a
+ * disposition of the whole position at zero cost.
+ *
+ * Only the `.U` currency marker is stripped, and only directly before an
+ * exchange suffix, so class shares like `BRK.B` are untouched.
+ */
+export function poolKey(symbol: string): string {
+  return norm(symbol).replace(/\.U\.(TO|V|VN|CN|NE)$/, ".$1");
 }
 
 /**
@@ -187,9 +236,39 @@ const addDays = (iso: string, n: number) =>
   new Date(new Date(`${iso}T00:00:00Z`).getTime() + n * dayMs).toISOString().slice(0, 10);
 
 interface Priced extends T5008Transaction {
-  _date: string;
-  _side: "buy" | "sell";
+  _date: string;     // YYYY-MM-DD — used for reporting and the 30-day window
+  _ts: string;       // full timestamp — used for ordering
+  _side: Side;
   _units: number;
+  _symbol: string;   // the symbol actually traded, for display
+}
+
+/**
+ * Sortable timestamp for a transaction.
+ *
+ * Ordering matters on days holding both a buy and a sell: process the sell
+ * first and it draws on a cost base that has not been established yet, so the
+ * proceeds are reported as pure gain. The broker supplies a full ISO timestamp,
+ * so use it — real sequence beats any assumption about which came first.
+ *
+ * Dates without a time component sort to the start of their day, where the
+ * buy-before-sell tiebreak below keeps them from producing a phantom zero-cost
+ * disposal.
+ */
+function timestampOf(date: string): string {
+  const s = String(date);
+  return s.includes("T") ? s : `${s.slice(0, 10)}T00:00:00.000Z`;
+}
+
+/**
+ * True chronological order. The side rank only breaks ties between entries
+ * sharing an identical timestamp (or a date with no time at all), where an
+ * acquisition is assumed to precede a disposal.
+ */
+function chronological(a: Priced, b: Priced): number {
+  if (a._ts !== b._ts) return a._ts.localeCompare(b._ts);
+  const rank = (s: Side) => (s === "buy" ? 0 : s === "journal" ? 1 : 2);
+  return rank(a._side) - rank(b._side);
 }
 
 export interface FxLookup {
@@ -221,22 +300,37 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
     const symbol = norm(t.symbol);
     const side = sideOf(t);
     const units = Math.abs(t.units ?? 0);
-    if (!symbol || !t.date || !side || units <= 0) continue;
-    const list = bySymbol.get(symbol) ?? [];
-    list.push({ ...t, _date: String(t.date).slice(0, 10), _side: side, _units: units });
-    bySymbol.set(symbol, list);
+    if (!symbol || !t.date || !side) continue;
+    // A journal carries no units of its own to add; it is kept only so the
+    // ordering below stays stable, and skipped when the pool is walked.
+    if (side !== "journal" && units <= 0) continue;
+
+    // Grouped by POOL, not by ticker, so the CAD and USD listings of the same
+    // security share one cost base.
+    const key = poolKey(symbol);
+    const list = bySymbol.get(key) ?? [];
+    list.push({
+      ...t,
+      _date: String(t.date).slice(0, 10),
+      _ts: timestampOf(String(t.date)),
+      _side: side,
+      _units: units,
+      _symbol: symbol,
+    });
+    bySymbol.set(key, list);
   }
 
   const dispositions: Disposition[] = [];
 
-  for (const [symbol, list] of bySymbol) {
-    const sorted = [...list].sort((a, b) => a._date.localeCompare(b._date));
+  for (const [, list] of bySymbol) {
+    const sorted = [...list].sort(chronological);
 
     // Share-count timeline — used to answer "was the property still held at the
     // end of the 30-day window?" without re-simulating for every loss.
     const timeline: Array<{ date: string; shares: number }> = [];
     let running = 0;
     for (const t of sorted) {
+      if (t._side === "journal") continue;   // internal move: holdings unchanged
       running += t._side === "buy" ? t._units : -t._units;
       timeline.push({ date: t._date, shares: Math.max(0, running) });
     }
@@ -258,7 +352,10 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
     let shares = 0;
 
     for (const t of sorted) {
+      if (t._side === "journal") continue;   // internal move: nothing acquired or disposed
+
       const units = t._units;
+      const symbol = t._symbol;
       const currency = norm(t.currencyCode) || "CAD";
       const rawRate = fxRate(currency, t._date);
       const fxRateMissing = rawRate == null && currency !== "CAD";

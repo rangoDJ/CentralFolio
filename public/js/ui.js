@@ -3050,6 +3050,76 @@ const UI = {
         return (e._status === 'received' && e._recvDate) ? e._recvDate : e.date;
     },
 
+    /**
+     * The currency a dividend is actually paid in, taken from the security's
+     * listing rather than the account holding it.
+     *
+     * The account is the wrong source on two counts: a CAD account routinely
+     * holds US-listed ETFs that distribute in USD, and the broker often reports
+     * no account currency at all — in which case everything silently defaults
+     * to USD and CAD distributions get shown with a "$" sign. The per-share
+     * amounts come from the security's own listing, so the exchange suffix is
+     * what determines the unit. Mirrors assetCurrency() in src/services/fxService.ts.
+     */
+    _assetCurrency(symbol, fallback) {
+        const m = String(symbol || '').toUpperCase().match(/\.([A-Z]{1,3})$/);
+        const bySuffix = {
+            TO: 'CAD', V: 'CAD', VN: 'CAD', CN: 'CAD', NE: 'CAD',
+            L: 'GBP', DE: 'EUR', PA: 'EUR', AS: 'EUR', MI: 'EUR', MC: 'EUR',
+            AX: 'AUD', HK: 'HKD', T: 'JPY', SW: 'CHF', ST: 'SEK',
+        };
+        if (m && bySuffix[m[1]]) return bySuffix[m[1]];
+        // No recognised suffix: a bare ticker is US-listed. Fall back to the
+        // account currency only when we have one, otherwise USD.
+        return m ? (fallback || 'USD') : 'USD';
+    },
+
+    /**
+     * Total dividend events, grouped by the currency each one pays in.
+     *
+     * Amounts in different currencies are never added together. There is no
+     * exchange rate available on the client, and adding CAD into USD yields a
+     * number that is not valid in either currency — it looks like a bigger
+     * payday than it is. A portfolio holding both CAD- and USD-listed payers
+     * hits this on any date where the two overlap.
+     */
+    _totalsByCurrency(events) {
+        const totals = {};
+        (events || []).forEach(e => {
+            const c = e._cur || 'USD';
+            totals[c] = (totals[c] || 0) + (e.amount || 0);
+        });
+        return totals;
+    },
+
+    /** {USD:110.01, CAD:46.01} → ["+$110.01", "+CA$46.01"], largest first. */
+    _totalParts(totals, sign = '') {
+        return Object.entries(totals || {})
+            .filter(([, v]) => Math.abs(v) >= 0.005)
+            .sort((a, b) => b[1] - a[1])
+            .map(([cur, v]) => `${sign}${this.moneyC(v, cur)}`);
+    },
+
+    /** Plain-text form, for textContent targets. */
+    _formatTotals(totals, sign = '') {
+        return this._totalParts(totals, sign).join('  ');
+    },
+
+    /**
+     * Markup form, for innerHTML targets. Each currency is its own element so a
+     * narrow day cell can wrap them onto separate lines instead of overflowing.
+     * moneyC emits only a currency symbol and digits, so this needs no escaping.
+     */
+    _formatTotalsHtml(totals, sign = '') {
+        return this._totalParts(totals, sign).map(p => `<span>${p}</span>`).join('');
+    },
+
+    /** Add one currency-keyed total map into another, in place. */
+    _addTotals(into, from) {
+        Object.entries(from || {}).forEach(([cur, v]) => { into[cur] = (into[cur] || 0) + v; });
+        return into;
+    },
+
     renderDividendCalendar(cachedDividendsData, targetDate, selectedAccountId = 'all') {
         const gridEl  = document.getElementById('dividend-calendar-grid');
         const monthEl = document.getElementById('currentCalendarMonth');
@@ -3076,7 +3146,7 @@ const UI = {
             if (include) {
                 includedAccountIds.add(acct.accountId);
                 (acct.dividends || []).forEach(e => {
-                    allEvents.push({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: curByAcct.get(acct.accountId) || 'USD' });
+                    allEvents.push({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: this._assetCurrency(e.symbol, curByAcct.get(acct.accountId)) });
                     annualTotal += (e.amount || 0);
                 });
             }
@@ -3089,7 +3159,7 @@ const UI = {
         const allTx = (typeof App !== 'undefined' && App.getFilteredTransactionsData) ? (App.getFilteredTransactionsData() || []) : [];
         const scopedTx = allTx.filter(a => includedAccountIds.has(a.accountId));
         const received = DivMath.collectReceivedDividends(allEvents, scopedTx, { divTypes: this._DIV_TYPES, monthsBack: 6 });
-        received.forEach(e => { e._cur = curByAcct.get(e.accountId) || 'USD'; });
+        received.forEach(e => { e._cur = this._assetCurrency(e.symbol, curByAcct.get(e.accountId)); });
         const displayEvents = allEvents.concat(received);
         this.divCalEvents = displayEvents;
 
@@ -3133,17 +3203,18 @@ const UI = {
         let html = this.dividendLegendHtml() + '<div class="divcal-weekrow">' + ['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d => `<div class="divcal-weekday">${d}</div>`).join('') + '</div><div class="divcal-grid">';
         for (let i = 0; i < firstDow; i++) html += '<div class="divcal-cell empty"></div>';
 
-        let monthTotal = 0;
+        const monthTotals = {};
         for (let day = 1; day <= daysInMonth; day++) {
             const dayEvents = displayEvents.filter(e => {
                 const d = new Date(this._divDisplayDate(e));
                 return d.getUTCFullYear() === year && d.getUTCMonth() === month && d.getUTCDate() === day;
             });
-            const dayTotal = dayEvents.reduce((s, e) => s + (e.amount || 0), 0);
-            monthTotal += dayTotal;
+            // Grouped by currency — a day mixing CAD and USD payers must not be
+            // collapsed into one number stamped with whichever came first.
+            const dayTotals = this._totalsByCurrency(dayEvents);
+            this._addTotals(monthTotals, dayTotals);
+            const dayTotalLabel = this._formatTotalsHtml(dayTotals, "+");
             const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
-
-            const dayCur = dayEvents.length ? curOf(dayEvents[0]) : primaryCur;
             const cards = dayEvents.map(e => {
                 const y = yieldFor(e);
                 const badge = (e.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4);
@@ -3158,7 +3229,7 @@ const UI = {
             }).join('');
 
             html += `<div class="divcal-cell${isToday ? ' today' : ''}">
-                <div class="divcal-cell-head"><span class="divcal-daynum${isToday ? ' today' : ''}">${day}</span>${dayTotal > 0 ? `<span class="divcal-daytotal">+${this.moneyC(dayTotal, dayCur)}</span>` : ''}</div>
+                <div class="divcal-cell-head"><span class="divcal-daynum${isToday ? ' today' : ''}">${day}</span>${dayTotalLabel ? `<span class="divcal-daytotal">${dayTotalLabel}</span>` : ''}</div>
                 <div class="divcal-cell-events">${cards}</div>
             </div>`;
         }
@@ -3166,8 +3237,8 @@ const UI = {
         gridEl.innerHTML = html;
 
         const mt = document.getElementById('divcalMonthTotal');
-        if (mt) mt.textContent = monthTotal > 0 ? `+${this.moneyC(monthTotal, primaryCur)}` : '';
-        setTxt('unified-month-total', this.moneyC(monthTotal, primaryCur));
+        if (mt) mt.textContent = this._formatTotals(monthTotals, '+');
+        setTxt('unified-month-total', this._formatTotals(monthTotals) || this.moneyC(0, primaryCur));
 
         this.renderDivCalList(displayEvents);
         this.setDivCalView(this.divCalView || 'calendar');
@@ -3232,10 +3303,10 @@ const UI = {
 
         el.innerHTML = '<div class="card" style="padding:0;overflow:hidden;">' + Object.keys(byDate).map(k => {
             const evs = byDate[k];
-            const tot = evs.reduce((s, e) => s + (e.amount || 0), 0);
-            const dayCur = curOf(evs[0]);
+            // Same rule as the grid: never add across currencies.
+            const totLabel = this._formatTotals(this._totalsByCurrency(evs), '+');
             return `<div class="divcal-listday">
-                <div class="divcal-listday-head"><span>${sanitize(k)}</span><span class="pos">+${this.moneyC(tot, dayCur)}</span></div>
+                <div class="divcal-listday-head"><span>${sanitize(k)}</span><span class="pos">${totLabel}</span></div>
                 ${evs.map(e => { const status = e._status || 'expected'; return `<div class="divcal-listrow div-${status}"><span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span><span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span><span class="divcal-listrow-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span></div>`; }).join('')}
             </div>`;
         }).join('') + '</div>';

@@ -1990,10 +1990,17 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 }
 .divcal-cell.empty { background: var(--divcal-empty-bg); }
 .divcal-cell.today { background: rgba(58,123,213,0.06); }
-.divcal-cell-head { display: flex; align-items: center; justify-content: space-between; }
+/* The day number and the per-currency totals share a narrow cell; let the
+   totals wrap beneath the number rather than overflow it. */
+.divcal-cell-head { display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 0 0.35rem; flex-wrap: wrap; }
 .divcal-daynum { font-size: 0.8rem; color: var(--text-muted); }
 .divcal-daynum.today { background: #3a7bd5; color: #fff; width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; }
-.divcal-daytotal { font-size: 0.74rem; font-weight: 600; color: var(--success); }
+/* A day can carry one total per currency (CAD and USD are never added
+   together), so allow the chips to wrap and right-align in the narrow cell. */
+.divcal-daytotal { font-size: 0.74rem; font-weight: 600; color: var(--success);
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 0.3rem; text-align: right;
+  flex: 1 1 auto; min-width: 0; }
 .divcal-cell-events { display: flex; flex-direction: column; gap: 0.3rem; }
 
 .divcal-event {

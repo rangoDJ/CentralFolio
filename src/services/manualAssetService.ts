@@ -62,7 +62,10 @@ export async function summarizeManualAssets(assets: Pick<ManualAsset, "category"
     baseCurrency,
     count: assets.length,
     byCategory: toSlices(byCategoryBase, totalValueBase),
-    byCurrency: toSlices(byCurrencyNative, Array.from(byCurrencyNative.values()).reduce((s, v) => s + v, 0)),
+    // Native amounts (each slice is shown in its own currency), but the
+    // percentage denominator must be the FX-adjusted total, not a mixed-
+    // currency sum of the native amounts.
+    byCurrency: toSlices(byCurrencyNative, totalValueBase),
   };
 }
 

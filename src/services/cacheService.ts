@@ -2,6 +2,8 @@ import { clearAccountsForPortfolio, clearAccountCache, clearPositionsForAccount 
 import { clearTransactionCache, clearTransactionsForAccount } from "../repositories/transactionRepository.js";
 import { clearDividendMetadataCache } from "../repositories/dividendRepository.js";
 import { clearDividendMemoryCache } from "./dividendService.js";
+import { clearPortfolioHistoryCache } from "./portfolioHistoryService.js";
+import { clearDiversificationCache } from "./diversificationService.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -13,6 +15,11 @@ export function onPortfolioDeleted(portfolioId: number | string) {
   logger.info('Cache', `onPortfolioDeleted(portfolio=${portfolioId}) — purging related caches`);
   clearAccountsForPortfolio(portfolioId);
   clearDividendMemoryCache();
+  // The deleted accounts are gone from the DB by this point, so there is no
+  // cheap way to name just the affected ids — clear these analytics caches
+  // outright rather than risk serving figures for accounts that no longer exist.
+  clearPortfolioHistoryCache();
+  clearDiversificationCache();
   logger.info('Cache', `onPortfolioDeleted — cleared portfolio cache`);
 }
 
@@ -25,6 +32,8 @@ export function onAccountDeactivated(accountId: string) {
   clearPositionsForAccount(accountId);
   clearTransactionsForAccount(accountId);
   clearDividendMemoryCache();
+  clearPortfolioHistoryCache(new Set([accountId]));
+  clearDiversificationCache();
 }
 
 /**
@@ -34,6 +43,8 @@ export function onAccountDeactivated(accountId: string) {
 export function onAccountModified(accountId: string) {
   logger.info('Cache', `onAccountModified(account=${accountId}) — invalidating memory cache`);
   clearDividendMemoryCache();
+  clearPortfolioHistoryCache(new Set([accountId]));
+  clearDiversificationCache();
 }
 
 /**
@@ -45,6 +56,8 @@ export function onBrokerageReconnected(portfolioId: number | string) {
   logger.info('Cache', `onBrokerageReconnected(portfolio=${portfolioId}) — invalidating account and position caches`);
   clearAccountsForPortfolio(portfolioId);
   clearDividendMemoryCache();
+  clearPortfolioHistoryCache();
+  clearDiversificationCache();
   logger.info('Cache', `onBrokerageReconnected — portfolio cache cleared`);
 }
 
@@ -58,5 +71,7 @@ export function clearAllCaches() {
   clearTransactionCache();
   clearDividendMetadataCache();
   clearDividendMemoryCache();
+  clearPortfolioHistoryCache();
+  clearDiversificationCache();
   logger.warn('Cache', 'clearAllCaches() — done');
 }

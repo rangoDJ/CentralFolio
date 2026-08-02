@@ -99,3 +99,27 @@ export async function convertToBase(amountsByCurrency: Map<string, number>, base
   }
   return total;
 }
+
+/**
+ * Convert a list of native-currency amounts into a single base currency,
+ * fetching each distinct currency's rate only once.
+ *
+ * Aggregating mixed-currency amounts by summing their native values (instead
+ * of converting first) silently produces wrong totals/percentages whenever a
+ * portfolio holds more than one currency — this is the one place that
+ * conversion should happen so the mistake isn't reintroduced independently in
+ * every service that buckets holdings by currency, sector, category, etc.
+ */
+export async function toBaseCurrency<T>(
+  items: readonly T[],
+  currencyOf: (item: T) => string,
+  valueOf: (item: T) => number,
+  base: string
+): Promise<Array<T & { valueBase: number }>> {
+  const currencies = new Set(items.map(currencyOf));
+  const rateOf = new Map<string, number>();
+  await Promise.all(Array.from(currencies).map(async cur => {
+    rateOf.set(cur, await getFxRate(cur, base));
+  }));
+  return items.map(item => ({ ...item, valueBase: valueOf(item) * (rateOf.get(currencyOf(item)) ?? 1) }));
+}

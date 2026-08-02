@@ -1,4 +1,5 @@
-import { listPortfolios, getCachedAccounts, getActiveAccountIds, getCachedTransactions } from "../models/db.js";
+import { getCachedTransactions } from "../models/db.js";
+import { getScopedAccounts } from "./accountScope.js";
 import { getPriceHistory as repoGetPriceHistory, getLatestStoredDate } from "../repositories/priceHistoryRepository.js";
 import { syncSymbol } from "./priceHistoryService.js";
 import { reconstructPortfolioHistory, type PHTransaction, type PriceCandleLite, type PortfolioHistoryResult } from "./portfolioHistory.js";
@@ -19,15 +20,10 @@ function cacheKey(bench: string, allowedIds: Set<string> | null): string {
 
 /** Gather transactions across active accounts, optionally limited to allowedIds. */
 function gatherActiveTransactions(allowedIds: Set<string> | null): PHTransaction[] {
-  const activeIds = getActiveAccountIds();
   const out: PHTransaction[] = [];
-  for (const portfolio of listPortfolios()) {
-    for (const acct of getCachedAccounts(portfolio.id!)) {
-      if (!activeIds.has(acct.id)) continue;
-      if (allowedIds && !allowedIds.has(acct.id)) continue;
-      for (const t of getCachedTransactions(acct.id)) {
-        out.push({ symbol: t.symbol, type: t.type, units: t.units, price: t.price, amount: t.amount, date: t.date });
-      }
+  for (const acct of getScopedAccounts(allowedIds)) {
+    for (const t of getCachedTransactions(acct.id)) {
+      out.push({ symbol: t.symbol, type: t.type, units: t.units, price: t.price, amount: t.amount, date: t.date });
     }
   }
   return out;

@@ -46,25 +46,33 @@ function annualTotalsFrom(payments: DividendPayment[], now: Date): Array<{ year:
     .map(([year, total]) => ({ year, total }));
 }
 
-/** CAGR between the dividend `years` complete years apart. Null if not enough data or a zero base. */
+/**
+ * CAGR between the dividend `years` complete calendar years apart. Null if
+ * that exact start year has no data (e.g. a suspended-dividend gap year) or a
+ * zero base — looked up by calendar year, not array position, so a missing
+ * year can never be silently annualized over the wrong span.
+ */
 function cagrOverWindow(totals: Array<{ year: number; total: number }>, years: number): number | null {
-  if (totals.length < years + 1) return null;
-  const end = totals[totals.length - 1].total;
-  const start = totals[totals.length - 1 - years].total;
-  if (!(start > 0) || !(end > 0)) return null;
-  return Math.pow(end / start, 1 / years) - 1;
+  if (totals.length === 0) return null;
+  const end = totals[totals.length - 1];
+  const start = totals.find(t => t.year === end.year - years);
+  if (!start || !(start.total > 0) || !(end.total > 0)) return null;
+  return Math.pow(end.total / start.total, 1 / years) - 1;
 }
 
 /**
  * Count consecutive most-recent complete years where the annual dividend did not
  * decrease year-over-year. A tiny tolerance avoids float-rounding false breaks.
+ * A gap between two entries (a year with no recorded dividend, e.g. a
+ * suspension) ends the streak rather than comparing across the missing year.
  */
 function growthStreak(totals: Array<{ year: number; total: number }>): number {
   let streak = 0;
   for (let i = totals.length - 1; i > 0; i--) {
-    const cur = totals[i].total;
-    const prev = totals[i - 1].total;
-    if (cur >= prev * 0.999) streak++;
+    const cur = totals[i];
+    const prev = totals[i - 1];
+    if (prev.year !== cur.year - 1) break;
+    if (cur.total >= prev.total * 0.999) streak++;
     else break;
   }
   return streak;

@@ -1,4 +1,5 @@
-import { listPortfolios, getCachedAccounts, getActiveAccountIds, getCachedTransactions } from "../models/db.js";
+import { getCachedTransactions } from "../models/db.js";
+import { getScopedAccounts } from "./accountScope.js";
 import { computeRealizedGains } from "./realizedGains.js";
 import { classifyAccount } from "./taxRules.js";
 import { logger } from "../utils/logger.js";
@@ -19,34 +20,28 @@ export interface RealizedGainsBreakdown {
 }
 
 export function getRealizedGains(allowedIds?: Set<string> | null): RealizedGainsBreakdown {
-  const activeIds = getActiveAccountIds();
   const byYear = new Map<number, { gain: number; taxableGain: number }>();
   const byAccount: AccountGain[] = [];
   let totalGain = 0, taxableAccountGain = 0, currency = "CAD";
 
-  for (const portfolio of listPortfolios()) {
-    for (const acct of getCachedAccounts(portfolio.id!)) {
-      if (!activeIds.has(acct.id)) continue;
-      if (allowedIds && !allowedIds.has(acct.id)) continue;
+  for (const acct of getScopedAccounts(allowedIds)) {
+    const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
+    const registered = cls === "rrsp" || cls === "tfsa";
+    const label = acct.customName || acct.name || "Account";
+    if (acct.currency) currency = acct.currency;
 
-      const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
-      const registered = cls === "rrsp" || cls === "tfsa";
-      const label = acct.customName || acct.name || "Account";
-      if (acct.currency) currency = acct.currency;
+    const { events, totalGain: acctGain } = computeRealizedGains(getCachedTransactions(acct.id));
+    if (events.length === 0) continue;
 
-      const { events, totalGain: acctGain } = computeRealizedGains(getCachedTransactions(acct.id));
-      if (events.length === 0) continue;
+    byAccount.push({ account: label, gain: round2(acctGain), registered });
+    totalGain += acctGain;
+    if (!registered) taxableAccountGain += acctGain;
 
-      byAccount.push({ account: label, gain: round2(acctGain), registered });
-      totalGain += acctGain;
-      if (!registered) taxableAccountGain += acctGain;
-
-      for (const e of events) {
-        const y = byYear.get(e.year) ?? { gain: 0, taxableGain: 0 };
-        y.gain += e.gain;
-        if (!registered) y.taxableGain += e.gain;
-        byYear.set(e.year, y);
-      }
+    for (const e of events) {
+      const y = byYear.get(e.year) ?? { gain: 0, taxableGain: 0 };
+      y.gain += e.gain;
+      if (!registered) y.taxableGain += e.gain;
+      byYear.set(e.year, y);
     }
   }
 

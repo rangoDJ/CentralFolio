@@ -13,7 +13,8 @@
  * reads cached positions / dividend metadata / asset profiles.
  */
 
-import { listPortfolios, getCachedAccounts, getActiveAccountIds, getCachedPositions, getCachedDividendMetadata } from "../models/db.js";
+import { getCachedPositions, getCachedDividendMetadata } from "../models/db.js";
+import { getScopedAccounts } from "./accountScope.js";
 import { getProfile } from "../repositories/assetProfileRepository.js";
 import { classifyAccount, sourceCountry, withholdingRate } from "./taxRules.js";
 import { logger } from "../utils/logger.js";
@@ -32,42 +33,36 @@ export interface TaxBreakdown {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function getDividendTaxBreakdown(allowedIds?: Set<string> | null): TaxBreakdown {
-  const activeIds = getActiveAccountIds();
   const byAccount = new Map<string, { income: number; withheld: number }>();
   const byCountry = new Map<string, { income: number; withheld: number }>();
   let totalIncome = 0, totalWithheld = 0, currency = "CAD";
 
-  for (const portfolio of listPortfolios()) {
-    for (const acct of getCachedAccounts(portfolio.id!)) {
-      if (!activeIds.has(acct.id)) continue;
-      if (allowedIds && !allowedIds.has(acct.id)) continue;
+  for (const acct of getScopedAccounts(allowedIds)) {
+    const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
+    const acctLabel = acct.customName || acct.name || "Account";
 
-      const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
-      const acctLabel = acct.customName || acct.name || "Account";
+    for (const pos of getCachedPositions(acct.id)) {
+      const symbol = pos.symbol;
+      const units = pos.units || 0;
+      if (!symbol || units <= 0) continue;
 
-      for (const pos of getCachedPositions(acct.id)) {
-        const symbol = pos.symbol;
-        const units = pos.units || 0;
-        if (!symbol || units <= 0) continue;
+      const meta = getCachedDividendMetadata(symbol);
+      const annualPerShare = (meta?.amountPerShare || 0) * (meta?.frequency || 0);
+      if (annualPerShare <= 0) continue;
 
-        const meta = getCachedDividendMetadata(symbol);
-        const annualPerShare = (meta?.amountPerShare || 0) * (meta?.frequency || 0);
-        if (annualPerShare <= 0) continue;
+      const income = annualPerShare * units;
+      const country = sourceCountry(symbol, getProfile(symbol)?.country);
+      const rate = withholdingRate(cls, country);
+      const withheld = income * rate;
 
-        const income = annualPerShare * units;
-        const country = sourceCountry(symbol, getProfile(symbol)?.country);
-        const rate = withholdingRate(cls, country);
-        const withheld = income * rate;
+      totalIncome += income;
+      totalWithheld += withheld;
+      if (acct.currency) currency = acct.currency;
 
-        totalIncome += income;
-        totalWithheld += withheld;
-        if (acct.currency) currency = acct.currency;
-
-        const a = byAccount.get(acctLabel) ?? { income: 0, withheld: 0 };
-        a.income += income; a.withheld += withheld; byAccount.set(acctLabel, a);
-        const c = byCountry.get(country) ?? { income: 0, withheld: 0 };
-        c.income += income; c.withheld += withheld; byCountry.set(country, c);
-      }
+      const a = byAccount.get(acctLabel) ?? { income: 0, withheld: 0 };
+      a.income += income; a.withheld += withheld; byAccount.set(acctLabel, a);
+      const c = byCountry.get(country) ?? { income: 0, withheld: 0 };
+      c.income += income; c.withheld += withheld; byCountry.set(country, c);
     }
   }
 

@@ -10,7 +10,8 @@
  * T5008 is issued for them — including them would overstate taxable gains.
  */
 
-import { listPortfolios, getCachedAccounts, getActiveAccountIds, getCachedTransactions } from "../models/db.js";
+import { getCachedTransactions } from "../models/db.js";
+import { getScopedAccounts } from "./accountScope.js";
 import { classifyAccount } from "./taxRules.js";
 import { primeFxHistory, fxRateOn, assetCurrency } from "./fxService.js";
 import { computeDispositions, summarizeByYear, type Disposition, type T5008Result, type T5008Transaction } from "./t5008.js";
@@ -48,36 +49,18 @@ interface AccountTxns {
  * Collect transactions from every active account, tagged with whether the
  * account is registered.
  *
- * Registered accounts are kept rather than dropped here because the two
- * consumers need different things: dispositions must exclude them (not
- * reportable), while carrying charges need to see them in order to report how
- * many non-deductible entries were skipped.
+ * Always gathers ALL active accounts — never scoped to `allowedIds` — because
+ * the ACB pooling in getT5008Report() below needs the taxpayer's full
+ * non-registered history regardless of the display scope. See that function's
+ * docstring for why narrowing this set would compute a wrong cost base.
  */
-function collectAccounts(allowedIds?: Set<string> | null): {
-  accounts: AccountTxns[];
-  excluded: string[];
-} {
-  const activeIds = getActiveAccountIds();
-  const accounts: AccountTxns[] = [];
-  const excluded: string[] = [];
-
-  for (const portfolio of listPortfolios()) {
-    for (const acct of getCachedAccounts(portfolio.id!)) {
-      if (!activeIds.has(acct.id)) continue;
-      if (allowedIds && !allowedIds.has(acct.id)) continue;
-
-      const label = acct.customName || acct.name || "Account";
-      const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
-      const registered = cls !== "taxable";
-      // Several accounts can share a broker-assigned name; only list each once.
-      if (registered && !excluded.includes(label)) excluded.push(label);
-
-      const txns = getCachedTransactions(acct.id) as T5008Transaction[];
-      if (txns.length > 0) accounts.push({ accountId: acct.id, label, registered, txns });
-    }
-  }
-
-  return { accounts, excluded };
+function collectAccounts(): AccountTxns[] {
+  return getScopedAccounts(null).map(acct => ({
+    accountId: acct.id,
+    label: acct.customName || acct.name || "Account",
+    registered: classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`) !== "taxable",
+    txns: getCachedTransactions(acct.id) as T5008Transaction[],
+  })).filter(a => a.txns.length > 0);
 }
 
 /**
@@ -132,7 +115,7 @@ export async function getT5008Report(
   year?: number | null,
   allowedIds?: Set<string> | null
 ): Promise<T5008Report> {
-  const { accounts } = collectAccounts(null);
+  const accounts = collectAccounts();
 
   // Normalize currency once so the FX prime and the math agree on it.
   for (const a of accounts) {

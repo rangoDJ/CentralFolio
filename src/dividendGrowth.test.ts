@@ -60,3 +60,31 @@ test("returns null DGR when the base year is zero", () => {
   );
   assert.equal(m.dgr1y, null);
 });
+
+test("a suspended year with no payments does not get annualized over the gap", () => {
+  // 2022 paid, 2023 suspended (no payments at all, so no annualTotals entry),
+  // 2024 resumed. 1y CAGR must NOT compare 2024 against 2022 as if it were a
+  // single year — that would report a wildly inflated growth rate.
+  const m = computeDividendGrowth(quarterly({ 2022: 4, 2024: 4.4, 2026: 1 }), NOW);
+  assert.deepEqual(m.annualTotals.map(a => a.year), [2022, 2024]);
+  assert.equal(m.dgr1y, null, "no 2023 entry to serve as the 1y-back base");
+});
+
+test("3y CAGR skips over a suspended year only when the exact start year exists", () => {
+  // 2021 paid, 2022 suspended, 2023 resumed, 2024 grew. A 3y window from 2024
+  // needs a 2021 entry, which does exist here, so it should compute normally
+  // even though 2022 is missing in between.
+  const m = computeDividendGrowth(
+    quarterly({ 2021: 2, 2023: 2, 2024: 2.2, 2026: 1 }),
+    NOW
+  );
+  assert.ok(m.dgr3y !== null);
+  assert.ok(Math.abs((m.dgr3y as number) - (Math.pow(2.2 / 2, 1 / 3) - 1)) < 1e-9);
+});
+
+test("growth streak breaks across a suspended (missing) year instead of comparing across it", () => {
+  // 2021:3, 2022 suspended (no entry), 2023:4, 2024:5 — even though 4 -> 5 is
+  // non-decreasing, the streak must not bridge the missing 2022.
+  const m = computeDividendGrowth(quarterly({ 2021: 3, 2023: 4, 2024: 5, 2026: 1 }), NOW);
+  assert.equal(m.growthStreakYears, 1, "only 2023 -> 2024 is a consecutive non-decreasing pair");
+});

@@ -274,7 +274,22 @@ test("a sale with no recorded purchase is flagged, not silently zero-cost", () =
 
   assert.equal(dispositions[0].missingCostBasis, true);
   assert.equal(dispositions[0].costBasis, 0);
-  assert.ok(warnings.some(w => w.includes("no recorded purchase")));
+  assert.ok(warnings.some(w => w.includes("missing some or all of their recorded purchase")));
+});
+
+test("selling more units than were ever recorded as bought flags a partial missing cost base", () => {
+  const { dispositions } = computeDispositions([
+    buy("ACME", "2024-01-10", 50, 10),    // only 50 units of history recorded
+    sell("ACME", "2024-06-10", 100, 12),  // but 100 units sold
+  ], par);
+
+  const d = dispositions[0];
+  // Box 16 must match the units actually disposed of / the proceeds below —
+  // not the smaller count the cost-base pool could cover.
+  assert.equal(d.quantity, 100);
+  assert.equal(d.proceeds, 1200);
+  assert.equal(d.costBasis, 500, "only the known 50 units contribute cost");
+  assert.equal(d.missingCostBasis, true, "half the disposed units have no recorded cost");
 });
 
 test("a normal disposition is not flagged as missing cost basis", () => {

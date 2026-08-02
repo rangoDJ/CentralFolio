@@ -119,15 +119,20 @@ async function primeRatesFor(txns: T5008Transaction[]): Promise<void> {
 /**
  * Build the T5008 report.
  *
- * ACB is always computed over the account's FULL history — `year` filters the
- * dispositions that are *displayed*, never the transactions the cost base is
- * derived from.
+ * ACB is always computed over the taxpayer's FULL non-registered account
+ * history — never just `allowedIds`. CRA pools identical property across
+ * every non-registered account a taxpayer owns, so narrowing the transaction
+ * set to a display scope (a user-defined portfolio tag, which can include or
+ * exclude accounts arbitrarily) before computing ACB would give a wrong cost
+ * base for anything held both inside and outside that scope. `year` and
+ * `allowedIds` both filter only the dispositions/charges that are
+ * *displayed*, never the transactions the cost base is derived from.
  */
 export async function getT5008Report(
   year?: number | null,
   allowedIds?: Set<string> | null
 ): Promise<T5008Report> {
-  const { accounts, excluded } = collectAccounts(allowedIds);
+  const { accounts } = collectAccounts(null);
 
   // Normalize currency once so the FX prime and the math agree on it.
   for (const a of accounts) {
@@ -143,18 +148,32 @@ export async function getT5008Report(
     a.txns.map(t => ({ ...t, account: a.label, accountId: a.accountId, registered: a.registered }))
   );
 
-  // ONE pooled pass over every taxable account. CRA treats identical property as
-  // a single pool across all of a taxpayer's non-registered accounts, so the
-  // transactions are tagged with their account and then merged — computing per
-  // account would give a different cost base for anything held in two places.
-  // Registered accounts are dropped here: their dispositions are not reportable.
+  // ONE pooled pass over EVERY taxable account, regardless of the selected
+  // display scope. CRA treats identical property as a single pool across all
+  // of a taxpayer's non-registered accounts, so the transactions are tagged
+  // with their account and then merged — computing over just the scoped
+  // subset would give a different (wrong) cost base for anything held in two
+  // places. Registered accounts are dropped here: their dispositions are not
+  // reportable.
   const result = computeDispositions(tagged.filter(t => !t.registered), lookup);
-  const allDispositions: AccountDisposition[] = result.dispositions;
   const warnings: string[] = [...result.warnings];
 
-  // Carrying charges see EVERY account, including registered ones, so the
-  // non-deductible entries can be counted and explained rather than vanishing.
-  const allCharges = computeCarryingCharges(tagged as CCTransaction[], lookup);
+  // The display scope narrows AFTER the pooled math, by account id — never
+  // before it. `excluded` (registered accounts) is reported for the selected
+  // scope only, matching what the user actually sees.
+  const excluded = Array.from(new Set(
+    accounts
+      .filter(a => a.registered && (!allowedIds || allowedIds.has(a.accountId)))
+      .map(a => a.label)
+  ));
+  const allDispositions: AccountDisposition[] = allowedIds
+    ? result.dispositions.filter(d => allowedIds.has(d.accountId))
+    : result.dispositions;
+
+  // Carrying charges have no pooling requirement — each entry stands on its
+  // own — so they can be scoped to the selected accounts directly.
+  const scopedTagged = allowedIds ? tagged.filter(t => allowedIds.has(String(t.accountId ?? ""))) : tagged;
+  const allCharges = computeCarryingCharges(scopedTagged as CCTransaction[], lookup);
   const carryingCharges = year
     ? filterChargesToYear(allCharges, year)
     : allCharges;

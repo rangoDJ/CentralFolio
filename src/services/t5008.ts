@@ -418,13 +418,19 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
         description,
         date: t._date,
         year: Number(t._date.slice(0, 4)),
-        quantity: round2(soldUnits),
+        // Box 16 reports the units actually disposed of, matching the proceeds
+        // below — not the (possibly smaller) portion the cost-base pool could
+        // cover. See `soldUnits` for that capped figure.
+        quantity: round2(units),
         currency,
         securityType: securityType(symbol, description, crypto),
         account,
         accountId: String(t.accountId ?? ""),
         isCrypto: crypto,
-        missingCostBasis: costBasis === 0 && proceeds > 0,
+        // True whenever some or all of the disposed units have no recorded
+        // cost: either the pool was already empty (costBasis === 0) or the
+        // sale drew down more units than the pool held (soldUnits < units).
+        missingCostBasis: (costBasis === 0 && proceeds > 0) || soldUnits < units,
         proceedsNative: round2(proceedsNative),
         costBasisNative: round2(costBasisNative),
         proceeds: round2(proceeds),
@@ -448,16 +454,17 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
 
   dispositions.sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
 
-  // A zero cost base is almost never real — it means the purchase happened
-  // before the broker's transaction window, so the whole proceeds are being
+  // A missing cost base is almost never real — it means the purchase happened
+  // before the broker's transaction window (or more units were sold than were
+  // ever recorded as bought), so some or all of the proceeds are being
   // reported as gain. Surface it rather than letting it inflate the return.
   const noCost = dispositions.filter(d => d.missingCostBasis);
   if (noCost.length > 0) {
     const overstated = round2(noCost.reduce((s, d) => s + d.proceeds, 0));
     warnings.push(
-      `${noCost.length} disposition(s) have no recorded purchase (${noCost.map(d => d.symbol).join(", ")}). ` +
-      `Their cost base is 0, so ${overstated} of proceeds is counted entirely as gain. ` +
-      `Enter the real ACB from your broker's records before filing.`
+      `${noCost.length} disposition(s) are missing some or all of their recorded purchase ` +
+      `(${noCost.map(d => d.symbol).join(", ")}). Up to ${overstated} of proceeds may be counted ` +
+      `as gain with no offsetting cost. Enter the real ACB from your broker's records before filing.`
     );
   }
 

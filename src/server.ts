@@ -3,7 +3,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import apiRoutes from "./routes/apiRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
-import { requireAuth, issueSSETicket, consumeSSETicket } from "./middleware/auth.js";
+import { requireAuth, issueSSETicket, consumeSSETicket, requireSameOrigin } from "./middleware/auth.js";
+import { createRateLimiter } from "./middleware/rateLimit.js";
 import { streamEvents } from "./controllers/eventsController.js";
 import { logger, requestLogger } from "./utils/logger.js";
 import { getAllDividendsForAllPortfolios } from "./services/dividendService.js";
@@ -44,13 +45,27 @@ app.use((req, res, next) => {
   next();
 });
 
+// CSRF: with cookie-based auth, reject state-changing requests that claim a
+// foreign origin (browser-supplied Origin/Referer can't be forged by an
+// attacker's page). Non-browser clients (Android, curl) pass through.
+app.use(requireSameOrigin);
+
+// Coarse global rate limits per IP (fine-grained login throttling is in
+// authController). These block brute-force / runaway automated hammering of
+// the authenticated surface while staying generous for a personal dashboard.
+const apiRateLimiter = createRateLimiter({ name: 'api', windowMs: 60 * 1000, max: 240 });
+const authRateLimiter = createRateLimiter({ name: 'auth', windowMs: 15 * 60 * 1000, max: 120 });
+app.use('/api', apiRateLimiter);
+app.use('/auth', authRateLimiter);
+
 app.use(express.static(path.resolve(__dirname, "../public")));
 
 // --- Auth routes (public) ---
 app.use("/auth", authRoutes);
 
 // --- SSE event routes (own auth layer, mounted before global requireAuth) ---
-// /api/events/ticket  authenticated via Bearer, issues a 30-second one-time ticket.
+// /api/events/ticket  authenticated via session cookie (or Bearer), issues a
+//                     30-second one-time ticket.
 // /api/events         authenticated via ticket (EventSource cannot send headers).
 app.get("/api/events/ticket", requireAuth, issueSSETicket);
 app.get("/api/events", consumeSSETicket, streamEvents);
@@ -73,6 +88,7 @@ const server = app.listen(port, () => {
   logger.info('Server', `  CentralFolio backend started`);
   logger.info('Server', `  Listening at http://localhost:${port}`);
   logger.info('Server', `  LOG_LEVEL=${process.env.LOG_LEVEL ?? 'info'}`);
+  logger.info('Server', `  Single-instance sync (in-memory SSE tickets + event bus)`);
   logger.info('Server', `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
   registerJob(

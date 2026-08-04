@@ -1,10 +1,9 @@
 const API = {
-    _token() {
-        return localStorage.getItem('cf_token') || '';
-    },
-
+    // Auth now rides on the httpOnly, same-site session cookie (set at login).
+    // Nothing is stored in localStorage, so a successful XSS can't exfiltrate a
+    // reusable token. Non-browser clients (Android) keep using Bearer tokens.
     _headers(extra = {}) {
-        return { 'Content-Type': 'application/json', Authorization: `Bearer ${this._token()}`, ...extra };
+        return { 'Content-Type': 'application/json', ...extra };
     },
 
     async _fetch(url, options = {}) {
@@ -13,7 +12,6 @@ const API = {
             headers: { ...this._headers(), ...(options.headers || {}) }
         });
         if (res.status === 401) {
-            localStorage.removeItem('cf_token');
             window.location.href = '/login.html';
             throw new Error('Session expired. Redirecting to login.');
         }
@@ -238,8 +236,8 @@ const API = {
     },
 
     /**
-     * Download the T5008 CSV. Auth is a Bearer header, so a plain <a href> would
-     * hit the endpoint unauthenticated — fetch it and hand the browser a blob.
+     * Download the T5008 CSV. Auth rides on the httpOnly cookie, so a plain
+     * <a href> would work, but we fetch it as a blob to control the filename.
      */
     async downloadT5008Csv(year = null, accountIds = null) {
         const params = new URLSearchParams();
@@ -372,6 +370,16 @@ const API = {
             body: JSON.stringify({ portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce })
         });
         const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Order staging failed');
+        return data;
+    },
+
+    async confirmTrade(confirmationToken) {
+        const res = await this._fetch('/api/trade/confirm', {
+            method: 'POST',
+            body: JSON.stringify({ confirmationToken })
+        });
+        const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Order placement failed');
         return data;
     },
@@ -493,6 +501,16 @@ const API = {
         const res = await this._fetch(`/api/user-portfolios/${id}/rebalance/execute`, {
             method: 'POST',
             body: JSON.stringify({ trades })
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to stage rebalance trades');
+        return data;
+    },
+
+    async confirmRebalance(id, confirmationToken) {
+        const res = await this._fetch(`/api/user-portfolios/${id}/rebalance/confirm`, {
+            method: 'POST',
+            body: JSON.stringify({ confirmationToken })
         });
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to execute rebalance trades');

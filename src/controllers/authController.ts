@@ -58,6 +58,12 @@ export const getAuthStatus = (req: Request, res: Response) => {
   res.json({ configured });
 };
 
+// Session validity check for cookie-based clients. Requires auth (see route);
+// used by the SPA on load instead of trusting a JS-readable token.
+export const verify = (_req: Request, res: Response) => {
+  res.json({ authenticated: true });
+};
+
 export const setup = async (req: Request, res: Response) => {
   if (getPasswordHash()) {
     return res.status(400).json({ error: "Password already configured. Use change-password instead." });

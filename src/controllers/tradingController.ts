@@ -1,9 +1,22 @@
 import { Request, Response } from "express";
+import { randomUUID } from "crypto";
 import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 import type { TradeOrder } from "../schemas/tradeSchema.js";
+
+// Orders are staged on a POST (preview), then actually placed only on a second
+// POST with the returned confirmation token. This ensures a live financial
+// order is never the direct, unintended result of a single request.
+const CONFIRM_TTL_MS = 60_000;
+const pendingOrders = new Map<string, { order: TradeOrder; portfolioId: string; expiresAt: number }>();
+
+function prunePendingOrders(now: number) {
+  for (const [key, p] of pendingOrders) {
+    if (now > p.expiresAt) pendingOrders.delete(key);
+  }
+}
 
 export const getTradeLoginLink = async (req: Request, res: Response) => {
   const { portfolioId, redirectUrl } = req.body;
@@ -59,11 +72,6 @@ export const placeTrade = async (req: Request, res: Response) => {
   const { portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce } =
     req.body as TradeOrder;
 
-  const unitsNum = units;
-  const notionalNum = notional_value;
-  // Notional orders are always Day; otherwise honour the requested TIF (default Day).
-  const tif = notionalNum != null ? 'Day' : (timeInForce || 'Day');
-
   try {
     const portfolio = getPortfolio(String(portfolioId));
     if (!portfolio || !portfolio.userSecret) {
@@ -81,25 +89,75 @@ export const placeTrade = async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Account does not belong to this portfolio" });
     }
 
-    const client = getSnapTradeClientForPortfolio(portfolio);
-    const qtyDesc = notionalNum != null ? `notional=$${notionalNum}` : `${unitsNum} units`;
-    logger.info('SnapTrade', `placeTrade — ${action} ${qtyDesc} ticker="${ticker}" account="${accountId}" orderType="${orderType}" tif="${tif}"`);
+    // Step 1 — stage the order and hand back a confirmation token. The order is
+    // placed only after /trade/confirm is called with that token (TTL-bound).
+    const now = Date.now();
+    prunePendingOrders(now);
+    const order: TradeOrder = { portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce };
+    const confirmationToken = randomUUID();
+    pendingOrders.set(confirmationToken, { order, portfolioId: String(portfolioId), expiresAt: now + CONFIRM_TTL_MS });
 
+    const qtyDesc = notional_value != null ? `notional=$${notional_value}` : `${units} units`;
+    logger.info('SnapTrade', `placeTrade — staged ${action} ${qtyDesc} ticker="${ticker}" account="${accountId}" awaiting confirmation`);
+    res.json({
+      success: true,
+      requiresConfirmation: true,
+      confirmationToken,
+      preview: { portfolioId, accountId, ticker: ticker.trim(), action, orderType, units, notional_value, price },
+    });
+  } catch (err: any) {
+    const { log } = snapTradeError(err, "Order staging failed");
+    logger.error('SnapTrade', `placeTrade failed for account ${accountId}: ${log}`);
+    res.status(500).json({ error: "Failed to stage order" });
+  }
+};
+
+export const confirmTrade = async (req: Request, res: Response) => {
+  const { confirmationToken } = req.body;
+  const now = Date.now();
+  prunePendingOrders(now);
+
+  const pending = confirmationToken ? pendingOrders.get(confirmationToken) : undefined;
+  if (!pending || now > pending.expiresAt) {
+    return res.status(400).json({ error: "Confirmation token missing, expired, or already used" });
+  }
+
+  const { order, portfolioId } = pending;
+  const { accountId, ticker, action, orderType, units, notional_value, price, timeInForce } = order;
+  pendingOrders.delete(confirmationToken); // single-use
+
+  try {
+    const portfolio = getPortfolio(String(portfolioId));
+    if (!portfolio || !portfolio.userSecret) {
+      return res.status(400).json({ error: "Portfolio not found or not registered" });
+    }
+    if (!portfolio.tradingEnabled) {
+      return res.status(403).json({ error: "Trading is not enabled for this portfolio" });
+    }
+    if (!accountBelongsToPortfolio(String(accountId), portfolioId)) {
+      return res.status(403).json({ error: "Account does not belong to this portfolio" });
+    }
+
+    const client = getSnapTradeClientForPortfolio(portfolio);
+    const qtyDesc = notional_value != null ? `notional=$${notional_value}` : `${units} units`;
+    logger.info('SnapTrade', `placeTrade — ${action} ${qtyDesc} ticker="${ticker}" account="${accountId}" orderType="${orderType}" tif="${timeInForce || 'Day'}"`);
+
+    const unitsNum = units;
     const orderBody: any = {
       userId: portfolio.userId,
       userSecret: portfolio.userSecret!,
       account_id: String(accountId),
       action,
       order_type: orderType,
-      time_in_force: tif,
+      time_in_force: (notional_value != null ? 'Day' : (timeInForce || 'Day')),
       symbol: ticker.trim(),
       universal_symbol_id: null,
     };
-    if (notionalNum != null) {
+    if (notional_value != null) {
       const accounts = getCachedAccounts(portfolioId);
       const acc = accounts.find(a => a.id === String(accountId));
       const currency = acc?.currency || 'USD';
-      orderBody.notional_value = { amount: notionalNum, currency };
+      orderBody.notional_value = { amount: notional_value, currency };
     } else {
       orderBody.units = unitsNum;
     }

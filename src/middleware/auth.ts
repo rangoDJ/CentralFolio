@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import { getJwtSecret, getPasswordHash } from "../models/db.js";
+import { logger } from "../utils/logger.js";
 
 export const AUTH_COOKIE = "cf_token";
 
@@ -60,5 +61,40 @@ export function consumeSSETicket(req: Request, res: Response, next: NextFunction
     return res.status(401).json({ error: "Invalid or expired SSE ticket" });
   }
   sseTickets.delete(ticket); // one-time use
+  next();
+}
+
+/**
+ * Lightweight CSRF defense for cookie-based auth.
+ *
+ * With the session moved to an httpOnly cookie, state-changing requests must
+ * be proven to come from the app's own origin. Browsers always send an
+ * `Origin` (and historically `Referer`) header on cross-origin form/fetch
+ * POSTs but a CSRF attacker's page can't forge that header. Non-browser
+ * clients (Android app, curl) send no Origin header and pass through, and the
+ * `sameSite=strict` cookie already blocks most cross-site cookie delivery.
+ */
+export function requireSameOrigin(req: Request, res: Response, next: NextFunction) {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+    return next();
+  }
+  const raw = req.headers.origin || req.headers.referer;
+  // No origin info → non-browser caller (API client). Allow; auth token still
+  // governs access.
+  if (!raw) return next();
+
+  let originHost: string;
+  try {
+    originHost = new URL(raw).host;
+  } catch {
+    // Malformed Origin/Referer — treat strictly as cross-origin.
+    return res.status(400).json({ error: "Invalid request origin" });
+  }
+
+  const expected = req.headers.host;
+  if (originHost !== expected) {
+    logger.warn("Auth", `CSRF: rejecting cross-origin ${req.method} ${req.path} from ${raw}`);
+    return res.status(403).json({ error: "Cross-origin request rejected" });
+  }
   next();
 }

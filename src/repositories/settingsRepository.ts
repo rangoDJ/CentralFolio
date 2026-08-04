@@ -74,13 +74,29 @@ export function setPasswordHash(hash: string): void {
 }
 
 let _jwtSecret: string | null = null;
+let _jwtSecretFromEnv = false;
 
 export function clearJwtSecretCache(): void {
   _jwtSecret = null;
+  _jwtSecretFromEnv = false;
 }
+
+// Prefer an externally supplied secret so the signing key is not stored next
+// to the DB it secures. A DB theft alone can no longer mint fresh JWTs.
+const ENV_JWT_SECRET = process.env.CF_JWT_SECRET || process.env.JWT_SECRET;
 
 export function getJwtSecret(): string {
   if (_jwtSecret) return _jwtSecret;
+
+  if (ENV_JWT_SECRET) {
+    if (!_jwtSecretFromEnv) {
+      logger.info('Auth', 'JWT secret taken from environment (CF_JWT_SECRET/JWT_SECRET)');
+      _jwtSecretFromEnv = true;
+    }
+    _jwtSecret = ENV_JWT_SECRET;
+    return _jwtSecret;
+  }
+
   const row = stmtGetJwtSecret.get() as any;
   if (row?.value) {
     _jwtSecret = row.value;

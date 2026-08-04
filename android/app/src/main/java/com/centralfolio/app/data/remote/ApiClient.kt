@@ -1,5 +1,6 @@
 package com.centralfolio.app.data.remote
 
+import com.centralfolio.app.BuildConfig
 import com.centralfolio.app.security.SecurityManager
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -17,7 +18,17 @@ class ApiClient(private val securityManager: SecurityManager) {
 
     fun getApiService(): CentralFolioApiService {
         val serverUrl = securityManager.getServerUrl() ?: throw IllegalStateException("Server URL not configured")
-        
+
+        // Logging must NEVER include the Authorization header or response bodies:
+        // logcat is readable by other apps / adb, so a BODY-level interceptor would
+        // leak the bearer token. Debug builds get BASIC (request line + status code
+        // only); release builds disable logging entirely.
+        val logLevel = if (BuildConfig.DEBUG) {
+            HttpLoggingInterceptor.Level.BASIC
+        } else {
+            HttpLoggingInterceptor.Level.NONE
+        }
+
         val okHttpClient = OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val requestBuilder = chain.request().newBuilder()
@@ -27,7 +38,7 @@ class ApiClient(private val securityManager: SecurityManager) {
                 chain.proceed(requestBuilder.build())
             }
             .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY
+                level = logLevel
             })
             .build()
 

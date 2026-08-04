@@ -50,3 +50,13 @@ export const tradeOrderSchema = z.object({
   });
 
 export type TradeOrder = z.infer<typeof tradeOrderSchema>;
+
+/**
+ * Body for POST /api/snapTrade/trade/confirm — the one-time, TTL-bound token
+ * issued by the staging step of /api/trade.
+ */
+export const confirmOrderSchema = z.object({
+  confirmationToken: z.string().min(8, "is required"),
+});
+
+export type ConfirmOrder = z.infer<typeof confirmOrderSchema>;

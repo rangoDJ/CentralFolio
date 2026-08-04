@@ -3,9 +3,9 @@ import { registerUser, getTransactions, getDividendForecast } from "../controlle
 import { listAccounts, getHoldings } from "../controllers/holdingsController.js";
 import { getLoginLink, getConnectionStatus, invalidatePortfolioCache } from "../controllers/connectionController.js";
 import { toggleAccountActive, renameAccount } from "../controllers/accountController.js";
-import { placeTrade, getTradeLoginLink } from "../controllers/tradingController.js";
+import { placeTrade, confirmTrade, getTradeLoginLink } from "../controllers/tradingController.js";
 import { validateBody } from "../middleware/validate.js";
-import { tradeOrderSchema } from "../schemas/tradeSchema.js";
+import { tradeOrderSchema, confirmOrderSchema } from "../schemas/tradeSchema.js";
 
 const router = Router();
 
@@ -15,6 +15,7 @@ router.get("/transactions", getTransactions);
 router.patch("/accounts/:accountId/active", toggleAccountActive);
 router.patch("/accounts/:accountId/name", renameAccount);
 router.post("/trade", validateBody(tradeOrderSchema), placeTrade);
+router.post("/trade/confirm", validateBody(confirmOrderSchema), confirmTrade);
 router.get("/holdings/:portfolioId/:accountId", getHoldings);
 router.get("/dividends/forecast/:portfolioId/:accountId", getDividendForecast);
 router.post("/login", getLoginLink);

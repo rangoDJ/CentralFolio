@@ -31,9 +31,14 @@ const App = {
     async init() {
         this.initTheme();
 
-        // Guard: redirect to login if not authenticated
-        if (!localStorage.getItem('cf_token')) {
-            window.location.href = '/login.html';
+        // Guard: session is an httpOnly cookie, so confirm validity via the API
+        // rather than checking a JS-readable token.
+        try {
+            const res = await API._fetch('/auth/verify');
+            if (!res.ok) { window.location.href = '/login.html'; return; }
+            this._authenticated = true;
+        } catch (err) {
+            // API._fetch already redirects on 401.
             return;
         }
 
@@ -454,12 +459,29 @@ const App = {
             const { portfolioId, accountId, symbol } = this.currentTrade;
             const action = this.currentTradeAction;
             const notional_value = this.currentTradeNotional ?? undefined;
-            await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, notional_value, price: limitPrice, timeInForce });
-            this.closeTradeModal();
+            // Step 1 — stage the order server-side; it is only placed after an
+            // explicit confirmation below (token is TTL-bound).
+            const staged = await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, notional_value, price: limitPrice, timeInForce });
             const desc = notional_value != null
-                ? `${action} order placed — $${notional_value} of ${symbol}`
-                : `${action} order placed — ${units} × ${symbol}`;
-            UI.showToast(desc);
+                ? `${action} order for $${notional_value} of ${symbol}`
+                : `${action} order for ${units} × ${symbol}`;
+
+            if (!staged.requiresConfirmation || !staged.confirmationToken) {
+                this.closeTradeModal();
+                UI.showToast(desc);
+                return;
+            }
+
+            if (!confirm(`Place ${desc}? This order will be submitted to the brokerage.`)) {
+                this.closeTradeModal();
+                UI.showToast('Order cancelled');
+                return;
+            }
+
+            // Step 2 — confirm; actually sends the order to the broker.
+            await API.confirmTrade(staged.confirmationToken);
+            this.closeTradeModal();
+            UI.showToast(`Placed — ${desc}`);
         } catch (err) {
             UI.showToast('Order failed: ' + err.message, 'error');
         } finally {
@@ -878,7 +900,7 @@ const App = {
     // caches and re-rendering the active page (and anything derived from it).
 
     async connectLiveSync() {
-        if (!localStorage.getItem('cf_token')) return;
+        if (!this._authenticated) return;
         if (this._sse) { try { this._sse.close(); } catch (_) {} this._sse = null; }
 
         this._livePending = this._livePending || new Set();
@@ -1851,8 +1873,7 @@ const App = {
 
     logout() {
         this.disconnectLiveSync();
-        localStorage.removeItem('cf_token');
-        // Best-effort: clear the httpOnly session cookie server-side, then redirect.
+        // Clear the httpOnly session cookie server-side, then redirect.
         const done = () => { window.location.href = '/login.html'; };
         fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' }).then(done, done);
     },
@@ -2727,10 +2748,6 @@ const App = {
             return;
         }
         
-        if (!confirm(`Are you sure you want to place ${cbs.length} order(s) for this account?`)) {
-            return;
-        }
-        
         const trades = [];
         cbs.forEach(cb => {
             const symbol = cb.dataset.symbol;
@@ -2744,8 +2761,24 @@ const App = {
         
         try {
             const portfolioId = this.selectedUserPortfolioId;
-            const res = await API.executeRebalance(portfolioId, trades);
-            
+            // Step 1 — stage the batch server-side; orders are only sent to the
+            // broker after the explicit confirmation below (token is TTL-bound).
+            const staged = await API.executeRebalance(portfolioId, trades);
+
+            if (!staged.requiresConfirmation || !staged.confirmationToken) {
+                this.loadRebalanceTab(false);
+                UI.showToast('Rebalance orders placed');
+                return;
+            }
+
+            if (!confirm(`Place ${cbs.length} rebalance order(s) for this account? This will submit them to the brokerage.`)) {
+                UI.showToast('Rebalance cancelled');
+                return;
+            }
+
+            // Step 2 — confirm; actually submits the orders.
+            const res = await API.confirmRebalance(portfolioId, staged.confirmationToken);
+
             let successCount = 0;
             let failureMsg = '';
             

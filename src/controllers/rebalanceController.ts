@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { randomUUID } from "crypto";
 import { 
   getPortfolioTargets, 
   setPortfolioTargets, 
@@ -15,6 +16,17 @@ import { logger } from "../utils/logger.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
+
+// Rebalance orders are staged and only placed after a second, confirming POST
+// carrying the returned token — same policy as single trades.
+const CONFIRM_TTL_MS = 60_000;
+const pendingRebalances = new Map<string, { trades: any[]; portfolioId: number; expiresAt: number }>();
+
+function prunePendingRebalances(now: number) {
+  for (const [key, p] of pendingRebalances) {
+    if (now > p.expiresAt) pendingRebalances.delete(key);
+  }
+}
 
 export const getTargets = (req: Request, res: Response) => {
   const portfolioId = parseInt(req.params.id as string, 10);
@@ -131,6 +143,88 @@ export const getRebalanceSuggestions = (req: Request, res: Response) => {
   }
 };
 
+async function placeRebalanceTrades(portfolioId: number, trades: any[]) {
+  const portfolio = getUserPortfolioById(portfolioId);
+  if (!portfolio) throw new Error('User Portfolio not found');
+
+  // Only accounts that are actually part of this user-portfolio may be traded here.
+  const allowedAccountIds = new Set(portfolio.accountIds || []);
+
+  const parentPortfolios = listPortfolios();
+  const accountToParentMap = new Map<string, { parent: Portfolio; account: any }>();
+
+  for (const parent of parentPortfolios) {
+    const cachedAccounts = getCachedAccounts(parent.id!);
+    for (const account of cachedAccounts) {
+      accountToParentMap.set(account.id, { parent, account });
+    }
+  }
+
+  logger.info('Rebalance', `Executing rebalance trades for portfolio id=${portfolioId} (${trades.length} trade(s))`);
+
+  const results = await Promise.all(
+    trades.map(async (t) => {
+      const { accountId, symbol, action, amount } = t;
+
+      // ── Per-trade validation (mirrors placeTrade guards) ───────────────────
+      if (!accountId || !allowedAccountIds.has(accountId)) {
+        return { trade: t, success: false, error: 'Account does not belong to this portfolio' };
+      }
+      if (typeof symbol !== 'string' || !SYMBOL_RE.test(symbol.trim())) {
+        return { trade: t, success: false, error: 'Invalid or missing symbol' };
+      }
+      if (action !== 'BUY' && action !== 'SELL') {
+        return { trade: t, success: false, error: "action must be 'BUY' or 'SELL'" };
+      }
+      const amountNum = Number(amount);
+      if (!Number.isFinite(amountNum) || amountNum <= 0) {
+        return { trade: t, success: false, error: 'amount must be a positive number' };
+      }
+
+      const mapping = accountToParentMap.get(accountId);
+
+      if (!mapping) {
+        return { trade: t, success: false, error: 'Account not found or not registered' };
+      }
+
+      const { parent, account } = mapping;
+
+      if (!parent.tradingEnabled) {
+        return { trade: t, success: false, error: `Trading is disabled for portfolio "${parent.name}"` };
+      }
+
+      try {
+        const client = getSnapTradeClientForPortfolio(parent);
+        const qtyDesc = `$${amountNum}`;
+        logger.info('SnapTrade', `placeTrade (Rebalance) — ${action} ${qtyDesc} ticker="${symbol}" account="${accountId}"`);
+
+        const orderBody: any = {
+          userId: parent.userId,
+          userSecret: parent.userSecret!,
+          account_id: accountId,
+          action,
+          order_type: 'Market',
+          time_in_force: 'Day',
+          symbol: symbol.trim(),
+          universal_symbol_id: null,
+          notional_value: { amount: amountNum, currency: account.currency || 'USD' }
+        };
+
+        const response = await (client as any).trading.placeForceOrder(orderBody);
+        return { trade: t, success: true, order: response.data };
+      } catch (err: any) {
+        const { log, client } = snapTradeError(err, 'Order placement failed');
+        logger.error('SnapTrade', `placeTrade (Rebalance) failed for account ${accountId}: ${log}`);
+        return { trade: t, success: false, error: client };
+      }
+    })
+  );
+
+  const successfulCount = results.filter(r => r.success).length;
+  logger.info('Rebalance', `Rebalance execution complete — ${successfulCount} of ${results.length} trades succeeded`);
+  return results;
+}
+
 export const executeRebalance = async (req: Request, res: Response) => {
   const portfolioId = parseInt(req.params.id as string, 10);
   if (isNaN(portfolioId)) return res.status(400).json({ error: 'Invalid portfolio id' });
@@ -139,89 +233,47 @@ export const executeRebalance = async (req: Request, res: Response) => {
   if (!Array.isArray(trades)) {
     return res.status(400).json({ error: 'trades must be an array' });
   }
+  if (trades.length === 0) {
+    return res.status(400).json({ error: 'trades must not be empty' });
+  }
 
   try {
     const portfolio = getUserPortfolioById(portfolioId);
     if (!portfolio) return res.status(404).json({ error: 'User Portfolio not found' });
 
-    // Only accounts that are actually part of this user-portfolio may be traded here.
-    const allowedAccountIds = new Set(portfolio.accountIds || []);
+    // Step 1 — stage. Orders are placed only on /rebalance/confirm with the
+    // returned token (TTL-bound, single-use).
+    const now = Date.now();
+    prunePendingRebalances(now);
+    const confirmationToken = randomUUID();
+    pendingRebalances.set(confirmationToken, { trades, portfolioId, expiresAt: now + CONFIRM_TTL_MS });
 
-    const parentPortfolios = listPortfolios();
-    const accountToParentMap = new Map<string, { parent: Portfolio; account: any }>();
-
-    for (const parent of parentPortfolios) {
-      const cachedAccounts = getCachedAccounts(parent.id!);
-      for (const account of cachedAccounts) {
-        accountToParentMap.set(account.id, { parent, account });
-      }
-    }
-
-    logger.info('Rebalance', `Executing rebalance trades for portfolio id=${portfolioId} (${trades.length} trade(s))`);
-
-    const results = await Promise.all(
-      trades.map(async (t) => {
-        const { accountId, symbol, action, amount } = t;
-
-        // ── Per-trade validation (mirrors placeTrade guards) ───────────────────
-        if (!accountId || !allowedAccountIds.has(accountId)) {
-          return { trade: t, success: false, error: 'Account does not belong to this portfolio' };
-        }
-        if (typeof symbol !== 'string' || !SYMBOL_RE.test(symbol.trim())) {
-          return { trade: t, success: false, error: 'Invalid or missing symbol' };
-        }
-        if (action !== 'BUY' && action !== 'SELL') {
-          return { trade: t, success: false, error: "action must be 'BUY' or 'SELL'" };
-        }
-        const amountNum = Number(amount);
-        if (!Number.isFinite(amountNum) || amountNum <= 0) {
-          return { trade: t, success: false, error: 'amount must be a positive number' };
-        }
-
-        const mapping = accountToParentMap.get(accountId);
-
-        if (!mapping) {
-          return { trade: t, success: false, error: 'Account not found or not registered' };
-        }
-
-        const { parent, account } = mapping;
-
-        if (!parent.tradingEnabled) {
-          return { trade: t, success: false, error: `Trading is disabled for portfolio "${parent.name}"` };
-        }
-
-        try {
-          const client = getSnapTradeClientForPortfolio(parent);
-          const qtyDesc = `$${amountNum}`;
-          logger.info('SnapTrade', `placeTrade (Rebalance) — ${action} ${qtyDesc} ticker="${symbol}" account="${accountId}"`);
-
-          const orderBody: any = {
-            userId: parent.userId,
-            userSecret: parent.userSecret!,
-            account_id: accountId,
-            action,
-            order_type: 'Market',
-            time_in_force: 'Day',
-            symbol: symbol.trim(),
-            universal_symbol_id: null,
-            notional_value: { amount: amountNum, currency: account.currency || 'USD' }
-          };
-
-          const response = await (client as any).trading.placeForceOrder(orderBody);
-          return { trade: t, success: true, order: response.data };
-        } catch (err: any) {
-          const { log, client } = snapTradeError(err, 'Order placement failed');
-          logger.error('SnapTrade', `placeTrade (Rebalance) failed for account ${accountId}: ${log}`);
-          return { trade: t, success: false, error: client };
-        }
-      })
-    );
-
-    const successfulCount = results.filter(r => r.success).length;
-    logger.info('Rebalance', `Rebalance execution complete — ${successfulCount} of ${results.length} trades succeeded`);
-    res.json({ success: true, results });
+    logger.info('Rebalance', `Staged ${trades.length} rebalance trade(s) for portfolio id=${portfolioId} awaiting confirmation`);
+    res.json({ success: true, requiresConfirmation: true, confirmationToken, tradeCount: trades.length });
   } catch (err: any) {
     logger.error('Rebalance', `executeRebalance failed: ${err.message}`);
+    res.status(500).json({ error: 'Failed to stage rebalance trades' });
+  }
+};
+
+export const confirmRebalance = async (req: Request, res: Response) => {
+  const { confirmationToken } = req.body;
+  const now = Date.now();
+  prunePendingRebalances(now);
+
+  const pending = confirmationToken ? pendingRebalances.get(confirmationToken) : undefined;
+  if (!pending || now > pending.expiresAt) {
+    return res.status(400).json({ error: "Confirmation token missing, expired, or already used" });
+  }
+
+  const { trades, portfolioId } = pending;
+  pendingRebalances.delete(confirmationToken); // single-use
+
+  try {
+    const results = await placeRebalanceTrades(portfolioId, trades);
+    res.json({ success: true, results });
+  } catch (err: any) {
+    logger.error('Rebalance', `confirmRebalance failed: ${err.message}`);
     res.status(500).json({ error: 'Failed to execute rebalance trades' });
   }
 };

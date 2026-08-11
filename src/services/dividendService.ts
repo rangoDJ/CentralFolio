@@ -127,7 +127,10 @@ async function fetchSnowballAsset(symbol: string, applyRateLimit = true): Promis
       }
       const parsed = JSON.parse(nextDataMatch[1]);
       const asset = parsed.props?.pageProps?.asset;
-      if (!asset) {
+      // Snowball's SPA shell always responds HTTP 200, even for unknown tickers -
+      // an invalid symbol embeds an RFC 9110 error payload ({status: 404, title: "Not Found", ...})
+      // as the "asset" object instead of returning a non-200 status or omitting it.
+      if (!asset || asset.status === 404 || !asset.ticker) {
         logger.debug('Snowball', `${symbol} -> asset details not found in JSON on ${url}`);
         continue;
       }

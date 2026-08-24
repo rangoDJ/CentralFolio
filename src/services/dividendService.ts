@@ -5,6 +5,7 @@ import { sleep } from "../utils/sleep.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { emitDataChanged } from "./eventBus.js";
 import { assetCurrency, toBaseCurrency } from "./fxService.js";
+import { z } from "zod";
 
 const BASE_CURRENCY = "CAD";
 
@@ -106,6 +107,38 @@ async function rateLimitSnowball() {
   lastSnowballRequestTime = Date.now();
 }
 
+// Snowball is an undocumented, versionless internal API (we're parsing its
+// Next.js page-props blob, not a real endpoint) — it has silently changed
+// shape before (see the `status: 404` case below). This schema is deliberately
+// permissive (every field optional/nullable, unknown fields passed through) so
+// Snowball adding fields doesn't break us; its job is to catch a field
+// *changing type* (e.g. a number becoming a string) before that bad value
+// reaches dividend math or gets displayed as a stock detail.
+export const snowballAssetSchema = z.object({
+  ticker: z.string().nullish(),
+  status: z.union([z.number(), z.string()]).nullish(),
+  description: z.string().nullish(),
+  name: z.string().nullish(),
+  exchange: z.string().nullish(),
+  divCurrency: z.string().nullish(),
+  currency: z.string().nullish(),
+  currentPrice: z.number().nullish(),
+  lastDayGainsAmount: z.number().nullish(),
+  lastDayGainsPercent: z.number().nullish(),
+  divYieldFWD: z.number().nullish(),
+  divPerYearFWD: z.number().nullish(),
+  divFrequency: z.number().nullish(),
+  divGrowthStreak: z.number().nullish(),
+  divStreak: z.number().nullish(),
+  divGrowth5Y: z.number().nullish(),
+  sector: z.string().nullish(),
+  primaryLogoURL: z.string().nullish(),
+  logoURL: z.string().nullish(),
+  companyDescription: z.string().nullish(),
+  exDividendDate: z.string().nullish(),
+  nextDividendDate: z.string().nullish(),
+}).passthrough();
+
 // Fetch and return the raw Snowball `asset` JSON object for a symbol, or null.
 // `applyRateLimit` gates the background dividend job (3 req/min); user-initiated
 // lookups (the stock detail page) pass false to stay responsive.
@@ -132,15 +165,23 @@ async function fetchSnowballAsset(symbol: string, applyRateLimit = true): Promis
         continue;
       }
       const parsed = JSON.parse(nextDataMatch[1]);
-      const asset = parsed.props?.pageProps?.asset;
+      const rawAsset = parsed.props?.pageProps?.asset;
       // Snowball's SPA shell always responds HTTP 200, even for unknown tickers -
       // an invalid symbol embeds an RFC 9110 error payload ({status: 404, title: "Not Found", ...})
       // as the "asset" object instead of returning a non-200 status or omitting it.
-      if (!asset || asset.status === 404 || !asset.ticker) {
+      if (!rawAsset || rawAsset.status === 404 || !rawAsset.ticker) {
         logger.debug('Snowball', `${symbol} -> asset details not found in JSON on ${url}`);
         continue;
       }
-      return asset;
+      const result = snowballAssetSchema.safeParse(rawAsset);
+      if (!result.success) {
+        // A field changed type under us — treat like "not found" (try the next
+        // URL/exchange suffix) rather than feeding a malformed value into dividend
+        // math or the stock detail page.
+        logger.warn('Snowball', `${symbol} -> asset payload on ${url} failed validation: ${result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+        continue;
+      }
+      return result.data;
     } catch (err: any) {
       logger.warn('Snowball', `Error fetching ${symbol} from ${url}: ${err.message}`);
     }

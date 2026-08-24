@@ -391,6 +391,30 @@ test("a transfer out is a disposition", () => {
   assert.equal(dispositions[0].gain, 200);
 });
 
+test("TRANSFER_IN is treated the same as TRANSFER — a real acquisition, not a dropped row", () => {
+  const { dispositions } = computeDispositions([
+    { symbol: "ACME", date: "2024-01-10", type: "TRANSFER_IN", units: 100, price: 10, amount: 1000 },
+    { symbol: "ACME", date: "2024-06-10", type: "SELL", units: -100, price: 12, amount: 1200 },
+  ], par);
+
+  assert.equal(dispositions.length, 1);
+  assert.equal(dispositions[0].costBasis, 1000);
+  assert.equal(dispositions[0].missingCostBasis, false);
+});
+
+test("an unrecognized transaction type is surfaced as a warning instead of silently dropped", () => {
+  const { warnings } = computeDispositions([
+    { symbol: "ACME", date: "2024-01-10", type: "ACAT_IN", units: 100, price: 10, amount: 1000 },
+    buy("ACME", "2024-02-01", 50, 10),
+    { symbol: "ACME", date: "2024-06-10", type: "SELL", units: -150, price: 12, amount: 1800 },
+  ], par);
+
+  assert.ok(
+    warnings.some(w => w.includes("ACAT_IN") && w.includes("unrecognized type")),
+    "unmapped type code should be named in a warning"
+  );
+});
+
 test("poolKey folds a USD listing into its CAD twin but leaves class shares alone", () => {
   assert.equal(poolKey("DLR.U.TO"), "DLR.TO");
   assert.equal(poolKey("dlr.u.to"), "DLR.TO");

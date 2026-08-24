@@ -14,7 +14,7 @@ import { getCachedTransactions } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
 import { classifyAccount } from "./taxRules.js";
 import { primeFxHistory, fxRateOn, assetCurrency } from "./fxService.js";
-import { computeDispositions, summarizeByYear, type Disposition, type T5008Result, type T5008Transaction } from "./t5008.js";
+import { computeDispositions, summarizeByYear, poolKey, sideOf, type Disposition, type T5008Result, type T5008Transaction } from "./t5008.js";
 import { computeCarryingCharges, type CarryingChargesResult, type CCTransaction } from "./carryingCharges.js";
 import { logger } from "../utils/logger.js";
 
@@ -140,6 +140,39 @@ export async function getT5008Report(
   // reportable.
   const result = computeDispositions(tagged.filter(t => !t.registered), lookup);
   const warnings: string[] = [...result.warnings];
+
+  // Diagnose *why* a cost base is missing, for the common case where it's a
+  // symbol bought inside a registered account (TFSA/RRSP) that later shows up
+  // sold in a taxable account with no transfer transaction in between. This
+  // module deliberately never sees registered-account transactions, so the
+  // annotation happens here rather than inside computeDispositions.
+  const registeredBuyAccounts = new Map<string, Set<string>>();
+  for (const t of tagged) {
+    if (!t.registered || sideOf(t) !== "buy") continue;
+    const symbol = String(t.symbol ?? "").toUpperCase().trim();
+    if (!symbol) continue;
+    const key = poolKey(symbol);
+    const set = registeredBuyAccounts.get(key) ?? new Set<string>();
+    set.add(t.account);
+    registeredBuyAccounts.set(key, set);
+  }
+
+  let registeredTransferCount = 0;
+  for (const d of result.dispositions) {
+    if (!d.missingCostBasis) continue;
+    const sources = registeredBuyAccounts.get(poolKey(d.symbol));
+    if (!sources || sources.size === 0) continue;
+    registeredTransferCount++;
+    d.missingCostBasisNote =
+      `Bought in ${Array.from(sources).join(", ")} — no transfer transaction into ${d.account} was found, so ` +
+      `this is likely an unrecorded in-kind transfer. Enter the fair market value on the transfer date as the cost base.`;
+  }
+  if (registeredTransferCount > 0) {
+    warnings.push(
+      `${registeredTransferCount} of the missing-cost-basis dispositions look like shares moved in-kind from a ` +
+      `registered account (TFSA/RRSP) with no transfer record — see each row's note for the source account.`
+    );
+  }
 
   // The display scope narrows AFTER the pooled math, by account id — never
   // before it. `excluded` (registered accounts) is reported for the selected
@@ -286,7 +319,7 @@ export function dispositionsToCsv(dispositions: AccountDisposition[], carryingCh
     d.gain,
     d.superficialLoss || "",
     d.allowableGain,
-    [d.superficialNote, d.fxRateMissing ? "FX rate unavailable — 1.0 assumed" : null]
+    [d.superficialNote, d.fxRateMissing ? "FX rate unavailable — 1.0 assumed" : null, d.missingCostBasisNote]
       .filter(Boolean).join("; "),
   ]);
 

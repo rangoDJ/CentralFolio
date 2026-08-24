@@ -70,6 +70,17 @@ export interface Disposition {
    */
   missingCostBasis: boolean;
 
+  /**
+   * Set by the caller (t5008Service), never by computeDispositions itself —
+   * this module never sees registered-account transactions. When the same
+   * symbol was bought in a registered account (TFSA/RRSP) and no offsetting
+   * transfer transaction exists on the taxable side, that's almost certainly
+   * an in-kind account-to-account move the broker's feed didn't record, not a
+   * purchase that fell outside the transaction window. Explains *why* the
+   * cost base is missing so the user knows what to go look up.
+   */
+  missingCostBasisNote: string | null;
+
   // Native-currency figures, as the broker's slip will show them.
   proceedsNative: number;      // Box 21
   costBasisNative: number;     // Box 20
@@ -123,7 +134,10 @@ const SELL_TYPES = new Set(["SELL", "SELLTOCLOSE"]);
  * "not a buy" leaves the eventual sale with a cost base of zero and reports the
  * entire proceeds as a gain.
  */
-const SIGNED_TYPES = new Set(["TRANSFER", "JOURNAL_SHARES", "JOURNAL"]);
+const SIGNED_TYPES = new Set([
+  "TRANSFER", "TRANSFER_IN", "TRANSFER_OUT", "TRANSFERIN", "TRANSFEROUT",
+  "JOURNAL_SHARES", "JOURNAL",
+]);
 
 /** Internal moves between two listings of the same security (see poolKey). */
 const JOURNAL_TYPES = new Set(["JOURNAL_SHARES", "JOURNAL"]);
@@ -137,7 +151,7 @@ export type Side = "buy" | "sell" | "journal";
  * security — it changes nothing about what is owned or what it cost, so the
  * caller skips it rather than treating it as a purchase.
  */
-function sideOf(t: T5008Transaction): Side | null {
+export function sideOf(t: T5008Transaction): Side | null {
   const units = t.units ?? 0;
   for (const raw of [t.type, t.action]) {
     const v = norm(raw);
@@ -295,11 +309,19 @@ export interface FxLookup {
 export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup): T5008Result {
   const warnings: string[] = [];
   const bySymbol = new Map<string, Priced[]>();
+  // Unrecognized type/action codes used to be dropped with no trace, which made
+  // a broker adding a new activity code (e.g. TRANSFER_IN/OUT) silently zero out
+  // an acquisition's cost base instead of failing loudly. Track and surface them.
+  const unmappedTypes = new Map<string, number>();
 
   for (const t of txns) {
     const symbol = norm(t.symbol);
     const side = sideOf(t);
     const units = Math.abs(t.units ?? 0);
+    if (symbol && t.date && !side) {
+      const code = norm(t.type) || norm(t.action) || "(none)";
+      unmappedTypes.set(code, (unmappedTypes.get(code) ?? 0) + 1);
+    }
     if (!symbol || !t.date || !side) continue;
     // A journal carries no units of its own to add; it is kept only so the
     // ordering below stays stable, and skipped when the pool is walked.
@@ -431,6 +453,7 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
         // cost: either the pool was already empty (costBasis === 0) or the
         // sale drew down more units than the pool held (soldUnits < units).
         missingCostBasis: (costBasis === 0 && proceeds > 0) || soldUnits < units,
+        missingCostBasisNote: null,
         proceedsNative: round2(proceedsNative),
         costBasisNative: round2(costBasisNative),
         proceeds: round2(proceeds),
@@ -465,6 +488,17 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
       `${noCost.length} disposition(s) are missing some or all of their recorded purchase ` +
       `(${noCost.map(d => d.symbol).join(", ")}). Up to ${overstated} of proceeds may be counted ` +
       `as gain with no offsetting cost. Enter the real ACB from your broker's records before filing.`
+    );
+  }
+
+  if (unmappedTypes.size > 0) {
+    const detail = Array.from(unmappedTypes.entries())
+      .map(([code, count]) => `${code} (${count})`)
+      .join(", ");
+    warnings.push(
+      `${Array.from(unmappedTypes.values()).reduce((s, n) => s + n, 0)} transaction(s) had an ` +
+      `unrecognized type and were ignored: ${detail}. If any of these are acquisitions (e.g. a ` +
+      `transfer-in), the affected symbol's cost base will be understated.`
     );
   }
 

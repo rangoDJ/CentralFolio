@@ -9,8 +9,8 @@ const stmtGetMetadata = db.prepare(
 );
 
 const stmtUpsertMetadata = db.prepare(`
-  INSERT OR REPLACE INTO dividend_metadata (symbol, frequency, lastExDate, amountPerShare, name, provider, cachedAt)
-  VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  INSERT OR REPLACE INTO dividend_metadata (symbol, frequency, lastExDate, amountPerShare, name, provider, currency, cachedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
 
 const stmtGetAllMetadata = db.prepare(
@@ -43,7 +43,8 @@ export function saveCachedDividendMetadata(symbol: string, data: any, provider?:
     data.lastExDate      ?? null,
     data.amountPerShare  ?? null,
     data.name            ?? null,
-    provider             ?? null
+    provider             ?? null,
+    data.currency        ?? null
   );
   emitDataChanged('dividends');
 }

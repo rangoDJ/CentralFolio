@@ -4,14 +4,18 @@ import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { emitDataChanged } from "./eventBus.js";
+import { assetCurrency, toBaseCurrency } from "./fxService.js";
+
+const BASE_CURRENCY = "CAD";
 
 // In-memory cache for dividend metadata (24h TTL)
-const divMetadataCache = new Map<string, { 
-  frequency: number, 
-  lastExDate: string, 
-  amountPerShare: number, 
+const divMetadataCache = new Map<string, {
+  frequency: number,
+  lastExDate: string,
+  amountPerShare: number,
   name: string,
-  timestamp: number 
+  currency: string,
+  timestamp: number
 }>();
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — dividend schedules rarely change
@@ -19,7 +23,7 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — dividend schedules r
 // Cap the in-memory metadata cache so a long-running process can't grow it without bound.
 // SQLite remains the source of truth, so evicting a memory entry only costs a DB lookup.
 const DIV_CACHE_MAX_ENTRIES = 2000;
-type DivCacheEntry = { frequency: number; lastExDate: string | null; amountPerShare: number; name: string; timestamp: number };
+type DivCacheEntry = { frequency: number; lastExDate: string | null; amountPerShare: number; name: string; currency: string; timestamp: number };
 
 function setDivCache(symbol: string, data: DivCacheEntry) {
   // Refresh insertion order (Map iterates oldest-first) so eviction approximates LRU.
@@ -44,7 +48,9 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 export interface DividendEvent {
   symbol: string;
   date: string;
-  amount: number;
+  amount: number;            // native currency of the trade/dividend
+  amountCAD: number;         // converted — this is the field aggregate totals/yield must sum
+  currency: string;
   amountPerShare: number;
   units: number;
   frequency: number;
@@ -150,12 +156,16 @@ async function fetchFromSnowball(symbol: string): Promise<any> {
   const annualPayout = asset.divPerYearFWD ?? 0;
   const amountPerShare = (frequency > 0 && annualPayout > 0) ? (annualPayout / frequency) : 0;
   const lastExDate = asset.exDividendDate ? asset.exDividendDate.split("T")[0] : null;
+  // Snowball reports the payout's own currency; fall back to the exchange-suffix
+  // heuristic (same one t5008/analytics use) when it doesn't.
+  const currency = (asset.divCurrency || asset.currency || assetCurrency(symbol)).toUpperCase();
 
-  logger.info('Snowball', `${symbol} -> found dividend data (annualPayout=${annualPayout}, freq=${frequency}, lastEx=${lastExDate})`);
+  logger.info('Snowball', `${symbol} -> found dividend data (annualPayout=${annualPayout}, freq=${frequency}, lastEx=${lastExDate}, currency=${currency})`);
   return {
     frequency,
     lastExDate,
     amountPerShare,
+    currency,
     name: asset.description || asset.name || symbol,
     timestamp: Date.now(),
   };
@@ -288,6 +298,11 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
     const isPlaceholder = dbCached.name === 'No Dividend Data' || dbCached.frequency === 0;
     const currentTtl = isPlaceholder ? 24 * 60 * 60 * 1000 : CACHE_TTL_MS;
 
+    // Rows cached before the `currency` column existed have it as null — fall
+    // back to the exchange-suffix heuristic rather than let a stale row keep
+    // amounts mislabeled until its TTL happens to expire.
+    const currency = (dbCached.currency || assetCurrency(symbol)).toUpperCase();
+
     // Hard Rule: If pulled in the last 24 hours, skip pulling and return cached data
     if (now - cachedAt < 24 * 60 * 60 * 1000) {
       logger.info('Cache', `fetchDividendMetadata(${symbol}) → DB HIT (skip pulling: pulled within last 24h at ${dbCached.cachedAt} UTC)`);
@@ -296,6 +311,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
         lastExDate: dbCached.lastExDate,
         amountPerShare: dbCached.amountPerShare,
         name: dbCached.name,
+        currency,
         timestamp: cachedAt
       };
       setDivCache(symbol, data);
@@ -310,6 +326,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
         lastExDate: dbCached.lastExDate,
         amountPerShare: dbCached.amountPerShare,
         name: dbCached.name,
+        currency,
         timestamp: cachedAt
       };
       setDivCache(symbol, data);
@@ -338,6 +355,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
       lastExDate: null,
       amountPerShare: 0,
       name: 'No Dividend Data',
+      currency: 'CAD', // inert — frequency=0 means this never reaches the forecast math
       timestamp: Date.now()
     };
     setDivCache(symbol, placeholder);
@@ -439,7 +457,7 @@ export async function getDividendForecastForAccount(
           continue;
         }
 
-        const { frequency, lastExDate, amountPerShare, name } = metadata;
+        const { frequency, lastExDate, amountPerShare, name, currency } = metadata;
         logger.info('Forecast', `  ${symbol} — metadata: freq=${frequency}, lastEx=${lastExDate}, amount=${amountPerShare}`);
 
         // Validate metadata
@@ -466,6 +484,8 @@ export async function getDividendForecastForAccount(
             symbol,
             date: currentProjDate.toISOString(),
             amount: amountPerShare * units,
+            amountCAD: 0, // filled below, once per distinct currency rather than per event
+            currency: currency || "CAD",
             amountPerShare,
             frequency,
             units,
@@ -478,6 +498,13 @@ export async function getDividendForecastForAccount(
         logger.warn('Forecast', `  ${symbol} — error: ${(err as any).message}`);
       }
     }
+
+    // Convert every event's native-currency amount into CAD once per distinct
+    // currency present, rather than summing raw amounts across currencies —
+    // the previous version of this forecast did that, which inflated (or
+    // deflated) the total for any account holding US-listed positions.
+    const converted = await toBaseCurrency(forecast, e => e.currency, e => e.amount, BASE_CURRENCY);
+    for (let i = 0; i < forecast.length; i++) forecast[i].amountCAD = Math.round(converted[i].valueBase * 100) / 100;
 
     const sorted = forecast.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     logger.info('Forecast', `getDividendForecastForAccount complete — account ${accountId}: ${sorted.length} event(s) projected`);

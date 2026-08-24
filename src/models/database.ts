@@ -251,6 +251,7 @@ const migrations: Array<{ name: string; sql: string }> = [
     )
   ` },
   { name: 'fx_rates.idx_pair', sql: `CREATE INDEX IF NOT EXISTS idx_fx_rates_pair ON fx_rates(pair)` },
+  { name: 'dividend_metadata.currency', sql: `ALTER TABLE dividend_metadata ADD COLUMN currency TEXT` },
   { name: 'api_tokens.create', sql: `
     CREATE TABLE IF NOT EXISTS api_tokens (
       id         TEXT PRIMARY KEY,

@@ -422,6 +422,30 @@ const API = {
         return data;
     },
 
+    async getApiTokens() {
+        const res = await this._fetch('/api/tokens');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load API tokens');
+        return data;
+    },
+
+    async createApiToken(name) {
+        const res = await this._fetch('/api/tokens', {
+            method: 'POST',
+            body: JSON.stringify({ name })
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to create API token');
+        return data;
+    },
+
+    async deleteApiToken(id) {
+        const res = await this._fetch(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to revoke API token');
+        return data;
+    },
+
     async invalidatePortfolioCache(portfolioId) {
         const res = await this._fetch(`/api/invalidate-cache/${encodeURIComponent(portfolioId)}`, { method: 'POST' });
         const data = await this._json(res);

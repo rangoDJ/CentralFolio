@@ -251,6 +251,15 @@ const migrations: Array<{ name: string; sql: string }> = [
     )
   ` },
   { name: 'fx_rates.idx_pair', sql: `CREATE INDEX IF NOT EXISTS idx_fx_rates_pair ON fx_rates(pair)` },
+  { name: 'api_tokens.create', sql: `
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      tokenHash  TEXT NOT NULL UNIQUE,   -- SHA-256 of the token; the plaintext is shown once and never stored
+      createdAt  DATETIME DEFAULT CURRENT_TIMESTAMP,
+      lastUsedAt DATETIME
+    )
+  ` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

@@ -769,6 +769,30 @@
             </button>
           </div>
 
+          <!-- API Tokens -->
+          <div class="card mb-3">
+            <div class="card-header" style="margin-bottom:0.75rem;">
+              <span class="card-title">API Tokens</span>
+            </div>
+            <p class="text-muted text-sm mb-3">Long-lived tokens for scripts and other non-browser clients. Each token is shown only once, at creation — store it somewhere safe.</p>
+            <div id="newTokenBanner" style="display:none;margin-bottom:1rem;padding:0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);">
+              <div class="text-muted text-sm mb-1">New token — copy it now, it won't be shown again:</div>
+              <div style="display:flex;gap:0.5rem;align-items:center;">
+                <input type="text" id="newTokenValue" readonly style="flex:1;font-family:monospace;font-size:0.85rem;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.4rem 0.5rem;">
+                <button class="btn btn-outline btn-sm" onclick="App.copyNewApiToken()">Copy</button>
+              </div>
+            </div>
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+              <input type="text" id="newTokenName" class="form-input" placeholder="Token name (e.g. &quot;my script&quot;)" style="flex:1;">
+              <button id="createTokenBtn" class="btn btn-primary btn-sm" onclick="App.handleCreateApiToken()">
+                <span class="loader"></span><span class="btn-text">Generate</span>
+              </button>
+            </div>
+            <div id="apiTokenList">
+              <div class="empty-state" style="padding:1rem;">Loading tokens…</div>
+            </div>
+          </div>
+
           <!-- Refresh schedule -->
           <div class="card mb-3">
             <div class="card-header" style="margin-bottom:0.75rem;">

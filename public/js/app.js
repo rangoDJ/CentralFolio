@@ -1307,6 +1307,55 @@ const App = {
         }
     },
 
+    async loadApiTokens() {
+        try {
+            const tokens = await API.getApiTokens();
+            UI.renderApiTokens(tokens);
+        } catch (err) {
+            console.error('Failed to load API tokens:', err);
+        }
+    },
+
+    async handleCreateApiToken() {
+        const nameEl = document.getElementById('newTokenName');
+        const name = nameEl.value.trim();
+        if (!name) { UI.showToast('Enter a name for the token', 'error'); return; }
+        const btn = document.getElementById('createTokenBtn');
+        btn.classList.add('loading'); btn.disabled = true;
+        try {
+            const created = await API.createApiToken(name);
+            nameEl.value = '';
+            const banner = document.getElementById('newTokenBanner');
+            document.getElementById('newTokenValue').value = created.token;
+            banner.style.display = 'block';
+            await this.loadApiTokens();
+            UI.showToast('Token created — copy it now, it will not be shown again');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            btn.classList.remove('loading'); btn.disabled = false;
+        }
+    },
+
+    copyNewApiToken() {
+        const input = document.getElementById('newTokenValue');
+        input.select();
+        navigator.clipboard.writeText(input.value)
+            .then(() => UI.showToast('Copied to clipboard'))
+            .catch(() => UI.showToast('Could not copy — select and copy manually', 'error'));
+    },
+
+    async handleRevokeApiToken(id, name) {
+        if (!confirm(`Revoke the API token "${name}"? Any client using it will stop working immediately.`)) return;
+        try {
+            await API.deleteApiToken(id);
+            UI.showToast('Token revoked');
+            await this.loadApiTokens();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
     totalPortfolioValue() {
         let total = 0;
         const groups = this.getFilteredGroups();
@@ -2132,6 +2181,7 @@ const App = {
             this.loadUserPortfolios();
         } else if (paneId === 'connections') {
             this.fetchAccounts();
+            this.loadApiTokens();
         } else if (paneId === 'scheduler') {
             this.loadJobsPanel();
         }

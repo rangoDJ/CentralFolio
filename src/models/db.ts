@@ -81,3 +81,11 @@ export {
   getJobRuns,
 } from "../repositories/jobRepository.js";
 
+export type { ApiTokenMeta } from "../repositories/apiTokenRepository.js";
+export {
+  createApiToken,
+  listApiTokens,
+  revokeApiToken,
+  verifyApiToken,
+} from "../repositories/apiTokenRepository.js";
+

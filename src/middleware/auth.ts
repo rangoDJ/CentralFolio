@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import { getJwtSecret, getPasswordHash } from "../models/db.js";
+import { API_TOKEN_PREFIX, verifyApiToken } from "../repositories/apiTokenRepository.js";
 import { logger } from "../utils/logger.js";
 
 export const AUTH_COOKIE = "cf_token";
@@ -27,6 +28,13 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const token = header?.startsWith("Bearer ") ? header.slice(7) : readCookie(req, AUTH_COOKIE);
   if (!token) {
     return res.status(401).json({ error: "Unauthorized" });
+  }
+  // A long-lived, revocable API token (Settings → API Tokens), for scripts and
+  // other non-browser clients — distinguished from the session JWT by prefix
+  // so a bad guess doesn't fall through to (and fail) a JWT verify.
+  if (token.startsWith(API_TOKEN_PREFIX)) {
+    if (verifyApiToken(token)) return next();
+    return res.status(401).json({ error: "Invalid or revoked API token" });
   }
   try {
     jwt.verify(token, getJwtSecret() + (getPasswordHash() || ""), { algorithms: ["HS256"] });

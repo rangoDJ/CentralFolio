@@ -2040,6 +2040,29 @@ const UI = {
         }).join('');
     },
 
+    renderApiTokens(tokens) {
+        const el = document.getElementById('apiTokenList');
+        if (!el) return;
+
+        if (!tokens || tokens.length === 0) {
+            el.innerHTML = '<div class="empty-state" style="padding:1rem;">No API tokens yet.</div>';
+            return;
+        }
+
+        el.innerHTML = tokens.map(t => {
+            const created  = t.createdAt  ? new Date(t.createdAt).toLocaleString()  : '—';
+            const lastUsed = t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : 'Never used';
+            return `
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:0.7rem 0;border-bottom:1px solid var(--border);">
+              <div style="min-width:0;">
+                <div style="font-weight:600;font-size:0.9rem;">${sanitize(t.name)}</div>
+                <div class="text-muted text-sm" style="margin-top:0.15rem;">Created ${sanitize(created)} · ${sanitize(lastUsed)}</div>
+              </div>
+              <button class="btn btn-danger btn-sm" title="Revoke" onclick="App.handleRevokeApiToken('${sanitize(t.id)}', '${sanitize(t.name).replace(/'/g, "\\'")}')">Revoke</button>
+            </div>`;
+        }).join('');
+    },
+
     renderJobHistoryPanel(history) {
         const el = document.getElementById('jobHistoryPanel');
         if (!el) return;

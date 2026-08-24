@@ -7,6 +7,7 @@ import analyticsRoutes from "./analyticsRoutes.js";
 import userPortfolioRoutes from "./userPortfolioRoutes.js";
 import watchlistRoutes from "./watchlistRoutes.js";
 import manualAssetRoutes from "./manualAssetRoutes.js";
+import apiTokenRoutes from "./apiTokenRoutes.js";
 import { stockDetailHandler, priceHistoryHandler } from "../controllers/stockController.js";
 
 const router = Router();
@@ -26,6 +27,7 @@ router.use("/user-portfolios", userPortfolioRoutes);
 router.use("/manual-assets", manualAssetRoutes);
 router.use("/", watchlistRoutes);
 router.use("/", snapTradeRoutes);
+router.use("/", apiTokenRoutes);
 
 // Catch-all for /api/* routes that didn't match
 router.use((req, res) => {

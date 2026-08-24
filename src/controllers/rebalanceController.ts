@@ -53,7 +53,7 @@ export const updateTargets = (req: Request, res: Response) => {
   // Validate targets
   let sum = 0;
   for (const t of targets) {
-    if (!t.symbol || !SYMBOL_RE.test(t.symbol)) {
+    if (typeof t.symbol !== 'string' || !t.symbol || !SYMBOL_RE.test(t.symbol)) {
       return res.status(400).json({ error: `Invalid symbol: ${t.symbol}` });
     }
     const pct = parseFloat(t.targetPct);

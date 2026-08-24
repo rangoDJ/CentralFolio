@@ -48,8 +48,20 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
     return res.status(400).json({ error: "Missing required fields: name, clientId, consumerKey, userId" });
   }
 
+  // A non-numeric id (e.g. a typo'd URL param echoed back) must not silently
+  // fall through to an insert — Number("abc") is NaN, and NaN is falsy, so an
+  // unguarded `id ? Number(id) : undefined` would create a brand-new portfolio
+  // instead of failing the intended update.
+  let portfolioId: number | undefined;
+  if (id !== undefined && id !== null && id !== '') {
+    portfolioId = Number(id);
+    if (!Number.isInteger(portfolioId) || portfolioId <= 0) {
+      return res.status(400).json({ error: "id must be a positive integer" });
+    }
+  }
+
   const portfolio: Portfolio = {
-    id: id ? Number(id) : undefined,
+    id: portfolioId,
     name,
     clientId,
     consumerKey,

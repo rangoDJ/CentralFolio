@@ -13,6 +13,11 @@ function findAccountInGroups(groups, aid) {
     return null;
 }
 
+/** A dividend event's amount in CAD, falling back to its native amount for pre-conversion data. */
+function amountCAD(event) {
+    return event.amountCAD ?? event.amount ?? 0;
+}
+
 const UI = {
     portfolioList:    document.getElementById('portfolioList'),
     accountContainer: document.getElementById('accountContainer'),
@@ -558,7 +563,7 @@ const UI = {
         });
         allEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        const annualTotal  = allEvents.reduce((s, e) => s + (e.amountCAD ?? e.amount ?? 0), 0);
+        const annualTotal  = allEvents.reduce((s, e) => s + amountCAD(e), 0);
         const monthlyAvg   = annualTotal / 12;
         const yieldPct     = portfolioValue > 0 ? (annualTotal / portfolioValue * 100) : 0;
         const fmt          = v => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -653,7 +658,7 @@ const UI = {
             const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
             if (key < todayKey) return;
             const bucket = byKey.get(key);
-            if (bucket) { const v = e.amountCAD ?? e.amount ?? 0; bucket.projected += v; totalProjected += v; }
+            if (bucket) { const v = amountCAD(e); bucket.projected += v; totalProjected += v; }
         });
 
         const labels       = months.map(m => m.label);
@@ -2940,7 +2945,7 @@ const UI = {
         allEvents.sort((a, b) => new Date(a.date) - new Date(b.date));
         this.tagDividendStatus(allEvents, (typeof App !== 'undefined' && App.getFilteredTransactionsData) ? App.getFilteredTransactionsData() : null);
 
-        const annualTotal = allEvents.reduce((s, e) => s + (e.amountCAD ?? e.amount ?? 0), 0);
+        const annualTotal = allEvents.reduce((s, e) => s + amountCAD(e), 0);
         const fmt = v => `$${v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`;
 
         document.getElementById('unified-annual-income').textContent   = fmt(annualTotal);
@@ -2961,7 +2966,7 @@ const UI = {
         const todayStr = new Date().toLocaleDateString('en-CA');
         const yetToReceive = allEvents
             .filter(e => e.date.substring(0, 10) >= todayStr)
-            .reduce((s, e) => s + (e.amountCAD ?? e.amount ?? 0), 0);
+            .reduce((s, e) => s + amountCAD(e), 0);
         document.getElementById('unified-yet-to-receive').textContent = fmt(yetToReceive);
 
         // Build 12-month buckets from today
@@ -2976,7 +2981,7 @@ const UI = {
         allEvents.forEach(e => {
             const key = new Date(e.date).toLocaleString('default', { month: 'short', year: 'numeric', timeZone: 'UTC' });
             if (monthlyData[key]) {
-                monthlyData[key].total += e.amountCAD ?? e.amount ?? 0;
+                monthlyData[key].total += amountCAD(e);
                 monthlyData[key].events.push(e);
             }
         });
@@ -3207,7 +3212,7 @@ const UI = {
                     // amountCAD is the backend's FX-converted figure — summing native
                     // `amount` here mixed currencies (a USD dividend added straight
                     // into a CAD total) and understated/inflated the headline number.
-                    annualTotalCAD += (e.amountCAD ?? e.amount ?? 0);
+                    annualTotalCAD += amountCAD(e);
                 });
             }
         });
@@ -3322,7 +3327,7 @@ const UI = {
         (events || []).forEach(e => {
             const d = new Date(e.date);
             const k = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-            if (idx.has(k)) totals[idx.get(k)] += (e.amountCAD ?? e.amount ?? 0);
+            if (idx.has(k)) totals[idx.get(k)] += amountCAD(e);
         });
         const max = Math.max(1, ...totals);
         if (this.divcalChartInst) this.divcalChartInst.destroy();

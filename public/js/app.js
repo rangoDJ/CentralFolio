@@ -93,6 +93,15 @@ const App = {
 
         document.getElementById('tradeModalClose').onclick = () => this.closeTradeModal();
 
+        // Logs pane: level change re-fetches (server filters the snapshot),
+        // search is a client-side filter over what's already loaded.
+        document.getElementById('logsLevelSelect')?.addEventListener('change', () => this.loadLogs());
+        let logsSearchDebounce;
+        document.getElementById('logsSearchInput')?.addEventListener('input', () => {
+            clearTimeout(logsSearchDebounce);
+            logsSearchDebounce = setTimeout(() => this.handleLogsFilterChange(), 200);
+        });
+
         // Trade button delegation — data-* attributes prevent inline JS injection
         document.getElementById('holdings-tables').addEventListener('click', e => {
             const btn = e.target.closest('.trade-btn-buy, .trade-btn-sell');
@@ -931,11 +940,21 @@ const App = {
             try { this.onJobStatusEvent(JSON.parse(e.data).job); } catch (err) { console.warn('liveSync: bad job-status event', err); }
         });
 
-        es.onopen = () => { this._sseErrors = 0; };
+        es.addEventListener('log', (e) => {
+            try { this.onLogEvent(JSON.parse(e.data).entry); } catch (err) { console.warn('liveSync: bad log event', err); }
+        });
+
+        const setLiveDot = (on) => {
+            const dot = document.getElementById('logsLiveDot');
+            if (dot) { dot.style.background = on ? 'var(--success)' : 'var(--danger)'; dot.title = on ? 'Connected' : 'Disconnected — retrying'; }
+        };
+
+        es.onopen = () => { this._sseErrors = 0; setLiveDot(true); };
         es.onerror = () => {
             // Ticket is one-time-use, so auto-reconnect won't work. Close this
             // stream and re-issue a new ticket after a brief backoff.
             this._sseErrors = (this._sseErrors || 0) + 1;
+            setLiveDot(false);
             try { es.close(); } catch (_) {}
             if (this._sse === es) this._sse = null;
             if (this._sseErrors <= 12) {
@@ -1304,6 +1323,77 @@ const App = {
             UI.showToast(err.message, 'error');
         } finally {
             btn.classList.remove('loading'); btn.disabled = false;
+        }
+    },
+
+    // ── Live server log viewer (Settings → Logs) ────────────────────────────────
+    // Snapshot loaded once per tab-open; new lines after that arrive over the
+    // same SSE connection everything else already uses (see connectLiveSync).
+
+    _logLevelRank: { debug: 0, info: 1, warn: 2, error: 3 },
+
+    async loadLogs() {
+        const select = document.getElementById('logsLevelSelect');
+        const minLevel = select ? select.value : 'info';
+        this._logsMinLevel = minLevel;
+        try {
+            const entries = await API.getLogs(500, minLevel);
+            this._logsBuffer = entries;
+            UI.renderLogs(this._applyLogFilter(entries));
+        } catch (err) {
+            console.error('Failed to load logs:', err);
+        }
+    },
+
+    _applyLogFilter(entries) {
+        const term = (document.getElementById('logsSearchInput')?.value || '').trim().toLowerCase();
+        if (!term) return entries;
+        return entries.filter(e => e.tag.toLowerCase().includes(term) || e.msg.toLowerCase().includes(term));
+    },
+
+    onLogEvent(entry) {
+        if (this._logsPaused) return;
+        const minLevel = this._logsMinLevel || 'info';
+        if (this._logLevelRank[entry.level] < this._logLevelRank[minLevel]) return;
+
+        this._logsBuffer = this._logsBuffer || [];
+        this._logsBuffer.push(entry);
+        if (this._logsBuffer.length > 1000) this._logsBuffer.shift();
+
+        // Only touch the DOM when the Logs pane is actually the one on screen.
+        if (localStorage.getItem('activeMainTab') !== 'settings' || localStorage.getItem('activeSettingsTab') !== 'logs') return;
+
+        const term = (document.getElementById('logsSearchInput')?.value || '').trim().toLowerCase();
+        if (term && !entry.tag.toLowerCase().includes(term) && !entry.msg.toLowerCase().includes(term)) return;
+
+        UI.appendLogLine(entry, this._logsAutoscroll !== false);
+    },
+
+    handleLogsFilterChange() {
+        if (!this._logsBuffer) return;
+        UI.renderLogs(this._applyLogFilter(this._logsBuffer));
+    },
+
+    toggleLogsPause() {
+        this._logsPaused = !this._logsPaused;
+        const btn = document.getElementById('logsPauseBtn');
+        if (btn) btn.textContent = this._logsPaused ? 'Resume' : 'Pause';
+    },
+
+    toggleLogsAutoscroll() {
+        this._logsAutoscroll = this._logsAutoscroll === false ? true : false;
+        const btn = document.getElementById('logsAutoscrollBtn');
+        if (btn) btn.textContent = `Autoscroll: ${this._logsAutoscroll === false ? 'Off' : 'On'}`;
+    },
+
+    async handleClearLogs() {
+        try {
+            await API.clearLogs();
+            this._logsBuffer = [];
+            UI.renderLogs([]);
+            UI.showToast('Log buffer cleared');
+        } catch (err) {
+            UI.showToast(err.message, 'error');
         }
     },
 
@@ -2184,6 +2274,8 @@ const App = {
             this.loadApiTokens();
         } else if (paneId === 'scheduler') {
             this.loadJobsPanel();
+        } else if (paneId === 'logs') {
+            this.loadLogs();
         }
     },
 

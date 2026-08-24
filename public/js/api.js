@@ -422,6 +422,20 @@ const API = {
         return data;
     },
 
+    async getLogs(limit = 500, minLevel = 'info') {
+        const res = await this._fetch(`/api/admin/logs?limit=${limit}&minLevel=${encodeURIComponent(minLevel)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load logs');
+        return data;
+    },
+
+    async clearLogs() {
+        const res = await this._fetch('/api/admin/logs/clear', { method: 'POST' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to clear logs');
+        return data;
+    },
+
     async getApiTokens() {
         const res = await this._fetch('/api/tokens');
         const data = await this._json(res);

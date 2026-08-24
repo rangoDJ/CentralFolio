@@ -55,12 +55,19 @@ interface AccountTxns {
  * docstring for why narrowing this set would compute a wrong cost base.
  */
 function collectAccounts(): AccountTxns[] {
-  return getScopedAccounts(null).map(acct => ({
+  const accounts = getScopedAccounts(null).map(acct => ({
     accountId: acct.id,
     label: acct.customName || acct.name || "Account",
     registered: classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`) !== "taxable",
     txns: getCachedTransactions(acct.id) as T5008Transaction[],
   })).filter(a => a.txns.length > 0);
+  const registeredCount = accounts.filter(a => a.registered).length;
+  logger.debug(
+    "T5008",
+    `collectAccounts — ${accounts.length} account(s) with cached transactions ` +
+    `(${accounts.length - registeredCount} taxable, ${registeredCount} registered/excluded)`
+  );
+  return accounts;
 }
 
 /**
@@ -92,6 +99,9 @@ async function primeRatesFor(txns: T5008Transaction[]): Promise<void> {
   }
 
   const today = new Date().toISOString().slice(0, 10);
+  if (spans.size > 0) {
+    logger.debug("T5008", `primeRatesFor — priming FX history for ${Array.from(spans.keys()).join(", ")}`);
+  }
   await Promise.all(
     Array.from(spans.entries()).map(([cur, span]) =>
       primeFxHistory(cur, BASE_CURRENCY, span.min, span.max > today ? today : span.max)
@@ -140,6 +150,11 @@ export async function getT5008Report(
   // reportable.
   const result = computeDispositions(tagged.filter(t => !t.registered), lookup);
   const warnings: string[] = [...result.warnings];
+  logger.debug(
+    "T5008",
+    `computeDispositions — ${result.dispositions.length} disposition(s) pooled from ` +
+    `${tagged.filter(t => !t.registered).length} taxable transaction(s), ${result.warnings.length} warning(s)`
+  );
 
   // Diagnose *why* a cost base is missing, for the common case where it's a
   // symbol bought inside a registered account (TFSA/RRSP) that later shows up
@@ -168,6 +183,7 @@ export async function getT5008Report(
       `this is likely an unrecorded in-kind transfer. Enter the fair market value on the transfer date as the cost base.`;
   }
   if (registeredTransferCount > 0) {
+    logger.info("T5008", `Flagged ${registeredTransferCount} disposition(s) as likely unrecorded registered-account transfers`);
     warnings.push(
       `${registeredTransferCount} of the missing-cost-basis dispositions look like shares moved in-kind from a ` +
       `registered account (TFSA/RRSP) with no transfer record — see each row's note for the source account.`

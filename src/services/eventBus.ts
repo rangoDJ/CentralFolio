@@ -1,6 +1,9 @@
 import { EventEmitter } from "events";
-import { logger } from "../utils/logger.js";
 import type { JobState } from "./schedulerService.js";
+// Type-only — logger.ts imports emitLog (a value) from this module, so this
+// module must never import a *value* back from logger.ts or the two would
+// form a require cycle. A `type` import is erased at compile time and safe.
+import type { LogEntry } from "../utils/logger.js";
 
 /**
  * Domains of cached data the UI renders. When data in one of these changes,
@@ -19,7 +22,12 @@ export interface JobStatusEvent {
   job: JobState;
 }
 
-export type BusEvent = DataChangedEvent | JobStatusEvent;
+export interface LogEvent {
+  type: 'log';
+  entry: LogEntry;
+}
+
+export type BusEvent = DataChangedEvent | JobStatusEvent | LogEvent;
 export type BusListener = (event: BusEvent) => void;
 
 // A single process-wide emitter. Repositories/services publish to it; the SSE
@@ -32,12 +40,16 @@ emitter.setMaxListeners(0);
 const CHANNEL = 'bus';
 
 export function emitDataChanged(domain: DataDomain): void {
-  logger.debug('EventBus', `data-changed → ${domain}`);
   emitter.emit(CHANNEL, { type: 'data-changed', domain } as DataChangedEvent);
 }
 
 export function emitJobStatus(job: JobState): void {
   emitter.emit(CHANNEL, { type: 'job-status', job } as JobStatusEvent);
+}
+
+/** Broadcasts one log line to every connected SSE client (Settings → Logs). */
+export function emitLog(entry: LogEntry): void {
+  emitter.emit(CHANNEL, { type: 'log', entry } as LogEvent);
 }
 
 export function subscribe(listener: BusListener): void {

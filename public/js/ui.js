@@ -2063,6 +2063,36 @@ const UI = {
         }).join('');
     },
 
+    _logLevelColor(level) {
+        return { debug: 'var(--text-secondary)', info: 'var(--text)', warn: 'var(--warning)', error: 'var(--danger)' }[level] || 'var(--text)';
+    },
+
+    _logLineHtml(e) {
+        const time  = new Date(e.ts).toLocaleTimeString(undefined, { hour12: false }) + '.' + String(new Date(e.ts).getMilliseconds()).padStart(3, '0');
+        const color = this._logLevelColor(e.level);
+        const lvl   = e.level === 'info' ? '' : `<span style="color:${color};font-weight:700;">${e.level.toUpperCase()}</span> `;
+        return `<div class="logs-line" data-level="${sanitize(e.level)}" data-tag="${sanitize(e.tag.toLowerCase())}" style="white-space:pre-wrap;word-break:break-word;padding:1px 0;color:${color};opacity:${e.level === 'debug' ? '0.7' : '1'};">` +
+            `<span style="color:var(--text-muted);">${time}</span> ${lvl}<span style="color:var(--primary);font-weight:600;">[${sanitize(e.tag)}]</span> ${sanitize(e.msg)}` +
+            `</div>`;
+    },
+
+    /** Full replace — used for the initial snapshot and whenever the level filter changes. */
+    renderLogs(entries) {
+        const el = document.getElementById('logsConsole');
+        if (!el) return;
+        el.innerHTML = (entries || []).map(e => this._logLineHtml(e)).join('');
+        el.scrollTop = el.scrollHeight;
+    },
+
+    /** Live single-line append, capped so the DOM can't grow without bound. */
+    appendLogLine(entry, autoscroll = true, maxLines = 1000) {
+        const el = document.getElementById('logsConsole');
+        if (!el) return;
+        el.insertAdjacentHTML('beforeend', this._logLineHtml(entry));
+        while (el.children.length > maxLines) el.removeChild(el.firstChild);
+        if (autoscroll) el.scrollTop = el.scrollHeight;
+    },
+
     renderJobHistoryPanel(history) {
         const el = document.getElementById('jobHistoryPanel');
         if (!el) return;

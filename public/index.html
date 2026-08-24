@@ -689,6 +689,32 @@
           <button class="underline-tab" data-tab="connections" onclick="App.switchSettingsTab('connections', this)">Brokerage Connections</button>
           <button class="underline-tab" data-tab="keys" onclick="App.switchSettingsTab('keys', this)">Keys &amp; Providers</button>
           <button class="underline-tab" data-tab="scheduler" onclick="App.switchSettingsTab('scheduler', this)">Scheduler</button>
+          <button class="underline-tab" data-tab="logs" onclick="App.switchSettingsTab('logs', this)">Logs</button>
+        </div>
+
+        <!-- Logs pane (live server log viewer) -->
+        <div id="settings-logs-pane" class="pane">
+          <div class="card" style="padding:0;overflow:hidden;">
+            <div class="card-header" style="margin:0;padding:0.9rem 1rem;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.6rem;">
+              <span class="card-title" style="display:flex;align-items:center;gap:0.5rem;">
+                Live Server Log
+                <span id="logsLiveDot" style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;" title="Connected"></span>
+              </span>
+              <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                <input type="text" id="logsSearchInput" placeholder="Filter by tag or text…" class="form-input" style="width:200px;padding:0.35rem 0.6rem;font-size:0.85rem;">
+                <select id="logsLevelSelect" class="form-input" style="width:auto;padding:0.35rem 0.6rem;font-size:0.85rem;">
+                  <option value="debug">Debug+</option>
+                  <option value="info" selected>Info+</option>
+                  <option value="warn">Warn+</option>
+                  <option value="error">Error only</option>
+                </select>
+                <button id="logsPauseBtn" class="btn btn-outline btn-sm" onclick="App.toggleLogsPause()">Pause</button>
+                <button id="logsAutoscrollBtn" class="btn btn-outline btn-sm" onclick="App.toggleLogsAutoscroll()">Autoscroll: On</button>
+                <button class="btn btn-outline btn-sm" onclick="App.handleClearLogs()">Clear</button>
+              </div>
+            </div>
+            <div id="logsConsole" style="height:60vh;overflow-y:auto;background:#0a0a0a;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:0.78rem;line-height:1.5;padding:0.6rem 0.9rem;"></div>
+          </div>
         </div>
 
         <!-- Scheduler pane (background jobs) -->

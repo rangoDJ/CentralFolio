@@ -1,4 +1,5 @@
 import { db } from "../models/database.js";
+import { logger } from "../utils/logger.js";
 
 export interface UserPortfolio {
   id: number;
@@ -75,16 +76,19 @@ export function getUserPortfolioById(id: number): UserPortfolio | null {
 
 export function createUserPortfolio(name: string, description: string | null, color: string): UserPortfolio {
   const result = stmtInsertPortfolio.run(name, description, color);
+  logger.info('UserPortfolio', `Created "${name}" (id=${result.lastInsertRowid})`);
   return getUserPortfolioById(result.lastInsertRowid as number)!;
 }
 
 export function updateUserPortfolio(id: number, name: string, description: string | null, color: string): UserPortfolio | null {
   stmtUpdatePortfolio.run(name, description, color, id);
+  logger.info('UserPortfolio', `Updated portfolio ${id} → "${name}"`);
   return getUserPortfolioById(id);
 }
 
 export function deleteUserPortfolio(id: number): boolean {
   const result = stmtDeletePortfolio.run(id);
+  if (result.changes > 0) logger.info('UserPortfolio', `Deleted portfolio ${id}`);
   return result.changes > 0;
 }
 
@@ -95,8 +99,11 @@ export function setUserPortfolioAccounts(portfolioId: number, accountIds: string
       stmtInsertPortfolioAccount.run(portfolioId, aid);
     }
   })();
+  logger.info('UserPortfolio', `Set ${accountIds.length} account(s) for portfolio ${portfolioId}`);
 }
 
 export function clearAllUserPortfolios(): void {
+  const count = stmtListPortfolios.all().length;
   stmtClearAllUserPortfolios.run();
+  logger.warn('UserPortfolio', `Cleared all ${count} user portfolio(s)`);
 }

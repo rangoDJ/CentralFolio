@@ -34,12 +34,16 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   // so a bad guess doesn't fall through to (and fail) a JWT verify.
   if (token.startsWith(API_TOKEN_PREFIX)) {
     if (verifyApiToken(token)) return next();
+    // A missing token is normal pre-login traffic; a *rejected* one (invalid or
+    // revoked) is worth surfacing — it's either a bug or someone probing.
+    logger.warn("Auth", `Rejected API token on ${req.method} ${req.path} from ${req.ip}`);
     return res.status(401).json({ error: "Invalid or revoked API token" });
   }
   try {
     jwt.verify(token, getJwtSecret() + (getPasswordHash() || ""), { algorithms: ["HS256"] });
     next();
-  } catch {
+  } catch (err: any) {
+    logger.warn("Auth", `Rejected session token on ${req.method} ${req.path} from ${req.ip}: ${err.message}`);
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 }

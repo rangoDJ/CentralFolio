@@ -16,6 +16,8 @@ A self-hosted portfolio and dividend tracking app. Connect brokerage accounts th
 - **Brokerage connections** — account ↔ portfolio link cards with last-sync time, on-demand sync, and connect/disconnect.
 - **Trading** — place buy/sell orders directly from holdings (where the brokerage supports it).
 - **Background jobs** — automatic dividend, holdings, and transaction refresh on a configurable schedule.
+- **API tokens** — issue revocable, non-browser tokens (**Settings → Brokerage Connections → Security**) for scripts and other API clients, separate from your login session.
+- **Live log viewer** — tail the running server's logs from the browser (**Settings → Logs**), with level filtering, search, and pause/autoscroll.
 
 ## Requirements
 
@@ -53,6 +55,8 @@ Dividend metadata (frequency, ex-date, amount per share) is fetched automaticall
 CentralFolio is single-user and protected by a password (bcrypt-hashed) with a JWT session secret, both stored in the local SQLite database. **No secrets ever leave your server.**
 
 On login the session token is set as an `httpOnly`, `SameSite=Strict` cookie (`secure` when served over HTTPS), so it is not readable by injected scripts. `requireAuth` accepts the token from either that cookie or an `Authorization: Bearer` header, and `POST /auth/logout` clears the cookie. The bundled frontend still keeps a copy in `localStorage` for the bearer flow; a future hardening step is to drop the `localStorage` copy entirely and rely on the cookie alone.
+
+For scripts and other non-browser clients, issue a long-lived **API token** under **Settings → Brokerage Connections → Security** instead of sharing your login session — send it as `Authorization: Bearer cf_...`. Tokens are shown once at creation and stored only as a SHA-256 hash; revoke one anytime from the same panel to invalidate it immediately.
 
 The database and credentials live under the mounted `./data` volume and must **never** be committed to source control: `snaptrade.db` and its WAL sidecars (`snaptrade.db-shm`, `snaptrade.db-wal`), `user-credentials.json`, and `.env`. These hold SnapTrade API keys, the password hash, and the JWT secret. Do not place `DATA_DIR` inside a cloud-synced folder (Dropbox, Nextcloud, iCloud, etc.) — the database holds plaintext secrets that would then be replicated to that service.
 

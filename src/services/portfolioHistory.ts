@@ -15,6 +15,8 @@
  * rest of the app); no FX conversion is applied.
  */
 
+import { xirr, buildPortfolioFlows } from "./xirr.js";
+
 export interface PHTransaction {
   symbol?: string | null;
   type?: string | null;
@@ -34,19 +36,35 @@ export interface PortfolioHistoryPoint {
   value: number;        // market value of holdings
   invested: number;     // cumulative net contributions (cost basis in market)
   benchmark?: number;   // simulated value if contributions tracked the benchmark
+  /** True when `value` came from a recorded snapshot rather than reconstruction. */
+  snapshot?: boolean;
 }
 
 export interface PortfolioHistoryResult {
   points: PortfolioHistoryPoint[];
+  /**
+   * Dated net contributions (a buy is positive), the input to the
+   * money-weighted return. Exposed so callers can recompute against a
+   * different terminal value without replaying the whole history.
+   */
+  contributions: { date: string; amount: number }[];
   summary: {
     startDate: string | null;
     endDate: string | null;
     endValue: number;
     netInvested: number;
     totalReturn: number;       // endValue - netInvested
-    totalReturnPct: number;    // vs netInvested
+    totalReturnPct: number;    // vs netInvested — ignores when money went in
+    /**
+     * Annualized money-weighted return (XIRR), in percent. null when it is not
+     * defined — a single day of history, or no contributions to solve against.
+     * Unlike totalReturnPct this accounts for the timing of every contribution.
+     */
+    moneyWeightedReturnPct: number | null;
     benchmarkEndValue: number | null;
     benchmarkReturnPct: number | null;
+    /** How many points took their value from a recorded snapshot. */
+    snapshotPoints: number;
   };
 }
 
@@ -119,7 +137,13 @@ function makePriceLookup(series: PriceCandleLite[]): (iso: string) => number | n
 export function reconstructPortfolioHistory(
   transactions: PHTransaction[],
   priceSeriesBySymbol: Map<string, PriceCandleLite[]>,
-  benchmark?: { symbol: string; series: PriceCandleLite[] }
+  benchmark?: { symbol: string; series: PriceCandleLite[] },
+  /**
+   * Recorded end-of-day values keyed by 'YYYY-MM-DD'. Where a date has one it
+   * overrides the reconstructed value, because a snapshot is an observation
+   * while reconstruction is an inference from a ledger that may be incomplete.
+   */
+  snapshotsByDate?: Map<string, number>,
 ): PortfolioHistoryResult {
   // Trades with a usable symbol + date, sorted chronologically.
   const trades = transactions
@@ -130,9 +154,11 @@ export function reconstructPortfolioHistory(
   if (trades.length === 0) {
     return {
       points: [],
+      contributions: [],
       summary: {
         startDate: null, endDate: null, endValue: 0, netInvested: 0,
-        totalReturn: 0, totalReturnPct: 0, benchmarkEndValue: null, benchmarkReturnPct: null,
+        totalReturn: 0, totalReturnPct: 0, moneyWeightedReturnPct: null,
+        benchmarkEndValue: null, benchmarkReturnPct: null, snapshotPoints: 0,
       },
     };
   }
@@ -161,22 +187,29 @@ export function reconstructPortfolioHistory(
   let benchUnits = 0;                          // simulated benchmark "shares"
 
   const points: PortfolioHistoryPoint[] = [];
+  // One entry per day that moved capital — the XIRR input. Same-day trades are
+  // netted so a buy-and-sell pair on one date doesn't become two flows.
+  const contributions: { date: string; amount: number }[] = [];
+  let snapshotPoints = 0;
 
   for (let day = startDate; day <= endDate; day = addDay(day)) {
     // Apply the day's trades first, so the close-of-day valuation includes them.
     const todays = tradesByDay.get(day);
     if (todays) {
+      let dayContribution = 0;
       for (const t of todays) {
         const sym = norm(t.symbol);
         shares.set(sym, (shares.get(sym) ?? 0) + shareDelta(t));
         const contrib = contributionDelta(t);
         netInvested += contrib;
+        dayContribution += contrib;
         // Mirror the contribution into the benchmark at the day's index price.
         if (benchLookup) {
           const bp = benchLookup(day);
           if (bp && bp > 0) benchUnits += contrib / bp;
         }
       }
+      if (dayContribution !== 0) contributions.push({ date: day, amount: round2(dayContribution) });
     }
 
     // Value holdings at the day's forward-filled close.
@@ -187,11 +220,11 @@ export function reconstructPortfolioHistory(
       if (px != null) value += qty * px;
     }
 
-    const point: PortfolioHistoryPoint = {
-      date: day,
-      value: round2(value),
-      invested: round2(netInvested),
-    };
+    const recorded = snapshotsByDate?.get(day);
+    const point: PortfolioHistoryPoint = recorded != null
+      ? { date: day, value: round2(recorded), invested: round2(netInvested), snapshot: true }
+      : { date: day, value: round2(value), invested: round2(netInvested) };
+    if (recorded != null) snapshotPoints++;
     if (benchLookup) {
       const bp = benchLookup(day);
       point.benchmark = round2(bp != null ? benchUnits * bp : 0);
@@ -203,8 +236,13 @@ export function reconstructPortfolioHistory(
   const benchmarkEndValue = points.length && benchLookup ? (points[points.length - 1].benchmark ?? 0) : null;
   const totalReturn = endValue - netInvested;
 
+  // Money-weighted return: every contribution at its own date, closed out with
+  // today's market value as if the portfolio were liquidated.
+  const mwr = xirr(buildPortfolioFlows(contributions, endValue, endDate));
+
   return {
     points,
+    contributions,
     summary: {
       startDate,
       endDate,
@@ -212,10 +250,12 @@ export function reconstructPortfolioHistory(
       netInvested: round2(netInvested),
       totalReturn: round2(totalReturn),
       totalReturnPct: netInvested > 0 ? round2((totalReturn / netInvested) * 100) : 0,
+      moneyWeightedReturnPct: mwr != null ? round2(mwr * 100) : null,
       benchmarkEndValue: benchmarkEndValue != null ? round2(benchmarkEndValue) : null,
       benchmarkReturnPct: benchmarkEndValue != null && netInvested > 0
         ? round2(((benchmarkEndValue - netInvested) / netInvested) * 100)
         : null,
+      snapshotPoints,
     },
   };
 }

@@ -2039,3 +2039,149 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 }
 
 
+
+/* ── Portfolio comparison matrix ──────────────────────────────────── */
+
+.cmp-picker { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.cmp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+.cmp-chip:hover { border-color: var(--border-hover); color: var(--text); }
+.cmp-chip.active { border-color: var(--chip-color); color: var(--text); }
+.cmp-chip input { accent-color: var(--chip-color); cursor: pointer; margin: 0; }
+.cmp-chip-name { font-weight: 500; }
+.cmp-chip-meta { font-size: 0.74rem; color: var(--text-muted); }
+
+.cmp-chip-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--chip-color, var(--primary));
+  display: inline-block;
+  flex-shrink: 0;
+  margin-right: 0.35rem;
+}
+
+.cmp-summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+.cmp-summary-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--chip-color, var(--primary));
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+}
+.cmp-summary-name {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+.cmp-summary-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text);
+  font-feature-settings: "tnum";
+}
+.cmp-summary-meta { font-size: 0.74rem; color: var(--text-muted); margin-top: 0.2rem; }
+.cmp-warn { color: var(--warning); }
+.cmp-fx-tag { color: var(--text-secondary); border-bottom: 1px dotted var(--border-hover); cursor: help; }
+
+.cmp-fx-note {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin: -0.5rem 0 0.85rem;
+  padding: 0 0.25rem;
+}
+.cmp-fx-note .cmp-warn { margin-left: 0.4rem; }
+.cmp-fx-note strong { color: var(--text-secondary); font-weight: 600; }
+
+.cmp-tools { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.cmp-metric {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.cmp-metric-btn {
+  background: var(--surface-2);
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+}
+.cmp-metric-btn:hover { color: var(--text); }
+.cmp-metric-btn.active { background: var(--primary); color: #000; font-weight: 600; }
+
+/* The symbol column stays visible while the portfolio columns scroll sideways. */
+.cmp-table .cmp-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  text-align: left;
+}
+.cmp-table tbody tr:hover .cmp-sticky { background: var(--surface-2); }
+.cmp-table th { vertical-align: bottom; }
+.cmp-table td.cmp-held { color: var(--text); }
+.cmp-check { color: var(--success); font-weight: 700; margin-right: 0.15rem; }
+.cmp-dash { color: var(--text-muted); }
+.cmp-table td.cmp-missing { background: var(--hover-subtle); }
+
+.cmp-buy-btn {
+  background: none;
+  border: 1px dashed var(--border-hover);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cmp-buy-btn:hover { border-color: var(--primary); color: var(--primary); border-style: solid; }
+.cmp-buy-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+/* Hand-entered ledger rows — distinguishable from broker-synced data, and the
+   badge is the edit affordance. */
+.manual-txn-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-hover);
+  border-radius: 999px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.manual-txn-badge:hover { color: var(--primary); border-color: var(--primary); border-style: solid; }
+
+/* Alert rule on/off switch */
+.alert-toggle { display: inline-flex; align-items: center; padding-top: 0.15rem; cursor: pointer; }
+.alert-toggle input { accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; margin: 0; }

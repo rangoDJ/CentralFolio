@@ -88,6 +88,17 @@ const App = {
         document.getElementById('manualAssetModalClose').onclick = () => UI.closeManualAssetModal();
         document.getElementById('manualAssetForm').onsubmit = (e) => this.handleManualAssetSubmit(e);
 
+        // Manual transaction + CSV import modals
+        document.getElementById('manualTxnModalClose').onclick = () => this.closeManualTxnModal();
+        document.getElementById('manualTxnForm').onsubmit = (e) => this.handleManualTxnSubmit(e);
+        document.getElementById('txnImportModalClose').onclick = () => this.closeTxnImportModal();
+
+        // Clicking the "Manual" badge on a ledger row opens it for editing.
+        document.getElementById('transactions-tables').addEventListener('click', e => {
+            const badge = e.target.closest('.manual-txn-badge');
+            if (badge) this.editManualTxn(badge.dataset.manualId);
+        });
+
         // Rebalancing targets form
         document.getElementById('rebalanceTargetsForm').onsubmit = (e) => this.handleSaveTargets(e);
 
@@ -120,11 +131,22 @@ const App = {
             }
         });
 
+        // Compare page: "buy the gap" buttons carry the target account in data-*,
+        // matching the holdings-table delegation above.
+        document.getElementById('compare-content')?.addEventListener('click', e => {
+            const btn = e.target.closest('button.cmp-buy-btn');
+            if (!btn) return;
+            const d = btn.dataset;
+            this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), 'BUY');
+        });
+
         window.onclick = (e) => {
             if (e.target === UI.portfolioModal) UI.closeModal();
             if (e.target === document.getElementById('tradeModal')) this.closeTradeModal();
             if (e.target === document.getElementById('userPortfolioModal')) UI.closeUserPortfolioModal();
             if (e.target === document.getElementById('manualAssetModal')) UI.closeManualAssetModal();
+            if (e.target === document.getElementById('manualTxnModal')) this.closeManualTxnModal();
+            if (e.target === document.getElementById('txnImportModal')) this.closeTxnImportModal();
         };
 
         // Clicking any element tagged with data-stock opens the stock detail page.
@@ -760,7 +782,7 @@ const App = {
         if (!key) { UI.showToast('Enter an API key first', 'error'); return; }
         try {
             await API.updateSettings({ anthropic_api_key: key });
-            if (input) { input.value = ''; input.placeholder = '••••••••' + key.slice(-4); }
+            if (input) { input.value = ''; input.placeholder = 'Key saved — enter a new one to replace it'; }
             UI.showToast('Anthropic API key saved');
         } catch (err) {
             UI.showToast(err.message, 'error');
@@ -1587,15 +1609,10 @@ const App = {
             profitPctEl.style.color = profit >= 0 ? 'var(--primary)' : 'var(--danger)';
         }
 
-        const irrValueEl = document.getElementById('irrValue');
-        if (irrValueEl) {
-            irrValueEl.textContent = `${profitPct.toFixed(2)}%`;
-        }
-
-        const irrSubEl = document.getElementById('irrSub');
-        if (irrSubEl) {
-            irrSubEl.textContent = 'Simple return';
-        }
+        // Kept so the tile can fall back to it, and so the money-weighted
+        // render below doesn't have to recompute the position totals.
+        this._simpleReturnPct = profitPct;
+        this.renderReturnTile();
 
         if (filteredGroups) {
             UI.renderDashboardChart(filteredGroups, this.inactiveAccountIds, filteredHoldings);
@@ -1909,6 +1926,40 @@ const App = {
     // Fetch the reconstructed portfolio history once and render it; range and
     // benchmark toggles re-render from the cached result (benchmark change
     // refetches since it's computed server-side).
+    /**
+     * The dashboard "Total Return" tile.
+     *
+     * Prefers the money-weighted return (XIRR), which prices *when* each
+     * contribution was made — add $50k the week before a 2% rise and simple
+     * return calls it a 2% year. Simple return still shows until the
+     * performance history has loaded, and stays if XIRR can't be solved (a
+     * single day of history, or no contributions), labelled so the two are
+     * never confused.
+     */
+    renderReturnTile() {
+        const valueEl = document.getElementById('irrValue');
+        const subEl   = document.getElementById('irrSub');
+        if (!valueEl || !subEl) return;
+
+        const summary = this._perfResult?.summary;
+        const mwr = summary?.moneyWeightedReturnPct;
+        const simple = this._simpleReturnPct ?? 0;
+
+        if (mwr != null) {
+            valueEl.textContent = `${mwr.toFixed(2)}%`;
+            valueEl.style.color = mwr >= 0 ? 'var(--primary)' : 'var(--danger)';
+            subEl.textContent = 'Annualized, money-weighted';
+            subEl.title = 'XIRR — the annual rate that accounts for the size and timing of every contribution. '
+                + `Simple return over the same period: ${simple.toFixed(2)}%.`;
+            return;
+        }
+
+        valueEl.textContent = `${simple.toFixed(2)}%`;
+        valueEl.style.color = '';
+        subEl.textContent = summary ? 'Simple return — too little history to annualize' : 'Simple return';
+        subEl.title = 'Profit divided by invested capital. It ignores when contributions were made.';
+    },
+
     async loadPortfolioPerformance() {
         const benchOn = localStorage.getItem('cf_perf_bench') !== 'false';
         const benchSym = localStorage.getItem('cf_perf_bench_sym') || 'SPY';
@@ -1925,6 +1976,7 @@ const App = {
         if (this._perfResult) {
             this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
             UI.renderPortfolioPerformance(this._perfResult, this._perfRange, benchOn, this._perfCurrency);
+            this.renderReturnTile();
             return;
         }
 
@@ -1934,6 +1986,7 @@ const App = {
             this._perfResult = result;
             this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
             UI.renderPortfolioPerformance(result, this._perfRange, benchOn, this._perfCurrency);
+            this.renderReturnTile();
         } catch (e) {
             const empty = document.getElementById('perfEmpty');
             if (empty) { empty.style.display = 'flex'; empty.querySelector('p').textContent = 'Could not load performance data.'; }
@@ -2032,7 +2085,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', tax: 'Tax & T5008', rebalance: 'Rebalancing', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', compare: 'Compare Portfolios', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', tax: 'Tax & T5008', rebalance: 'Rebalancing', settings: 'Settings' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -2047,6 +2100,8 @@ const App = {
             this.loadDashboard();
         } else if (tabId === 'holdings') {
             this.loadAllHoldings();
+        } else if (tabId === 'compare') {
+            this.loadCompareTab();
         } else if (tabId === 'transactions') {
             this.loadAllTransactions();
         } else if (tabId === 'dividend-tracker') {
@@ -2065,6 +2120,404 @@ const App = {
         }
     },
 
+    // ── Portfolio comparison ───────────────────────────────────────────────────
+    // Which portfolios are in the comparison is a page-level choice independent
+    // of the global portfolio filter (that one picks exactly one), so it keeps
+    // its own persisted selection.
+    _compareResult: null,
+
+    getCompareSelectedIds() {
+        let ids = [];
+        try {
+            ids = JSON.parse(localStorage.getItem('comparePortfolioIds') || '[]');
+        } catch (_) { ids = []; }
+        if (!Array.isArray(ids)) ids = [];
+        // Drop ids of portfolios that have since been deleted.
+        const known = new Set((this.userPortfolios || []).map(p => p.id));
+        return ids.map(Number).filter(id => known.has(id));
+    },
+
+    setCompareSelectedIds(ids) {
+        localStorage.setItem('comparePortfolioIds', JSON.stringify(ids));
+    },
+
+    toggleComparePortfolio(id) {
+        const ids = this.getCompareSelectedIds();
+        const i = ids.indexOf(id);
+        if (i >= 0) ids.splice(i, 1); else ids.push(id);
+        this.setCompareSelectedIds(ids);
+        this.loadCompareTab();
+    },
+
+    async loadCompareTab(force = false) {
+        const btn = document.getElementById('refreshCompareBtn');
+        if (force && btn) btn.classList.add('loading');
+
+        const content = document.getElementById('compare-content');
+        try {
+            if (!this.userPortfolios || this.userPortfolios.length === 0) {
+                await this.fetchUserPortfolios();
+            }
+
+            // Default to the first two portfolios so the page is useful on first open.
+            let ids = this.getCompareSelectedIds();
+            if (ids.length === 0 && (this.userPortfolios || []).length >= 2) {
+                ids = this.userPortfolios.slice(0, 2).map(p => p.id);
+                this.setCompareSelectedIds(ids);
+            }
+
+            UI.renderComparePicker(this.userPortfolios || [], ids);
+
+            if (ids.length < 2) {
+                this._compareResult = null;
+                if (content) {
+                    content.innerHTML = (this.userPortfolios || []).length < 2
+                        ? `<div class="empty-state card">
+                             <div class="empty-icon">🗂️</div>
+                             <p><strong>You need at least two portfolios to compare.</strong></p>
+                             <p style="margin-top:0.5rem;color:var(--text-secondary);">Go to <a href="#" onclick="App.switchMainTab('settings');App.switchSettingsTab('portfolios');return false;" style="color:var(--primary);text-decoration:underline;">Settings → Portfolios</a> to create another one.</p>
+                           </div>`
+                        : '<div class="empty-state card">Select at least two portfolios above to compare them.</div>';
+                }
+                return;
+            }
+
+            this._compareResult = await API.comparePortfolios(ids);
+            UI.renderCompare(this._compareResult);
+            const stamp = document.getElementById('compare-last-updated');
+            if (stamp) stamp.textContent = 'Updated ' + new Date().toLocaleTimeString();
+        } catch (err) {
+            if (content) content.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    },
+    // ── Manual transactions (broker gaps, historical backfill) ─────────────────
+    // Types that move units of a security; the rest are cash-only. Mirrors
+    // UNIT_MOVING_TYPES in manualTransactionSchema.ts.
+    _MT_UNIT_TYPES: ['BUY', 'SELL', 'TRANSFER_IN', 'TRANSFER_OUT'],
+    _MT_TYPES: ['BUY', 'SELL', 'TRANSFER_IN', 'TRANSFER_OUT', 'DIVIDEND', 'DISTRIBUTION', 'INTEREST', 'FEE', 'DEPOSIT', 'WITHDRAWAL'],
+    _manualTxns: [],
+
+    /** Every active account across all connections, for the modal pickers. */
+    _accountOptions() {
+        const opts = [];
+        (this.currentGroups || []).forEach(g => (g.accounts || []).forEach(a => {
+            if (this.inactiveAccountIds && this.inactiveAccountIds.has(a.id)) return;
+            opts.push({ id: a.id, name: a.customName || a.name || 'Account' });
+        }));
+        return opts;
+    },
+
+    _fillAccountSelect(selectId, selectedId) {
+        const el = document.getElementById(selectId);
+        if (!el) return;
+        const opts = this._accountOptions();
+        el.innerHTML = opts.length
+            ? opts.map(a => `<option value="${sanitize(a.id)}"${a.id === selectedId ? ' selected' : ''}>${sanitize(a.name)}</option>`).join('')
+            : '<option value="">No active accounts</option>';
+    },
+
+    onManualTxnTypeChange() {
+        const type = document.getElementById('mtType')?.value || 'BUY';
+        const movesUnits = this._MT_UNIT_TYPES.includes(type);
+        // Cash rows have no symbol/units/price — hiding them keeps the form
+        // honest about what the server will actually accept.
+        for (const [id, show] of [['mtSymbolGroup', movesUnits], ['mtUnitsGroup', movesUnits], ['mtPriceGroup', movesUnits]]) {
+            const el = document.getElementById(id);
+            if (el) el.style.display = show ? '' : 'none';
+        }
+        const hint = document.getElementById('mtAmountHint');
+        if (hint) {
+            hint.textContent = movesUnits
+                ? 'Leave the total blank to use units × price. Enter it to include commission — that is the real cost base.'
+                : 'Total amount of the cash movement.';
+        }
+    },
+
+    openManualTxnModal(existing = null) {
+        const modal = document.getElementById('manualTxnModal');
+        if (!modal) return;
+
+        const typeSel = document.getElementById('mtType');
+        if (typeSel) {
+            typeSel.innerHTML = this._MT_TYPES
+                .map(t => `<option value="${t}">${t[0] + t.slice(1).toLowerCase().replace(/_/g, ' ')}</option>`).join('');
+        }
+        this._fillAccountSelect('mtAccount', existing?.accountId);
+
+        document.getElementById('manualTxnModalTitle').textContent = existing ? 'Edit Transaction' : 'Add Transaction';
+        document.getElementById('mtId').value = existing?.id ?? '';
+        document.getElementById('mtType').value = existing?.type ?? 'BUY';
+        document.getElementById('mtDate').value = existing?.date ?? new Date().toISOString().slice(0, 10);
+        document.getElementById('mtSymbol').value = existing?.symbol ?? '';
+        // Stored units are signed (TRANSFER_OUT is negative); the form takes a
+        // positive quantity and lets the type carry direction.
+        document.getElementById('mtUnits').value = existing?.units != null ? Math.abs(existing.units) : '';
+        document.getElementById('mtPrice').value = existing?.price ?? '';
+        document.getElementById('mtAmount').value = existing?.amount ?? '';
+        document.getElementById('mtDescription').value = existing?.description ?? '';
+        document.getElementById('mtCurrency').value = existing?.currencyCode ?? 'CAD';
+        document.getElementById('mtNotes').value = existing?.notes ?? '';
+
+        const del = document.getElementById('deleteManualTxnBtn');
+        if (del) del.style.display = existing ? '' : 'none';
+        const err = document.getElementById('mtErrorMsg');
+        if (err) err.style.display = 'none';
+
+        this.onManualTxnTypeChange();
+        modal.classList.add('open');
+    },
+
+    closeManualTxnModal() {
+        document.getElementById('manualTxnModal')?.classList.remove('open');
+    },
+
+    async handleManualTxnSubmit(e) {
+        e.preventDefault();
+        const btn = document.getElementById('saveManualTxnBtn');
+        const errEl = document.getElementById('mtErrorMsg');
+        const num = id => {
+            const v = document.getElementById(id).value.trim();
+            return v === '' ? null : Number(v);
+        };
+        const str = id => {
+            const v = document.getElementById(id).value.trim();
+            return v === '' ? null : v;
+        };
+
+        const payload = {
+            accountId: document.getElementById('mtAccount').value,
+            type: document.getElementById('mtType').value,
+            date: document.getElementById('mtDate').value,
+            symbol: str('mtSymbol'),
+            units: num('mtUnits'),
+            price: num('mtPrice'),
+            amount: num('mtAmount'),
+            description: str('mtDescription'),
+            currencyCode: str('mtCurrency'),
+            notes: str('mtNotes'),
+        };
+
+        const id = document.getElementById('mtId').value;
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            if (id) await API.updateManualTransaction(id, payload);
+            else await API.addManualTransaction(payload);
+            if (errEl) errEl.style.display = 'none';
+            this.closeManualTxnModal();
+            UI.showToast(id ? 'Transaction updated' : 'Transaction added');
+            await this.loadAllTransactions();
+        } catch (err) {
+            if (errEl) { errEl.textContent = err.message; errEl.style.display = 'block'; }
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+    },
+
+    async deleteManualTxn() {
+        const id = document.getElementById('mtId').value;
+        if (!id) return;
+        if (!confirm('Delete this transaction? Your tax report and performance history will be recalculated without it.')) return;
+        try {
+            await API.deleteManualTransaction(id);
+            this.closeManualTxnModal();
+            UI.showToast('Transaction deleted');
+            await this.loadAllTransactions();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    /** Open the edit modal for a manual row clicked in the ledger. */
+    async editManualTxn(id) {
+        try {
+            if (!this._manualTxns.length) this._manualTxns = await API.getManualTransactions();
+            const txn = this._manualTxns.find(t => String(t.id) === String(id));
+            if (!txn) { UI.showToast('Transaction not found', 'error'); return; }
+            this.openManualTxnModal(txn);
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    // ── CSV import ────────────────────────────────────────────────────────────
+    openTxnImportModal() {
+        const modal = document.getElementById('txnImportModal');
+        if (!modal) return;
+        this._fillAccountSelect('txnImportAccount');
+        document.getElementById('txnImportCsv').value = '';
+        const file = document.getElementById('txnImportFile');
+        if (file) file.value = '';
+        const result = document.getElementById('txnImportResult');
+        if (result) result.style.display = 'none';
+        modal.classList.add('open');
+    },
+
+    closeTxnImportModal() {
+        document.getElementById('txnImportModal')?.classList.remove('open');
+    },
+
+    onTxnImportFile(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => { document.getElementById('txnImportCsv').value = String(reader.result || ''); };
+        reader.readAsText(file);
+    },
+
+    async downloadTxnTemplate() {
+        try {
+            await API.downloadManualTransactionTemplate();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async submitTxnImport() {
+        const accountId = document.getElementById('txnImportAccount').value;
+        const csv = document.getElementById('txnImportCsv').value;
+        const result = document.getElementById('txnImportResult');
+        const btn = document.getElementById('txnImportBtn');
+
+        if (!accountId) { UI.showToast('Pick an account first', 'error'); return; }
+        if (!csv.trim()) { UI.showToast('Paste or upload a CSV first', 'error'); return; }
+
+        const show = (html, ok) => {
+            if (!result) return;
+            result.innerHTML = html;
+            result.style.background = ok ? 'rgba(0,208,156,0.1)' : 'rgba(239,68,68,0.1)';
+            result.style.color = ok ? 'var(--success)' : 'var(--danger)';
+            result.style.display = 'block';
+        };
+
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            const res = await API.importManualTransactions(accountId, csv);
+            show(`Imported ${res.imported} transaction(s).`, true);
+            UI.showToast(`Imported ${res.imported} transaction(s)`);
+            await this.loadAllTransactions();
+        } catch (err) {
+            // The server rejects the whole file rather than half-importing, so
+            // show every row that needs fixing before the user retries.
+            const rows = (err.rowErrors || [])
+                .map(e => `<div>Row ${e.row}: ${sanitize(e.message)}</div>`).join('');
+            const more = err.totalErrors > (err.rowErrors || []).length
+                ? `<div style="opacity:0.8;">…and ${err.totalErrors - err.rowErrors.length} more</div>` : '';
+            show(`<div style="margin-bottom:0.4rem;font-weight:600;">${sanitize(err.message)}</div>${rows}${more}`, false);
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+    },
+    // ── Alerts ────────────────────────────────────────────────────────────────
+    _alertRules: [],
+
+    async loadAlertsPane() {
+        try {
+            const [rulesRes, alertsRes] = await Promise.all([API.getAlertRules(), API.getAlerts()]);
+            this._alertRules = rulesRes.rules || [];
+            UI.renderAlertRules(this._alertRules);
+            UI.renderAlertHistory(alertsRes.alerts || [], alertsRes.unacknowledged || 0);
+        } catch (err) {
+            const el = document.getElementById('alertRulesPanel');
+            if (el) el.innerHTML = `<div class="empty-state" style="color:var(--danger)">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    /** Persist one rule's enabled flag and thresholds from its row in the panel. */
+    async saveAlertRule(type) {
+        const rule = this._alertRules.find(r => r.type === type);
+        if (!rule) return;
+
+        const enabled = document.getElementById(`alert-enabled-${type}`)?.checked ?? false;
+        const config = {};
+        for (const key of Object.keys(rule.config || {})) {
+            const input = document.getElementById(`alert-cfg-${type}-${key}`);
+            if (input && input.value !== '') config[key] = Number(input.value);
+        }
+
+        try {
+            const res = await API.saveAlertRule(type, enabled, config);
+            this._alertRules = res.rules || this._alertRules;
+            UI.renderAlertRules(this._alertRules);
+            UI.showToast(`${UI.alertRuleLabel(type)} ${enabled ? 'enabled' : 'disabled'}`);
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+            await this.loadAlertsPane();
+        }
+    },
+
+    /**
+     * Evaluate every rule — including disabled ones — without recording or
+     * sending anything, so you can see what a rule would say before enabling it.
+     */
+    async previewAlerts() {
+        const box = document.getElementById('alertPreviewResult');
+        try {
+            const res = await API.evaluateAlerts(true);
+            if (!box) return;
+            box.style.display = 'block';
+            if (!res.alerts?.length) {
+                box.innerHTML = '<strong>Preview:</strong> no rule matches anything right now. '
+                    + '<span class="text-muted">Nothing was sent or recorded.</span>';
+                return;
+            }
+            box.innerHTML = `<strong>Preview — ${res.alerts.length} would fire (${sanitize(res.summary)}):</strong>`
+                + '<div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem;">'
+                + res.alerts.map(a => UI.alertLine(a)).join('')
+                + '</div><div class="text-muted" style="margin-top:0.5rem;">Nothing was sent or recorded.</div>';
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async runAlertsNow() {
+        const btn = document.getElementById('runAlertsBtn');
+        if (btn) btn.classList.add('loading');
+        try {
+            const res = await API.evaluateAlerts(false);
+            UI.showToast(res.fired > 0 ? `${res.fired} new alert(s): ${res.summary}` : res.summary);
+            await this.loadAlertsPane();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    },
+
+    async acknowledgeAlert(id) {
+        try {
+            await API.acknowledgeAlert(id);
+            await this.loadAlertsPane();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async acknowledgeAllAlerts() {
+        try {
+            const res = await API.acknowledgeAllAlerts();
+            UI.showToast(res.acknowledged > 0 ? `Marked ${res.acknowledged} alert(s) read` : 'Nothing unread');
+            await this.loadAlertsPane();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
+
+    async clearAlertHistory() {
+        if (!confirm('Clear all alert history? Situations already reported may alert again on the next run.')) return;
+        try {
+            await API.clearAlerts();
+            UI.showToast('Alert history cleared');
+            await this.loadAlertsPane();
+        } catch (err) {
+            UI.showToast(err.message, 'error');
+        }
+    },
     // ── Watchlist / dividend screener ──────────────────────────────────────────
     _watchlistRows: [],
 
@@ -2259,12 +2712,14 @@ const App = {
             } catch (err) {
                 console.error('Failed to load portfolios:', err);
             }
-            // Load existing Anthropic key hint (masked)
+            // Show whether a key is already stored. The server masks every
+            // *_api_key value to '***' before sending it, so there are no real
+            // characters here to reveal — only its presence.
             try {
                 const settings = await API.getSettings();
                 const keyEl = document.getElementById('anthropicKeyInput');
                 if (keyEl && settings.anthropic_api_key) {
-                    keyEl.placeholder = '••••••••' + settings.anthropic_api_key.slice(-4);
+                    keyEl.placeholder = 'Key saved — enter a new one to replace it';
                 }
             } catch (_) {}
         } else if (paneId === 'portfolios') {
@@ -2272,6 +2727,8 @@ const App = {
         } else if (paneId === 'connections') {
             this.fetchAccounts();
             this.loadApiTokens();
+        } else if (paneId === 'alerts') {
+            this.loadAlertsPane();
         } else if (paneId === 'scheduler') {
             this.loadJobsPanel();
         } else if (paneId === 'logs') {

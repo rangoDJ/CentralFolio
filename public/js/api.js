@@ -501,6 +501,14 @@ const API = {
         return true;
     },
 
+    /** Symbol-by-portfolio comparison matrix for the given user portfolio ids. */
+    async comparePortfolios(ids) {
+        const res = await this._fetch(`/api/user-portfolios/compare?ids=${encodeURIComponent(ids.join(','))}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to compare portfolios');
+        return data;
+    },
+
     async setUserPortfolioAccounts(id, accountIds) {
         const res = await this._fetch(`/api/user-portfolios/${id}/accounts`, {
             method: 'PUT',
@@ -627,6 +635,126 @@ const API = {
         const res = await this._fetch(`/api/manual-assets/${encodeURIComponent(id)}`, { method: 'DELETE' });
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to delete manual asset');
+        return true;
+    },
+
+    // ── Manual transactions (broker gaps, historical backfill) ─────────────────
+    async getManualTransactions(accountId = null) {
+        const qs = accountId ? `?accountId=${encodeURIComponent(accountId)}` : '';
+        const res = await this._fetch('/api/manual-transactions' + qs);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load manual transactions');
+        return data;
+    },
+
+    async addManualTransaction(txn) {
+        const res = await this._fetch('/api/manual-transactions', {
+            method: 'POST',
+            body: JSON.stringify(txn)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to add transaction');
+        return data;
+    },
+
+    async updateManualTransaction(id, txn) {
+        const res = await this._fetch(`/api/manual-transactions/${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(txn)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to update transaction');
+        return data;
+    },
+
+    async deleteManualTransaction(id) {
+        const res = await this._fetch(`/api/manual-transactions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete transaction');
+        return true;
+    },
+
+    /** Bulk import. Rejects the whole file if any row is invalid, and returns the per-row errors. */
+    async importManualTransactions(accountId, csv) {
+        const res = await this._fetch('/api/manual-transactions/import', {
+            method: 'POST',
+            body: JSON.stringify({ accountId, csv })
+        });
+        const data = await this._json(res);
+        if (!res.ok) {
+            const err = new Error(data.error || 'Import failed');
+            err.rowErrors = data.errors || [];
+            err.totalErrors = data.totalErrors || 0;
+            throw err;
+        }
+        return data;
+    },
+
+    async downloadManualTransactionTemplate() {
+        const res = await this._fetch('/api/manual-transactions/template.csv');
+        if (!res.ok) throw new Error('Failed to download template');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'manual-transactions-template.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    },
+
+    // ── Alerts ─────────────────────────────────────────────────────────────────
+    async getAlertRules() {
+        const res = await this._fetch('/api/alerts/rules');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load alert rules');
+        return data;
+    },
+
+    async saveAlertRule(type, enabled, config) {
+        const res = await this._fetch(`/api/alerts/rules/${encodeURIComponent(type)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ enabled, config })
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to save rule');
+        return data;
+    },
+
+    async getAlerts(limit = 100) {
+        const res = await this._fetch(`/api/alerts?limit=${encodeURIComponent(limit)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load alerts');
+        return data;
+    },
+
+    /** preview=true evaluates every rule without recording or sending anything. */
+    async evaluateAlerts(preview = false) {
+        const res = await this._fetch(`/api/alerts/evaluate${preview ? '?preview=true' : ''}`, { method: 'POST' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to evaluate alerts');
+        return data;
+    },
+
+    async acknowledgeAlert(id) {
+        const res = await this._fetch(`/api/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'POST' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to acknowledge alert');
+        return data;
+    },
+
+    async acknowledgeAllAlerts() {
+        const res = await this._fetch('/api/alerts/acknowledge-all', { method: 'POST' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to acknowledge alerts');
+        return data;
+    },
+
+    async clearAlerts() {
+        const res = await this._fetch('/api/alerts', { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to clear alerts');
         return true;
     },
 

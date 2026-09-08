@@ -1,5 +1,6 @@
-import { getCachedTransactions } from "../models/db.js";
+import { getMergedTransactions } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
+import { getSnapshotTotalsByDate } from "../repositories/snapshotRepository.js";
 import { getPriceHistory as repoGetPriceHistory, getLatestStoredDate } from "../repositories/priceHistoryRepository.js";
 import { syncSymbol } from "./priceHistoryService.js";
 import { reconstructPortfolioHistory, type PHTransaction, type PriceCandleLite, type PortfolioHistoryResult } from "./portfolioHistory.js";
@@ -22,7 +23,7 @@ function cacheKey(bench: string, allowedIds: Set<string> | null): string {
 function gatherActiveTransactions(allowedIds: Set<string> | null): PHTransaction[] {
   const out: PHTransaction[] = [];
   for (const acct of getScopedAccounts(allowedIds)) {
-    for (const t of getCachedTransactions(acct.id)) {
+    for (const t of getMergedTransactions(acct.id)) {
       out.push({ symbol: t.symbol, type: t.type, units: t.units, price: t.price, amount: t.amount, date: t.date });
     }
   }
@@ -63,10 +64,16 @@ export async function getPortfolioHistory(benchmarkSymbol: string = DEFAULT_BENC
   ]);
   const priceSeriesBySymbol = new Map<string, PriceCandleLite[]>(symbolSeries);
 
+  // Recorded values win over reconstruction wherever they exist — see
+  // snapshotRepository. Before the first snapshot there are none, so the curve
+  // is unchanged; from then on it is anchored to observed values.
+  const snapshotsByDate = getSnapshotTotalsByDate(allowedIds);
+
   const result = reconstructPortfolioHistory(
     txns,
     priceSeriesBySymbol,
-    { symbol: bench, series: benchSeries }
+    { symbol: bench, series: benchSeries },
+    snapshotsByDate,
   );
 
   cache.set(key, { ts: Date.now(), data: result });

@@ -44,6 +44,16 @@
           <span>Holdings</span>
         </button>
 
+        <button class="topnav-item" data-tab="compare" onclick="App.switchMainTab('compare', this)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="9" x2="9" y2="21"/>
+            <line x1="15" y1="9" x2="15" y2="21"/>
+          </svg>
+          <span>Compare</span>
+        </button>
+
         <button class="topnav-item" data-tab="dividend-tracker" onclick="App.switchMainTab('dividend-tracker', this)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/>
@@ -336,6 +346,34 @@
         </div>
       </div>
 
+      <!-- Portfolio comparison -->
+      <div class="container tab-content" id="compare-tab">
+        <div class="page-header">
+          <h1 class="page-heading">Compare Portfolios</h1>
+          <div class="page-actions">
+            <span id="compare-last-updated" class="last-updated"></span>
+            <button id="refreshCompareBtn" class="btn btn-outline btn-sm" onclick="App.loadCompareTab(true)">
+              <span class="loader"></span>
+              <span class="btn-text">Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header" style="margin-bottom:0.75rem;">
+            <span class="card-title">Portfolios to compare</span>
+            <span id="compareSelectionCount" class="text-muted text-sm"></span>
+          </div>
+          <div id="comparePortfolioPicker" class="cmp-picker">
+            <div class="text-muted text-sm">Loading portfolios…</div>
+          </div>
+        </div>
+
+        <div id="compare-content">
+          <div class="empty-state">Select at least two portfolios to compare.</div>
+        </div>
+      </div>
+
       <!-- Dividend Tracker -->
       <div class="container tab-content" id="dividend-tracker-tab">
         <div class="page-header">
@@ -509,6 +547,12 @@
           <h1 class="page-heading">Transactions</h1>
           <div class="page-actions">
             <span id="transactions-last-updated" class="last-updated"></span>
+            <button class="btn btn-outline btn-sm" onclick="App.openManualTxnModal()" title="Record a trade your brokerage never reported">
+              + Add transaction
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="App.openTxnImportModal()" title="Bulk-import from a broker statement">
+              Import CSV
+            </button>
             <button id="refreshTransactionsBtn" class="btn btn-outline btn-sm" onclick="App.loadAllTransactions(true)">
               <span class="loader"></span>
               <span class="btn-text">Refresh</span>
@@ -688,6 +732,7 @@
           <button class="underline-tab active" data-tab="portfolios" onclick="App.switchSettingsTab('portfolios', this)">Portfolios</button>
           <button class="underline-tab" data-tab="connections" onclick="App.switchSettingsTab('connections', this)">Brokerage Connections</button>
           <button class="underline-tab" data-tab="keys" onclick="App.switchSettingsTab('keys', this)">Keys &amp; Providers</button>
+          <button class="underline-tab" data-tab="alerts" onclick="App.switchSettingsTab('alerts', this)">Alerts</button>
           <button class="underline-tab" data-tab="scheduler" onclick="App.switchSettingsTab('scheduler', this)">Scheduler</button>
           <button class="underline-tab" data-tab="logs" onclick="App.switchSettingsTab('logs', this)">Logs</button>
         </div>
@@ -718,6 +763,40 @@
         </div>
 
         <!-- Scheduler pane (background jobs) -->
+        <div id="settings-alerts-pane" class="pane">
+          <div class="card">
+            <div class="card-header" style="margin-bottom:0.75rem;">
+              <span class="card-title">Alert Rules</span>
+              <div style="display:flex;gap:0.5rem;">
+                <button class="btn btn-outline btn-sm" onclick="App.previewAlerts()" title="See what every rule would report right now, without sending or recording anything">
+                  <span class="loader"></span><span class="btn-text">Preview</span>
+                </button>
+                <button id="runAlertsBtn" class="btn btn-outline btn-sm" onclick="App.runAlertsNow()">
+                  <span class="loader"></span><span class="btn-text">Run now</span>
+                </button>
+              </div>
+            </div>
+            <p class="text-muted text-sm mb-3">
+              Checked automatically in the background. Matches appear below and, when a webhook is
+              configured under <strong>Keys &amp; Providers</strong>, are pushed there too.
+              Each situation notifies once — the same dividend cut won't tell you every run.
+            </p>
+            <div id="alertRulesPanel"><div class="empty-state" style="padding:1rem;">Loading rules…</div></div>
+            <div id="alertPreviewResult" style="display:none;margin-top:1rem;font-size:0.85rem;padding:0.7rem 0.85rem;border-radius:var(--radius-sm);background:var(--surface-2);border:1px solid var(--border);"></div>
+          </div>
+
+          <div class="card" style="margin-top:1.5rem;">
+            <div class="card-header" style="margin-bottom:0.75rem;">
+              <span class="card-title">Recent Alerts</span>
+              <div style="display:flex;gap:0.5rem;">
+                <button class="btn btn-outline btn-sm" onclick="App.acknowledgeAllAlerts()">Mark all read</button>
+                <button class="btn btn-outline btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="App.clearAlertHistory()">Clear</button>
+              </div>
+            </div>
+            <div id="alertHistoryPanel"><div class="empty-state" style="padding:1rem;">Loading…</div></div>
+          </div>
+        </div>
+
         <div id="settings-scheduler-pane" class="pane">
           <div class="card">
             <div class="card-header" style="margin-bottom:0.75rem;">
@@ -1091,6 +1170,109 @@
           <span class="btn-text">Save Asset</span>
         </button>
       </form>
+    </div>
+  </div>
+
+  <!-- Manual transaction modal — for activity the brokerage never supplied -->
+  <div id="manualTxnModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:520px;">
+      <button class="modal-close" id="manualTxnModalClose">&times;</button>
+      <h2 class="modal-title" id="manualTxnModalTitle">Add Transaction</h2>
+      <p class="text-muted text-sm" style="margin:-0.5rem 0 1rem;">
+        For trades that predate your brokerage connection, or transfers reported without a cost base.
+        These feed the tax report and performance history alongside synced data.
+      </p>
+      <form id="manualTxnForm">
+        <input type="hidden" id="mtId">
+        <div class="form-group">
+          <label for="mtAccount">Account</label>
+          <select id="mtAccount" required></select>
+        </div>
+        <div style="display:flex;gap:0.75rem;">
+          <div class="form-group" style="flex:1;">
+            <label for="mtType">Type</label>
+            <select id="mtType" required onchange="App.onManualTxnTypeChange()"></select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label for="mtDate">Date</label>
+            <input type="date" id="mtDate" required>
+          </div>
+        </div>
+        <div class="form-group" id="mtSymbolGroup">
+          <label for="mtSymbol">Symbol</label>
+          <input type="text" id="mtSymbol" placeholder="e.g. ENB.TO" maxlength="20" style="text-transform:uppercase;">
+        </div>
+        <div style="display:flex;gap:0.75rem;">
+          <div class="form-group" style="flex:1;" id="mtUnitsGroup">
+            <label for="mtUnits">Units</label>
+            <input type="number" id="mtUnits" step="any" min="0" placeholder="100">
+          </div>
+          <div class="form-group" style="flex:1;" id="mtPriceGroup">
+            <label for="mtPrice">Price / unit</label>
+            <input type="number" id="mtPrice" step="any" min="0" placeholder="45.20">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label for="mtAmount">Total amount</label>
+            <input type="number" id="mtAmount" step="any" min="0" placeholder="4520.00">
+          </div>
+        </div>
+        <p class="text-muted text-sm" id="mtAmountHint" style="margin:-0.5rem 0 0.9rem;">
+          Leave the total blank to use units &times; price. Enter it to include commission — that is the real cost base.
+        </p>
+        <div style="display:flex;gap:0.75rem;">
+          <div class="form-group" style="flex:1;">
+            <label for="mtDescription">Description <span class="text-muted">(optional)</span></label>
+            <input type="text" id="mtDescription" maxlength="200">
+          </div>
+          <div class="form-group" style="width:110px;">
+            <label for="mtCurrency">Currency</label>
+            <input type="text" id="mtCurrency" value="CAD" maxlength="3" style="text-transform:uppercase;">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="mtNotes">Notes <span class="text-muted">(optional)</span></label>
+          <input type="text" id="mtNotes" maxlength="500" placeholder="e.g. from 2021 broker statement">
+        </div>
+        <div id="mtErrorMsg" style="display:none;color:var(--danger,#ef4444);font-size:0.85rem;padding:0.5rem 0.75rem;background:rgba(239,68,68,0.1);border-radius:var(--radius-sm,6px);margin-bottom:0.75rem;"></div>
+        <div style="display:flex;gap:0.75rem;">
+          <button type="button" id="deleteManualTxnBtn" class="btn btn-outline" style="display:none;color:var(--danger);border-color:var(--danger);" onclick="App.deleteManualTxn()">Delete</button>
+          <button type="submit" id="saveManualTxnBtn" class="btn btn-primary" style="flex:1;">
+            <span class="loader"></span>
+            <span class="btn-text">Save Transaction</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- CSV import modal -->
+  <div id="txnImportModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:620px;">
+      <button class="modal-close" id="txnImportModalClose">&times;</button>
+      <h2 class="modal-title">Import Transactions</h2>
+      <p class="text-muted text-sm" style="margin:-0.5rem 0 1rem;">
+        Paste or upload a CSV export from your broker. The first row must be headers;
+        common spellings (Trade Date, Quantity, Unit Price, Net Amount&hellip;) are recognised automatically.
+        <a href="#" onclick="App.downloadTxnTemplate();return false;" style="color:var(--primary);">Download a template</a>.
+      </p>
+      <div class="form-group">
+        <label for="txnImportAccount">Import into account</label>
+        <select id="txnImportAccount" required></select>
+      </div>
+      <div class="form-group">
+        <label for="txnImportFile">CSV file</label>
+        <input type="file" id="txnImportFile" accept=".csv,text/csv" onchange="App.onTxnImportFile(event)">
+      </div>
+      <div class="form-group">
+        <label for="txnImportCsv">&hellip;or paste CSV</label>
+        <textarea id="txnImportCsv" rows="8" placeholder="date,type,symbol,units,price,amount,currency&#10;2021-06-15,BUY,ENB.TO,100,45.20,4520.00,CAD"
+          style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:0.6rem;"></textarea>
+      </div>
+      <div id="txnImportResult" style="display:none;font-size:0.85rem;padding:0.6rem 0.75rem;border-radius:var(--radius-sm);margin-bottom:0.75rem;"></div>
+      <button type="button" id="txnImportBtn" class="btn btn-primary w-full" onclick="App.submitTxnImport()">
+        <span class="loader"></span>
+        <span class="btn-text">Import</span>
+      </button>
     </div>
   </div>
 

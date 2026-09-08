@@ -252,6 +252,68 @@ const migrations: Array<{ name: string; sql: string }> = [
   ` },
   { name: 'fx_rates.idx_pair', sql: `CREATE INDEX IF NOT EXISTS idx_fx_rates_pair ON fx_rates(pair)` },
   { name: 'dividend_metadata.currency', sql: `ALTER TABLE dividend_metadata ADD COLUMN currency TEXT` },
+  { name: 'notification_rules.create', sql: `
+    CREATE TABLE IF NOT EXISTS notification_rules (
+      type      TEXT PRIMARY KEY,          -- one config row per rule type
+      enabled   INTEGER NOT NULL DEFAULT 0,
+      config    TEXT,                      -- JSON params, merged over the defaults
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { name: 'alert_events.create', sql: `
+    CREATE TABLE IF NOT EXISTS alert_events (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      ruleType       TEXT NOT NULL,
+      dedupeKey      TEXT NOT NULL UNIQUE,  -- the same situation never fires twice
+      severity       TEXT NOT NULL,
+      title          TEXT NOT NULL,
+      body           TEXT NOT NULL,
+      symbol         TEXT,
+      delivered      INTEGER NOT NULL DEFAULT 0,
+      firedAt        DATETIME DEFAULT CURRENT_TIMESTAMP,
+      acknowledgedAt DATETIME
+    )
+  ` },
+  { name: 'alert_events.idx_firedAt', sql: `CREATE INDEX IF NOT EXISTS idx_alert_events_firedAt ON alert_events(firedAt DESC)` },
+  { name: 'alert_state.create', sql: `
+    CREATE TABLE IF NOT EXISTS alert_state (
+      key       TEXT PRIMARY KEY,          -- e.g. "rating:ENB.TO"
+      value     TEXT NOT NULL,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { name: 'portfolio_snapshots.create', sql: `
+    CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+      accountId   TEXT NOT NULL,
+      date        TEXT NOT NULL,            -- 'YYYY-MM-DD'
+      marketValue REAL NOT NULL,            -- securities only, native account currency
+      cash        REAL NOT NULL DEFAULT 0,
+      currency    TEXT,
+      positions   INTEGER NOT NULL DEFAULT 0,
+      createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (accountId, date),
+      FOREIGN KEY (accountId) REFERENCES accounts (id) ON DELETE CASCADE
+    )
+  ` },
+  { name: 'portfolio_snapshots.idx_date', sql: `CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_date ON portfolio_snapshots(date)` },
+  { name: 'manual_transactions.create', sql: `
+    CREATE TABLE IF NOT EXISTS manual_transactions (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      accountId    TEXT NOT NULL,
+      symbol       TEXT,
+      description  TEXT,
+      type         TEXT NOT NULL,
+      units        REAL,
+      price        REAL,
+      amount       REAL,
+      date         TEXT NOT NULL,          -- 'YYYY-MM-DD'
+      currencyCode TEXT,
+      notes        TEXT,
+      createdAt    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (accountId) REFERENCES accounts (id) ON DELETE CASCADE
+    )
+  ` },
+  { name: 'manual_transactions.idx_accountId', sql: `CREATE INDEX IF NOT EXISTS idx_manual_transactions_accountId ON manual_transactions(accountId)` },
   { name: 'api_tokens.create', sql: `
     CREATE TABLE IF NOT EXISTS api_tokens (
       id         TEXT PRIMARY KEY,

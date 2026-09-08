@@ -1,4 +1,4 @@
-import { getCachedTransactions } from "../models/db.js";
+import { getMergedTransactions } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
 import { computeRealizedGains } from "./realizedGains.js";
 import { classifyAccount } from "./taxRules.js";
@@ -30,7 +30,7 @@ export function getRealizedGains(allowedIds?: Set<string> | null): RealizedGains
     const label = acct.customName || acct.name || "Account";
     if (acct.currency) currency = acct.currency;
 
-    const { events, totalGain: acctGain } = computeRealizedGains(getCachedTransactions(acct.id));
+    const { events, totalGain: acctGain } = computeRealizedGains(getMergedTransactions(acct.id));
     if (events.length === 0) continue;
 
     byAccount.push({ account: label, gain: round2(acctGain), registered });

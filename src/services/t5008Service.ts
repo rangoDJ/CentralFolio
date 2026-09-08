@@ -10,7 +10,7 @@
  * T5008 is issued for them — including them would overstate taxable gains.
  */
 
-import { getCachedTransactions } from "../models/db.js";
+import { getMergedTransactions } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
 import { classifyAccount } from "./taxRules.js";
 import { primeFxHistory, fxRateOn, assetCurrency } from "./fxService.js";
@@ -59,7 +59,7 @@ function collectAccounts(): AccountTxns[] {
     accountId: acct.id,
     label: acct.customName || acct.name || "Account",
     registered: classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`) !== "taxable",
-    txns: getCachedTransactions(acct.id) as T5008Transaction[],
+    txns: getMergedTransactions(acct.id) as T5008Transaction[],
   })).filter(a => a.txns.length > 0);
   const registeredCount = accounts.filter(a => a.registered).length;
   logger.debug(
@@ -161,27 +161,52 @@ export async function getT5008Report(
   // sold in a taxable account with no transfer transaction in between. This
   // module deliberately never sees registered-account transactions, so the
   // annotation happens here rather than inside computeDispositions.
-  const registeredBuyAccounts = new Map<string, Set<string>>();
+  //
+  // Matching on the symbol alone was far too loose: any ticker held in both a
+  // TFSA and a margin account matched, so nearly every missing cost base got
+  // labelled an in-kind transfer. Two conditions narrow it to the accounts that
+  // could actually have supplied the units:
+  //
+  //   1. The registered purchase predates the disposition — units bought after
+  //      the sale cannot be the ones sold.
+  //   2. The registered account's own ledger still shows at least the disposed
+  //      quantity on that date. An *unrecorded* transfer out leaves the position
+  //      standing in that ledger — that is precisely what makes it unrecorded —
+  //      so an account that had already sold out cannot be the source.
+  interface RegLot { date: string; units: number; account: string }   // units signed: + buy, - sell
+  const registeredLedger = new Map<string, RegLot[]>();                // poolKey -> unit moves
+
   for (const t of tagged) {
-    if (!t.registered || sideOf(t) !== "buy") continue;
+    if (!t.registered || !t.date) continue;
+    const side = sideOf(t);
+    if (side !== "buy" && side !== "sell") continue;
     const symbol = String(t.symbol ?? "").toUpperCase().trim();
-    if (!symbol) continue;
+    const units = Math.abs(t.units ?? 0);
+    if (!symbol || units <= 0) continue;
     const key = poolKey(symbol);
-    const set = registeredBuyAccounts.get(key) ?? new Set<string>();
-    set.add(t.account);
-    registeredBuyAccounts.set(key, set);
+    const lots = registeredLedger.get(key) ?? [];
+    lots.push({ date: String(t.date).slice(0, 10), units: side === "buy" ? units : -units, account: t.account });
+    registeredLedger.set(key, lots);
   }
 
   let registeredTransferCount = 0;
   for (const d of result.dispositions) {
     if (!d.missingCostBasis) continue;
-    const sources = registeredBuyAccounts.get(poolKey(d.symbol));
-    if (!sources || sources.size === 0) continue;
+    const lots = registeredLedger.get(poolKey(d.symbol)) ?? [];
+    const sources = Array.from(new Set(lots.map(l => l.account))).filter(account => {
+      const own = lots.filter(l => l.account === account);
+      if (!own.some(l => l.units > 0 && l.date <= d.date)) return false;                  // (1)
+      const held = own.reduce((sum, l) => (l.date <= d.date ? sum + l.units : sum), 0);
+      return held >= d.quantity - 1e-9;                                                   // (2)
+    });
+    if (sources.length === 0) continue;
     registeredTransferCount++;
     d.missingCostBasisNote =
-      `Bought in ${Array.from(sources).join(", ")} — no transfer transaction into ${d.account} was found, so ` +
-      `this is likely an unrecorded in-kind transfer. Enter the fair market value on the transfer date as the cost base.`;
+      `Bought in ${sources.join(", ")}, which still shows the position on ${d.date} — no transfer ` +
+      `transaction into ${d.account} was found, so this is likely an unrecorded in-kind transfer. ` +
+      `Enter the fair market value on the transfer date as the cost base.`;
   }
+
   if (registeredTransferCount > 0) {
     logger.info("T5008", `Flagged ${registeredTransferCount} disposition(s) as likely unrecorded registered-account transfers`);
     warnings.push(

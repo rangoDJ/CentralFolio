@@ -119,6 +119,8 @@ export interface T5008Result {
 
 const INCLUSION_RATE = 0.5;
 const SUPERFICIAL_WINDOW_DAYS = 30;
+/** Cap on how many symbols a warning names before it summarizes the rest. */
+const MAX_LISTED_SYMBOLS = 12;
 
 const norm = (s: unknown) => String(s ?? "").toUpperCase().trim();
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -318,7 +320,12 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
     const symbol = norm(t.symbol);
     const side = sideOf(t);
     const units = Math.abs(t.units ?? 0);
-    if (symbol && t.date && !side) {
+    // Only rows that move units can silently corrupt a cost base. Cash-only
+    // activity (DIVIDEND, INTEREST, TAX, REFUND) carries a symbol but no units,
+    // and a zero-unit row is skipped just below even when its type IS
+    // recognized — so counting it here buried the handful of real gaps (option
+    // expiries, corporate actions) under a warning listing a thousand dividends.
+    if (symbol && t.date && !side && units > 0) {
       const code = norm(t.type) || norm(t.action) || "(none)";
       unmappedTypes.set(code, (unmappedTypes.get(code) ?? 0) + 1);
     }
@@ -484,10 +491,17 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
   const noCost = dispositions.filter(d => d.missingCostBasis);
   if (noCost.length > 0) {
     const overstated = round2(noCost.reduce((s, d) => s + d.proceeds, 0));
+    // One entry per SYMBOL, not per disposition: selling the same ticker
+    // repeatedly used to repeat it in the list, and an uncapped list of several
+    // hundred names is unreadable. The per-row detail is in the table below it.
+    const symbols = Array.from(new Set(noCost.map(d => d.symbol))).sort();
+    const listed = symbols.slice(0, MAX_LISTED_SYMBOLS).join(", ");
+    const rest = symbols.length - MAX_LISTED_SYMBOLS;
     warnings.push(
-      `${noCost.length} disposition(s) are missing some or all of their recorded purchase ` +
-      `(${noCost.map(d => d.symbol).join(", ")}). Up to ${overstated} of proceeds may be counted ` +
-      `as gain with no offsetting cost. Enter the real ACB from your broker's records before filing.`
+      `${noCost.length} disposition(s) across ${symbols.length} symbol(s) are missing some or all ` +
+      `of their recorded purchase (${rest > 0 ? `${listed}, and ${rest} more` : listed}). Up to ` +
+      `${overstated} of proceeds may be counted as gain with no offsetting cost. Enter the real ` +
+      `ACB from your broker's records before filing.`
     );
   }
 

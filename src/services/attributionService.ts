@@ -1,4 +1,4 @@
-import { getCachedPositions, getCachedTransactions, getCachedDividendMetadata } from "../models/db.js";
+import { getCachedPositions, getMergedTransactions, getCachedDividendMetadata } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
 import { computeAttribution, type AttributionInput, type AttributionResult } from "./attribution.js";
 import { logger } from "../utils/logger.js";
@@ -30,7 +30,7 @@ export function getAttribution(allowedIds?: Set<string> | null): AttributionResu
     }
 
     // Dividend transactions → dividends received.
-    for (const t of getCachedTransactions(acct.id)) {
+    for (const t of getMergedTransactions(acct.id)) {
       if (!DIV_TYPES.has(norm(t.type))) continue;
       const sym = norm(t.symbol);
       if (!sym) continue;

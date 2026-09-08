@@ -415,6 +415,56 @@ test("an unrecognized transaction type is surfaced as a warning instead of silen
   );
 });
 
+test("cash-only activity is not reported as an unrecognized type", () => {
+  // A dividend or withholding-tax row carries a symbol but no units, so it can
+  // never affect a cost base — and a zero-unit row is skipped even when its type
+  // IS recognized. Counting these buried the real gaps under a thousand
+  // dividends. Only unit-moving rows belong in the warning.
+  const { warnings } = computeDispositions([
+    { symbol: "ACME", date: "2024-01-05", type: "DIVIDEND", amount: 12.5 },
+    { symbol: "ACME", date: "2024-01-05", type: "TAX", amount: -1.88 },
+    { symbol: "ACME", date: "2024-01-05", type: "INTEREST", amount: 0.42 },
+    { symbol: "ACME", date: "2024-01-10", type: "ACAT_IN", units: 100, price: 10, amount: 1000 },
+    sell("ACME", "2024-06-10", 100, 12),
+  ], par);
+
+  const unmapped = warnings.find(w => w.includes("unrecognized type"));
+  assert.ok(unmapped, "the unit-moving ACAT_IN row is still surfaced");
+  assert.ok(unmapped.includes("ACAT_IN"));
+  assert.ok(!unmapped.includes("DIVIDEND"), "cash-only dividends are not a cost-base risk");
+  assert.ok(!unmapped.includes("TAX"));
+  assert.ok(!unmapped.includes("INTEREST"));
+  assert.ok(unmapped.includes("1 transaction(s)"), "only the ACAT_IN row is counted");
+});
+
+test("the missing-cost-basis warning names each symbol once and caps the list", () => {
+  // Repeatedly selling one ticker used to repeat it in the list, and an uncapped
+  // list of several hundred names rendered as an unreadable wall of text.
+  const repeated = [
+    sell("ACME", "2024-03-10", 10, 10),
+    sell("ACME", "2024-06-10", 10, 10),
+    sell("ACME", "2024-09-10", 10, 10),
+  ];
+  const { warnings } = computeDispositions(repeated, par);
+  const w = warnings.find(x => x.includes("missing some or all of their recorded purchase"));
+  assert.ok(w);
+  assert.equal(w.match(/ACME/g)?.length, 1, "one entry per symbol, not per disposition");
+  assert.ok(w.includes("3 disposition(s) across 1 symbol(s)"));
+});
+
+test("a long missing-cost-basis symbol list is truncated with a count of the rest", () => {
+  const many = Array.from({ length: 15 }, (_, i) =>
+    sell(`SYM${String(i).padStart(2, "0")}`, "2024-06-10", 10, 10));
+  const { warnings } = computeDispositions(many, par);
+
+  const w = warnings.find(x => x.includes("missing some or all of their recorded purchase"));
+  assert.ok(w);
+  assert.ok(w.includes("15 disposition(s) across 15 symbol(s)"));
+  assert.ok(w.includes("SYM00"), "the first symbols are still named");
+  assert.ok(!w.includes("SYM14"), "the tail is summarized, not listed");
+  assert.ok(w.includes("and 3 more"));
+});
+
 test("poolKey folds a USD listing into its CAD twin but leaves class shares alone", () => {
   assert.equal(poolKey("DLR.U.TO"), "DLR.TO");
   assert.equal(poolKey("dlr.u.to"), "DLR.TO");

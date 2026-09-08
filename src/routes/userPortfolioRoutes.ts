@@ -13,12 +13,15 @@ import {
   executeRebalance,
   confirmRebalance,
 } from "../controllers/rebalanceController.js";
+import { comparePortfoliosHandler } from "../controllers/portfolioCompareController.js";
 import { validateBody } from "../middleware/validate.js";
 import { confirmOrderSchema } from "../schemas/tradeSchema.js";
 
 const router = Router();
 
 router.get("/", listUserPortfolios);
+// Registered before the ":id" routes so "compare" is never read as an id.
+router.get("/compare", comparePortfoliosHandler);
 router.post("/", createUserPortfolioHandler);
 router.patch("/:id", updateUserPortfolioHandler);
 router.delete("/:id", deleteUserPortfolioHandler);

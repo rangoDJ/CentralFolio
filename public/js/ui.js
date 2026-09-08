@@ -1354,9 +1354,16 @@ const UI = {
             const ret = last.value - invested;
             const retPct = invested > 0 ? (ret / invested) * 100 : 0;
             const rc = ret >= 0 ? 'pos' : 'neg';
+            // Say when part of the curve is anchored to recorded values rather
+            // than inferred from the transaction ledger — otherwise the
+            // difference in trustworthiness is invisible.
+            const snapPoints = result.summary?.snapshotPoints || 0;
+            const snapNote = snapPoints > 0
+                ? `<span class="text-muted" title="These days come from recorded end-of-day values rather than replaying transactions against price history, so they hold even where the ledger is incomplete.">· ${snapPoints} day${snapPoints === 1 ? '' : 's'} from snapshots</span>`
+                : '';
             summaryEl.innerHTML = `<span class="perf-val">${this.moneyC(last.value, cur)}</span>
                 <span class="${rc}">${ret >= 0 ? '+' : '-'}${this.moneyC(Math.abs(ret), cur)} (${this.arrow(ret)} ${this.pct(Math.abs(retPct))})</span>
-                <span class="text-muted">vs ${this.moneyC(invested, cur)} invested</span>`;
+                <span class="text-muted">vs ${this.moneyC(invested, cur)} invested</span>${snapNote}`;
         }
 
         const theme = this.getChartTheme();
@@ -1699,6 +1706,394 @@ const UI = {
         </details>`;
     },
 
+    // ── Portfolio comparison matrix ─────────────────────────────────────────
+
+    /** Checkbox chips choosing which portfolios sit in the comparison. */
+    renderComparePicker(portfolios, selectedIds) {
+        const el = document.getElementById('comparePortfolioPicker');
+        const countEl = document.getElementById('compareSelectionCount');
+        if (!el) return;
+
+        if (!portfolios || portfolios.length === 0) {
+            el.innerHTML = '<div class="text-muted text-sm">No portfolios yet.</div>';
+            if (countEl) countEl.textContent = '';
+            return;
+        }
+
+        const selected = new Set(selectedIds || []);
+        el.innerHTML = portfolios.map(p => {
+            const on = selected.has(p.id);
+            const accounts = (p.accountIds || []).length;
+            return `<label class="cmp-chip ${on ? 'active' : ''}" style="--chip-color:${sanitize(p.color || '#7c3aed')}">
+                <input type="checkbox" ${on ? 'checked' : ''} onchange="App.toggleComparePortfolio(${p.id})">
+                <span class="cmp-chip-dot"></span>
+                <span class="cmp-chip-name">${sanitize(p.name)}</span>
+                <span class="cmp-chip-meta">${accounts} account${accounts === 1 ? '' : 's'}</span>
+            </label>`;
+        }).join('');
+
+        if (countEl) countEl.textContent = `${selected.size} of ${portfolios.length} selected`;
+    },
+
+    compareFilter: 'all',
+    compareMetric: 'value',
+
+    setCompareFilter(filter) {
+        this.compareFilter = filter;
+        document.querySelectorAll('.cmp-filter').forEach(b => b.classList.toggle('active', b.dataset.filter === filter));
+        this.renderCompareRows();
+    },
+
+    setCompareMetric(metric) {
+        this.compareMetric = metric;
+        document.querySelectorAll('.cmp-metric-btn').forEach(b => b.classList.toggle('active', b.dataset.metric === metric));
+        this.renderCompareRows();
+    },
+
+    sortCompare(key) {
+        const s = this.compareSort || { key: 'total', dir: 'desc' };
+        if (s.key === key) s.dir = s.dir === 'desc' ? 'asc' : 'desc';
+        else { s.key = key; s.dir = key === 'symbol' ? 'asc' : 'desc'; }
+        this.compareSort = s;
+        this.renderCompareRows();
+    },
+
+    cmpSearchInput() {
+        clearTimeout(this._cmpSearchTimer);
+        this._cmpSearchTimer = setTimeout(() => this.renderCompareRows(), 180);
+    },
+
+    renderCompare(result) {
+        const container = document.getElementById('compare-content');
+        if (!container) return;
+
+        this.compareResult = result;
+        if (!this.compareSort) this.compareSort = { key: 'total', dir: 'desc' };
+
+        const ports = result.portfolios || [];
+        // The server converts every amount into one base currency, so the whole
+        // table — cells, totals and weights alike — speaks that one currency.
+        const base = this.compareBase = result.baseCurrency || 'USD';
+        const natives = new Set(ports.flatMap(p => p.currencies || []));
+        if ((result.rows || []).length === 0) {
+            container.innerHTML = `<div class="empty-state card">
+                <div class="empty-icon">📭</div>
+                <p><strong>No holdings found in the selected portfolios.</strong></p>
+                <p style="margin-top:0.5rem;color:var(--text-secondary);">Check that their accounts are enabled, then refresh holdings.</p>
+            </div>`;
+            return;
+        }
+
+        const cards = ports.map(p => {
+            const from = (p.currencies || []).filter(c => c !== base);
+            const converted = from.length > 0
+                ? ` · <span class="cmp-fx-tag" title="Converted into ${sanitize(base)} at today's rate">incl. ${sanitize(from.join(', '))}</span>`
+                : '';
+            return `
+            <div class="cmp-summary-card" style="--chip-color:${sanitize(p.color || '#7c3aed')}">
+                <div class="cmp-summary-name"><span class="cmp-chip-dot"></span>${sanitize(p.name)}</div>
+                <div class="cmp-summary-value">${this.moneyC(p.totalValue, base)}</div>
+                <div class="cmp-summary-meta">
+                    ${p.holdings} holding${p.holdings === 1 ? '' : 's'} · ${this.moneyC(p.cash, base)} cash${converted}
+                </div>
+            </div>`;
+        }).join('');
+
+        // Only worth saying when there was actually something to convert.
+        const unresolved = result.fxUnresolved || [];
+        const fxNote = (natives.size > 1 || unresolved.length > 0)
+            ? `<div class="cmp-fx-note">
+                 Amounts converted to <strong>${sanitize(base)}</strong> at today's rates.
+                 ${unresolved.length > 0
+                    ? `<span class="cmp-warn">No rate available for ${sanitize(unresolved.join(', '))} — those amounts are counted 1:1.</span>`
+                    : ''}
+               </div>`
+            : '';
+
+        const filters = [
+            ['all',    `All symbols (${result.symbolCount})`],
+            ['gaps',   `Gaps (${result.symbolCount - result.commonCount})`],
+            ['common', `In every portfolio (${result.commonCount})`],
+            ['unique', `Only in one (${result.uniqueCount})`],
+        ];
+
+        container.innerHTML = `
+            <div class="cmp-summary-row">${cards}</div>
+            ${fxNote}
+            <div class="holdings-board card">
+                <div class="hb-toolbar">
+                    <div class="hb-views">
+                        ${filters.map(([k, label]) =>
+                            `<button class="hb-view cmp-filter ${this.compareFilter === k ? 'active' : ''}" data-filter="${k}" onclick="UI.setCompareFilter('${k}')">${label}</button>`).join('')}
+                    </div>
+                    <div class="cmp-tools">
+                        <div class="cmp-metric">
+                            ${[['value', 'Value'], ['weight', 'Weight %'], ['units', 'Shares']].map(([k, label]) =>
+                                `<button class="cmp-metric-btn ${this.compareMetric === k ? 'active' : ''}" data-metric="${k}" onclick="UI.setCompareMetric('${k}')">${label}</button>`).join('')}
+                        </div>
+                        <div class="hb-search">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="cmpSearch" placeholder="Search symbols…" oninput="UI.cmpSearchInput()">
+                        </div>
+                    </div>
+                </div>
+                <div class="hb-scroll">
+                    <table class="hb-table cmp-table">
+                        <thead><tr id="cmpHead"></tr></thead>
+                        <tbody id="cmpBody"></tbody>
+                    </table>
+                </div>
+                <div class="hb-summary" id="cmpSummary"></div>
+            </div>`;
+
+        this.renderCompareRows();
+    },
+
+    renderCompareRows() {
+        const head = document.getElementById('cmpHead');
+        const body = document.getElementById('cmpBody');
+        const result = this.compareResult;
+        if (!head || !body || !result) return;
+
+        const ports = result.portfolios || [];
+        const sort = this.compareSort || { key: 'total', dir: 'desc' };
+        const q = (document.getElementById('cmpSearch')?.value || '').toLowerCase().trim();
+
+        const arrowFor = key => sort.key === key ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '';
+        const hl = key => sort.key === key ? 'color:var(--primary);' : '';
+
+        head.innerHTML =
+            `<th class="cmp-sticky" onclick="UI.sortCompare('symbol')" style="cursor:pointer;${hl('symbol')}">Symbol${arrowFor('symbol')}</th>` +
+            ports.map(p =>
+                `<th class="right" onclick="UI.sortCompare('${p.id}')" style="cursor:pointer;${hl(String(p.id))}">
+                    <span class="cmp-chip-dot" style="--chip-color:${sanitize(p.color || '#7c3aed')}"></span>${sanitize(p.name)}${arrowFor(String(p.id))}
+                </th>`).join('') +
+            `<th class="right" onclick="UI.sortCompare('total')" style="cursor:pointer;${hl('total')}">Combined${arrowFor('total')}</th>`;
+
+        let list = (result.rows || []).filter(r => {
+            if (q && !r.symbol.toLowerCase().includes(q) && !(r.description || '').toLowerCase().includes(q)) return false;
+            if (this.compareFilter === 'gaps')   return r.missingCount > 0;
+            if (this.compareFilter === 'common') return r.missingCount === 0;
+            if (this.compareFilter === 'unique') return r.heldCount === 1;
+            return true;
+        });
+
+        const metricOf = (row, pid) => {
+            const c = row.cells[pid];
+            if (!c) return 0;
+            return this.compareMetric === 'units' ? c.units : this.compareMetric === 'weight' ? c.weightPct : c.value;
+        };
+        const dir = sort.dir === 'desc' ? -1 : 1;
+        list = list.slice().sort((a, b) => {
+            if (sort.key === 'symbol') return dir * a.symbol.localeCompare(b.symbol);
+            if (sort.key === 'total')  return dir * (a.totalValue - b.totalValue);
+            return dir * (metricOf(a, sort.key) - metricOf(b, sort.key));
+        });
+
+        body.innerHTML = list.length === 0
+            ? `<tr><td colspan="${ports.length + 2}" style="text-align:center;color:var(--text-muted);padding:2rem;">No symbols match this filter.</td></tr>`
+            : list.map(r => this.renderCompareRow(r, ports)).join('');
+
+        const sumEl = document.getElementById('cmpSummary');
+        if (sumEl) {
+            const gaps = list.reduce((n, r) => n + r.missingCount, 0);
+            sumEl.innerHTML = `<span>${list.length} symbol${list.length === 1 ? '' : 's'} shown</span>
+                <span>Gaps <strong>${gaps}</strong></span>
+                <span>In every portfolio <strong>${result.commonCount}</strong></span>
+                <span>Only in one <strong>${result.uniqueCount}</strong></span>`;
+        }
+    },
+
+    renderCompareRow(row, ports) {
+        const initials = (row.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4) || '?';
+        const cells = ports.map(p => this.renderCompareCell(row, p)).join('');
+        const base = this.compareBase || 'USD';
+        // The per-share price is what a buy order would execute at, so it stays
+        // quoted in the security's own currency even when the table is in another.
+        // A bare "$" beside CA$ columns would read as CAD, so an off-base price
+        // is labelled with its code instead of a symbol.
+        const priceCur = row.priceCurrency || base;
+        const priceText = priceCur === base
+            ? this.moneyC(row.price, base)
+            : `${sanitize(priceCur)} ${Math.abs(Number(row.price) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        return `<tr>
+            <td class="cmp-sticky">
+                <div class="hb-holding stock-link" data-stock="${sanitize(row.symbol)}" title="View ${sanitize(row.symbol)} detail">
+                    <div class="hb-avatar">${sanitize(initials)}</div>
+                    <div class="hb-names">
+                        <div class="hb-name">${sanitize(row.description)}</div>
+                        <div class="hb-ticker">${sanitize(row.symbol)} · held in ${row.heldCount}/${ports.length}</div>
+                    </div>
+                </div>
+            </td>
+            ${cells}
+            <td class="right">${this.moneyC(row.totalValue, base)}<div class="hb-sub">${row.price > 0 ? priceText + ' / share' : ''}</div></td>
+        </tr>`;
+    },
+
+    renderCompareCell(row, p) {
+        const c = row.cells[String(p.id)];
+        if (!c || !c.held) return `<td class="right cmp-missing">${this.renderCompareBuy(row, p)}</td>`;
+
+        const m = n => this.moneyC(n, this.compareBase || 'USD');
+        const shares = c.units.toLocaleString(undefined, { maximumFractionDigits: 4 });
+        const main = this.compareMetric === 'units' ? shares
+            : this.compareMetric === 'weight' ? this.pct(c.weightPct)
+            : m(c.value);
+        const sub = this.compareMetric === 'value'
+            ? `${shares} sh · ${this.pct(c.weightPct)}`
+            : m(c.value);
+
+        return `<td class="right cmp-held">
+            <span class="cmp-check">✓</span> ${main}
+            <div class="hb-sub">${sub}</div>
+        </td>`;
+    },
+
+    /**
+     * A gap cell. Buying needs a trading-enabled account inside the target
+     * portfolio and a universal symbol id (borrowed from whichever portfolio
+     * does hold the symbol) — without either, say why instead of offering a
+     * button that would fail.
+     *
+     * Several accounts get one button each rather than a dropdown: the table
+     * scrolls horizontally, and an absolutely positioned popup would be clipped
+     * by that scroll container.
+     */
+    renderCompareBuy(row, p) {
+        const accounts = p.tradableAccounts || [];
+        if (accounts.length === 0) {
+            return `<span class="cmp-dash" title="No trading-enabled account in this portfolio">—</span>`;
+        }
+        if (!row.symbolId) {
+            return `<span class="cmp-dash" title="Refresh holdings to sync this symbol before trading">—</span>`;
+        }
+
+        const attrs = a => `data-account-id="${sanitize(a.accountId)}" data-portfolio-id="${sanitize(a.parentPortfolioId)}" `
+            + `data-symbol="${sanitize(row.symbol)}" data-symbol-id="${sanitize(row.symbolId)}" `
+            + `data-description="${sanitize(row.description)}" data-price="${row.price || 0}"`;
+
+        const one = accounts.length === 1;
+        return `<div class="cmp-buy-group">${accounts.map(a =>
+            `<button class="cmp-buy-btn" ${attrs(a)} title="Buy ${sanitize(row.symbol)} in ${sanitize(a.accountName)}">+ Buy${one ? '' : ' · ' + sanitize(a.accountName)}</button>`
+        ).join('')}</div>`;
+    },
+
+    // ── Alerts ───────────────────────────────────────────────────────────────
+
+    _alertRuleMeta: {
+        dividend_cut: {
+            label: 'Dividend cut',
+            blurb: 'A holding paid less last complete year than the year before.',
+            fields: { minDropPct: { label: 'Ignore drops under', suffix: '%', step: '0.5' } },
+        },
+        ex_dividend_soon: {
+            label: 'Dividend due soon',
+            blurb: 'A forecast payout lands inside the window.',
+            fields: { days: { label: 'Look ahead', suffix: 'days', step: '1' } },
+        },
+        allocation_drift: {
+            label: 'Allocation drift',
+            blurb: 'A holding has strayed from its rebalancing target.',
+            fields: { thresholdPct: { label: 'Alert past', suffix: '%', step: '0.5' } },
+        },
+        rating_downgrade: {
+            label: 'AI rating downgrade',
+            blurb: 'The stock rating got worse since the last check.',
+            fields: { minChange: { label: 'At least', suffix: 'steps', step: '1' } },
+        },
+    },
+
+    alertRuleLabel(type) {
+        return this._alertRuleMeta[type]?.label || type;
+    },
+
+    _severityColor(severity) {
+        if (severity === 'critical') return 'var(--danger)';
+        if (severity === 'warning') return 'var(--warning)';
+        return 'var(--text-secondary)';
+    },
+
+    /** One alert rendered as a compact line — shared by the preview and history. */
+    alertLine(a) {
+        return `<div style="display:flex;gap:0.5rem;align-items:flex-start;">
+            <span style="color:${this._severityColor(a.severity)};font-weight:700;line-height:1.4;">•</span>
+            <div style="min-width:0;">
+                <div style="font-weight:600;">${sanitize(a.title)}</div>
+                <div class="text-muted" style="font-size:0.8rem;line-height:1.35;">${sanitize(a.body)}</div>
+            </div>
+        </div>`;
+    },
+
+    renderAlertRules(rules) {
+        const el = document.getElementById('alertRulesPanel');
+        if (!el) return;
+        if (!rules || rules.length === 0) {
+            el.innerHTML = '<div class="empty-state" style="padding:1rem;">No rules available.</div>';
+            return;
+        }
+
+        el.innerHTML = rules.map(rule => {
+            const meta = this._alertRuleMeta[rule.type] || { label: rule.type, blurb: '', fields: {} };
+            const fields = Object.entries(meta.fields || {}).map(([key, f]) => {
+                const value = rule.config?.[key];
+                return `<label style="display:inline-flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:var(--text-secondary);">
+                    ${sanitize(f.label)}
+                    <input type="number" id="alert-cfg-${sanitize(rule.type)}-${sanitize(key)}"
+                        value="${value != null ? value : ''}" step="${f.step}" min="0"
+                        onchange="App.saveAlertRule('${sanitize(rule.type)}')"
+                        style="width:68px;padding:0.2rem 0.4rem;font-size:0.82rem;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-primary);">
+                    ${sanitize(f.suffix)}
+                </label>`;
+            }).join('');
+
+            return `<div style="display:flex;align-items:flex-start;gap:1rem;padding:0.85rem 0;border-bottom:1px solid var(--border);">
+                <label class="alert-toggle" title="${rule.enabled ? 'Enabled' : 'Disabled'}">
+                    <input type="checkbox" id="alert-enabled-${sanitize(rule.type)}" ${rule.enabled ? 'checked' : ''}
+                        onchange="App.saveAlertRule('${sanitize(rule.type)}')">
+                </label>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:0.9rem;">${sanitize(meta.label)}</div>
+                    <div class="text-muted text-sm" style="margin-top:0.1rem;">${sanitize(meta.blurb)}</div>
+                    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem;">${fields}</div>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    renderAlertHistory(alerts, unacknowledged) {
+        const el = document.getElementById('alertHistoryPanel');
+        if (!el) return;
+
+        if (!alerts || alerts.length === 0) {
+            el.innerHTML = `<div class="empty-state" style="padding:1rem;">
+                <p>No alerts yet.</p>
+                <p class="text-muted text-sm" style="margin-top:0.4rem;">Enable a rule above, then use <strong>Preview</strong> to see what it would report.</p>
+            </div>`;
+            return;
+        }
+
+        const header = unacknowledged > 0
+            ? `<div class="text-muted text-sm" style="margin-bottom:0.6rem;">${unacknowledged} unread</div>`
+            : '';
+
+        el.innerHTML = header + alerts.map(a => {
+            const unread = !a.acknowledgedAt;
+            const when = this.txDate(a.firedAt);
+            return `<div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.7rem 0;border-bottom:1px solid var(--border);${unread ? '' : 'opacity:0.55;'}">
+                <span style="color:${this._severityColor(a.severity)};font-weight:700;line-height:1.4;">•</span>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:${unread ? '600' : '400'};font-size:0.88rem;">${sanitize(a.title)}</div>
+                    <div class="text-muted" style="font-size:0.8rem;line-height:1.35;margin-top:0.1rem;">${sanitize(a.body)}</div>
+                    <div class="text-muted" style="font-size:0.72rem;margin-top:0.25rem;">
+                        ${sanitize(when)} · ${sanitize(this.alertRuleLabel(a.ruleType))}${a.delivered ? ' · sent to webhook' : ''}
+                    </div>
+                </div>
+                ${unread ? `<button class="btn btn-outline btn-sm" style="padding:0.15rem 0.5rem;font-size:0.75rem;" onclick="App.acknowledgeAlert(${a.id})">Mark read</button>` : ''}
+            </div>`;
+        }).join('');
+    },
+
     // ── Transactions board (Snowball-style ledger) ───────────────────────────
 
     renderAllTransactions(data) {
@@ -1851,12 +2246,30 @@ const UI = {
         }
     },
 
+    /**
+     * A transaction's calendar date, as the broker (or the user) recorded it.
+     *
+     * `new Date('2021-06-15')` is parsed as UTC midnight, so formatting it in a
+     * timezone west of UTC renders the previous day — a trade entered as
+     * 2021-06-15 displayed as 2021-06-14. Every other date formatter here
+     * already passes `timeZone: 'UTC'`; this one didn't. Output shape is
+     * unchanged (en-CA is YYYY-MM-DD).
+     */
+    txDate(raw) {
+        if (!raw) return '—';
+        const s = String(raw);
+        const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) return m[1];
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? '—' : d.toISOString().slice(0, 10);
+    },
+
     renderTxRow(t) {
         const op  = (t.type || t.action || '').toUpperCase();
         const cur = this.curSym(t.currencyCode);
         const symbol = t.symbol || '';
         const name   = t.description || symbol || (op ? op[0] + op.slice(1).toLowerCase() : '—');
-        const date   = t.date ? new Date(t.date).toLocaleDateString('en-CA') : '—';
+        const date   = this.txDate(t.date);
         const units  = t.units;
         const price  = t.price;
         const amount = t.amount || 0;
@@ -1884,6 +2297,12 @@ const UI = {
             }
         }
 
+        // Hand-entered rows are marked so they're distinguishable from synced
+        // broker data, and the badge doubles as the edit affordance.
+        const manualTag = t.manual
+            ? ` <button class="manual-txn-badge" data-manual-id="${sanitize(t.id)}" title="Hand-entered — click to edit">Manual</button>`
+            : '';
+
         let note = t.note || '';
         if (!note) {
             if (op === 'BUY' || op === 'SELL') {
@@ -1907,7 +2326,7 @@ const UI = {
             <td class="right" style="color:var(--text-muted);">${cur}0.00</td>
             <td class="right" style="font-weight:600;">${summ}</td>
             ${profitCell}
-            <td style="color:var(--text-muted);font-size:0.8rem;max-width:240px;white-space:normal;line-height:1.35;">${sanitize(note)} <span style="opacity:0.6;">${sanitize(t.accountName || '')}</span></td>
+            <td style="color:var(--text-muted);font-size:0.8rem;max-width:240px;white-space:normal;line-height:1.35;">${sanitize(note)} <span style="opacity:0.6;">${sanitize(t.accountName || '')}</span>${manualTag}</td>
         </tr>`;
     },
 

@@ -12,6 +12,8 @@ import { refreshAllHoldings } from "./services/holdingsService.js";
 import { refreshAllTransactions } from "./services/transactionService.js";
 import { syncAllHeldSymbols } from "./services/priceHistoryService.js";
 import { refreshStockRatings } from "./services/stockRatingService.js";
+import { captureSnapshots } from "./services/snapshotService.js";
+import { runAlertEvaluation } from "./services/alertService.js";
 import { getSetting } from "./models/db.js";
 import { registerJob, updateJobInterval } from "./services/schedulerService.js";
 
@@ -172,6 +174,46 @@ const server = app.listen(port, () => {
       return `Synced ${stats.symbols} symbol(s), ${stats.updated} candle(s) written, errors: ${stats.errors}`;
     },
     false
+  );
+
+  registerJob(
+    'portfolio-snapshot',
+    'Portfolio Snapshot',
+    storedInterval('portfolio-snapshot', 24 * hourMs),
+    async (trigger: string) => {
+      // Unlike the sync jobs this reads only the local position cache, so it is
+      // safe and useful to run at startup: a container restarted after a missed
+      // day still records one, and re-running on the same day just overwrites.
+      logger.info('Scheduler', `Capturing portfolio snapshot (trigger: ${trigger})`);
+      const stats = captureSnapshots();
+      const parts = [`Recorded ${stats.accounts} account snapshot(s) for ${stats.date}`];
+      if (stats.skippedEmpty > 0) parts.push(`${stats.skippedEmpty} empty account(s) skipped`);
+      parts.push(`total ${stats.totalValue}`);
+      return parts.join(', ');
+    },
+    true,
+    // Well after the startup holdings load, so the position cache it reads is
+    // the freshest available.
+    30_000
+  );
+
+  registerJob(
+    'alerts-evaluate',
+    'Alert Evaluation',
+    storedInterval('alerts-evaluate', 6 * hourMs),
+    async (trigger: string) => {
+      // Reads only local caches, so it is safe on startup and cheap to repeat.
+      // Dedupe keys mean a repeat run notifies about nothing already seen.
+      logger.info('Scheduler', `Evaluating alert rules (trigger: ${trigger})`);
+      const result = await runAlertEvaluation();
+      if (result.evaluated === 0) return 'No rules enabled';
+      return result.fired === 0
+        ? `Evaluated ${result.evaluated} rule(s) — nothing new`
+        : `${result.fired} new alert(s): ${result.summary}${result.delivered ? ' (webhook sent)' : ''}`;
+    },
+    true,
+    // After the snapshot job, so ratings/holdings caches are settled.
+    45_000
   );
 
   registerJob(

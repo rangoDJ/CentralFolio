@@ -59,6 +59,30 @@ export {
   clearTransactionsForAccount,
 } from "../repositories/transactionRepository.js";
 
+export type { Snapshot } from "../repositories/snapshotRepository.js";
+export {
+  saveSnapshot,
+  saveSnapshots,
+  getSnapshotsForAccount,
+  getAllSnapshots,
+  getSnapshotTotalsByDate,
+  getSnapshotCoverage,
+  deleteSnapshotsForAccount,
+  clearSnapshots,
+} from "../repositories/snapshotRepository.js";
+
+export type { ManualTransaction, ManualTransactionInput } from "../repositories/manualTransactionRepository.js";
+export {
+  listManualTransactions,
+  getManualTransaction,
+  createManualTransaction,
+  createManualTransactions,
+  updateManualTransaction,
+  deleteManualTransaction,
+  countManualTransactions,
+  getMergedTransactions,
+} from "../repositories/manualTransactionRepository.js";
+
 export {
   getPortfolioTargets,
   setPortfolioTargets,

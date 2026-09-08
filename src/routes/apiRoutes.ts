@@ -7,6 +7,8 @@ import analyticsRoutes from "./analyticsRoutes.js";
 import userPortfolioRoutes from "./userPortfolioRoutes.js";
 import watchlistRoutes from "./watchlistRoutes.js";
 import manualAssetRoutes from "./manualAssetRoutes.js";
+import manualTransactionRoutes from "./manualTransactionRoutes.js";
+import alertRoutes from "./alertRoutes.js";
 import apiTokenRoutes from "./apiTokenRoutes.js";
 import { stockDetailHandler, priceHistoryHandler } from "../controllers/stockController.js";
 
@@ -25,6 +27,8 @@ router.use("/jobs", jobRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/user-portfolios", userPortfolioRoutes);
 router.use("/manual-assets", manualAssetRoutes);
+router.use("/manual-transactions", manualTransactionRoutes);
+router.use("/alerts", alertRoutes);
 router.use("/", watchlistRoutes);
 router.use("/", snapTradeRoutes);
 router.use("/", apiTokenRoutes);

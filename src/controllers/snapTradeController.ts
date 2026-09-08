@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPortfolio, savePortfolio, listPortfolios, getCachedAccounts, getCachedPositions, getCachedTransactions, accountBelongsToPortfolio, getAccountActive } from "../models/db.js";
+import { getPortfolio, savePortfolio, listPortfolios, getCachedAccounts, getCachedPositions, getCachedTransactions, getMergedTransactions, accountBelongsToPortfolio, getAccountActive } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
@@ -65,6 +65,8 @@ export const getTransactions = async (req: Request, res: Response) => {
         if (portfolio.userSecret) {
           const cachedAccounts = getCachedAccounts(portfolio.id!);
           for (const account of cachedAccounts) {
+            // Broker rows only — a manual backfill row must not be mistaken
+            // for a warm cache and suppress the first sync.
             totalCachedCount += getCachedTransactions(account.id, 1).length;
           }
         }
@@ -94,7 +96,7 @@ export const getTransactions = async (req: Request, res: Response) => {
         const cachedAccounts = getCachedAccounts(portfolio.id!);
 
         for (const account of cachedAccounts) {
-          const transactions = getCachedTransactions(account.id);
+          const transactions = getMergedTransactions(account.id);
           const displayName = account.customName || account.name;
 
           // Build symbol → units map from cached positions so the frontend

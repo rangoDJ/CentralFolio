@@ -258,6 +258,15 @@ const API = {
         URL.revokeObjectURL(url);
     },
 
+    /** Tax-loss harvesting candidates for the current year. */
+    async getTaxLossHarvest(marginalRatePct = null) {
+        const qs = marginalRatePct != null && marginalRatePct !== '' ? `?marginalRatePct=${encodeURIComponent(marginalRatePct)}` : '';
+        const res = await this._fetch('/api/analytics/tax-loss-harvest' + qs);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load harvest report');
+        return data;
+    },
+
     async getTax(accountIds = null) {
         let url = '/api/analytics/tax';
         if (accountIds && accountIds.length > 0) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;

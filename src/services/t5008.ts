@@ -111,9 +111,34 @@ export interface ScheduleThreeSummary {
   taxableCapitalGain: number;  // max(0, netGain) × inclusion rate
 }
 
+/**
+ * What remains in a cost pool after every transaction has been replayed.
+ *
+ * The ACB walk below already ends holding this; exposing it lets tax-loss
+ * harvesting compare market value against the *pooled* cost base rather than
+ * the broker's per-account average purchase price, which ignores pooling across
+ * accounts and across the CAD/USD listings of the same security.
+ */
+export interface OpenPosition {
+  poolKey: string;
+  /** Most recently traded ticker in the pool, for display. */
+  symbol: string;
+  units: number;
+  /** Adjusted cost base in CAD of the units still held. */
+  acb: number;
+  /** Same, in the security's trading currency. */
+  acbNative: number;
+  currency: string;
+  acbPerUnit: number;
+  /** Last acquisition date in this pool — the superficial-loss lookback needs it. */
+  lastBuyDate: string | null;
+}
+
 export interface T5008Result {
   dispositions: Disposition[];
   summaryByYear: ScheduleThreeSummary[];
+  /** Cost pools still open at the end of the replay. */
+  openPositions: OpenPosition[];
   warnings: string[];
 }
 
@@ -350,8 +375,9 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
   }
 
   const dispositions: Disposition[] = [];
+  const openPositions: OpenPosition[] = [];
 
-  for (const [, list] of bySymbol) {
+  for (const [pool, list] of bySymbol) {
     const sorted = [...list].sort(chronological);
 
     // Share-count timeline — used to answer "was the property still held at the
@@ -480,6 +506,22 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
       acbNative = Math.max(0, acbNative - costBasisNative) + (rate !== 0 ? superficialLoss / rate : 0);
       shares = Math.max(0, shares - soldUnits);
     }
+
+    // Whatever is left in the pool is a currently-held position.
+    if (shares > 0) {
+      const buys = sorted.filter(t => t._side === "buy");
+      const last = sorted[sorted.length - 1];
+      openPositions.push({
+        poolKey: pool,
+        symbol: last?._symbol ?? pool,
+        units: round2(shares),
+        acb: round2(acb),
+        acbNative: round2(acbNative),
+        currency: norm(last?.currencyCode) || "CAD",
+        acbPerUnit: shares > 0 ? acb / shares : 0,
+        lastBuyDate: buys.length > 0 ? buys[buys.length - 1]._date : null,
+      });
+    }
   }
 
   dispositions.sort((a, b) => a.date.localeCompare(b.date) || a.symbol.localeCompare(b.symbol));
@@ -525,7 +567,9 @@ export function computeDispositions(txns: T5008Transaction[], fxRate: FxLookup):
     );
   }
 
-  return { dispositions, summaryByYear: summarizeByYear(dispositions), warnings };
+  openPositions.sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+  return { dispositions, summaryByYear: summarizeByYear(dispositions), openPositions, warnings };
 }
 
 /** Schedule 3 roll-up: the figures that go on the return, one row per year. */

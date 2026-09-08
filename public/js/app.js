@@ -1751,6 +1751,12 @@ const App = {
         const btn = document.getElementById('refreshT5008Btn');
         if (showSpinner && btn) btn.classList.add('loading');
 
+        // Restore the saved marginal rate, then load harvest candidates
+        // alongside (but independently of) the year-filtered T5008 report.
+        const rateEl = document.getElementById('harvestRate');
+        if (rateEl && !rateEl.value) rateEl.value = localStorage.getItem('cf_marginal_rate') || '';
+        this.loadHarvest();
+
         const yearEl = document.getElementById('t5008Year');
         const year = yearEl && yearEl.value ? Number(yearEl.value) : null;
 
@@ -2537,6 +2543,24 @@ const App = {
             if (container) container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
         } finally {
             if (btn) btn.classList.remove('loading');
+        }
+    },
+
+    /**
+     * Harvest candidates load separately from the T5008 report: the report is
+     * year-filtered and account-scoped, while harvesting is always "right now,
+     * every taxable account", so they do not share a request.
+     */
+    async loadHarvest() {
+        const el = document.getElementById('harvestBody');
+        const raw = document.getElementById('harvestRate')?.value.trim();
+        try {
+            const rate = raw === '' || raw == null ? null : Number(raw);
+            const report = await API.getTaxLossHarvest(rate);
+            if (raw) localStorage.setItem('cf_marginal_rate', raw);
+            UI.renderHarvest(report);
+        } catch (err) {
+            if (el) el.innerHTML = `<div class="empty-state" style="color:var(--danger);padding:1rem 0;">${sanitize(err.message)}</div>`;
         }
     },
 

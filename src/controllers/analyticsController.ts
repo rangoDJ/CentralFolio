@@ -7,6 +7,7 @@ import { getDividendTaxBreakdown } from "../services/taxService.js";
 import { getAttribution } from "../services/attributionService.js";
 import { getRealizedGains } from "../services/realizedGainsService.js";
 import { getT5008Report, dispositionsToCsv } from "../services/t5008Service.js";
+import { getHarvestReport } from "../services/taxLossHarvestService.js";
 import { logger } from "../utils/logger.js";
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
@@ -138,6 +139,29 @@ export const t5008CsvHandler = async (req: Request, res: Response) => {
     res.send("﻿" + dispositionsToCsv(report.dispositions, report.carryingCharges));
   } catch (err: any) {
     logger.error("Analytics", `t5008 CSV failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/tax-loss-harvest?marginalRatePct=43.4
+// Which taxable holdings sit at a loss, how much of this year's realized gain
+// each would offset, and which the superficial-loss rule would deny.
+export const taxLossHarvestHandler = async (req: Request, res: Response) => {
+  const raw = req.query.marginalRatePct;
+  let marginalRatePct: number | null = null;
+  if (raw != null && String(raw).trim() !== "") {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 100) {
+      return res.status(400).json({ error: "marginalRatePct must be between 0 and 100" });
+    }
+    marginalRatePct = n;
+  }
+
+  logger.info("Analytics", `GET /api/analytics/tax-loss-harvest marginalRatePct=${marginalRatePct ?? "none"}`);
+  try {
+    res.json(await getHarvestReport(marginalRatePct));
+  } catch (err: any) {
+    logger.error("Analytics", `taxLossHarvest failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };

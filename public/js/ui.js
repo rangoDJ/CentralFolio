@@ -2138,6 +2138,88 @@ const UI = {
         }).join('');
     },
 
+    // ── Tax-loss harvesting ──────────────────────────────────────────────────
+
+    _harvestRiskMeta: {
+        none:               { label: 'Clear',  color: 'var(--success)' },
+        at_risk:            { label: 'At risk', color: 'var(--warning)' },
+        denied_permanently: { label: 'Denied',  color: 'var(--danger)' },
+    },
+
+    renderHarvest(r) {
+        const el = document.getElementById('harvestBody');
+        if (!el) return;
+
+        const cur = r.baseCurrency || 'CAD';
+        const m = v => this.moneyC(v, cur);
+
+        if (!r.candidates || r.candidates.length === 0) {
+            el.innerHTML = `<div class="empty-state" style="padding:1rem 0;">
+                <p>No taxable holdings are currently at a loss.</p>
+                <p class="text-muted text-sm" style="margin-top:0.4rem;">Nothing to harvest — which is the good outcome.</p>
+            </div>`;
+            return;
+        }
+
+        const stat = (value, label, cls = '') =>
+            `<div class="tax-stat"><span class="tax-stat-val ${cls}">${value}</span><span class="tax-stat-lbl">${label}</span></div>`;
+
+        const stats = [
+            stat(m(r.realizedGainYtd), 'Realized gain this year', r.realizedGainYtd >= 0 ? '' : 'neg'),
+            stat(m(r.harvestableLoss), 'Harvestable loss'),
+            stat(m(r.offsetTotal), 'Offsets this year', 'pos'),
+            stat(m(r.taxableIncomeReduction), 'Taxable income reduction'),
+            r.estimatedTaxSaving != null
+                ? stat(m(r.estimatedTaxSaving), `Est. tax saved at ${r.marginalRatePct}%`, 'pos')
+                : '',
+        ].join('');
+
+        const warnings = (r.warnings || []).map(w =>
+            `<div style="font-size:0.8rem;color:var(--warning);padding:0.4rem 0.6rem;background:rgba(245,166,35,0.08);border-radius:var(--radius-sm);margin-bottom:0.4rem;">${sanitize(w)}</div>`
+        ).join('');
+
+        const rows = r.candidates.map(c => {
+            const meta = this._harvestRiskMeta[c.risk] || this._harvestRiskMeta.none;
+            const denied = c.risk === 'denied_permanently';
+            return `<tr style="${denied ? 'opacity:0.6;' : ''}">
+                <td><span class="stock-link" data-stock="${sanitize(c.symbol)}" style="font-weight:600;cursor:pointer;">${sanitize(c.symbol)}</span>
+                    <div class="hb-sub">${sanitize(c.accountLabel)}</div></td>
+                <td class="right">${Number(c.units).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                <td class="right">${m(c.acb)}</td>
+                <td class="right">${m(c.marketValue)}</td>
+                <td class="right neg" style="font-weight:600;">-${m(c.unrealizedLoss)}</td>
+                <td class="right ${c.offsetApplied > 0 ? 'pos' : 'text-muted'}">${c.offsetApplied > 0 ? m(c.offsetApplied) : '—'}</td>
+                <td>
+                    <span style="font-size:0.72rem;font-weight:600;color:${meta.color};">${meta.label}</span>
+                    ${c.riskReason ? `<div class="hb-sub" style="white-space:normal;max-width:340px;line-height:1.35;">${sanitize(c.riskReason)}</div>` : ''}
+                </td>
+            </tr>`;
+        }).join('');
+
+        el.innerHTML = `
+            <div class="tax-stats" style="margin-bottom:0.85rem;">${stats}</div>
+            ${warnings}
+            <div class="hb-scroll">
+                <table class="hb-table">
+                    <thead><tr>
+                        <th>Holding</th>
+                        <th class="right">Units</th>
+                        <th class="right">Cost base</th>
+                        <th class="right">Market value</th>
+                        <th class="right">Unrealized loss</th>
+                        <th class="right">Offsets</th>
+                        <th>Superficial-loss check</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+            <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">
+                Selling any of these and repurchasing before <strong>${sanitize(r.repurchaseAfter)}</strong> would make the loss superficial.
+                The 30-day window counts purchases in <em>any</em> of your accounts, registered ones included.
+                Losses beyond this year's gain carry back three years or forward indefinitely.
+            </p>`;
+    },
+
     // ── Transactions board (Snowball-style ledger) ───────────────────────────
 
     renderAllTransactions(data) {

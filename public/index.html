@@ -599,6 +599,27 @@
 
         <div class="card mb-3">
           <div class="card-header">
+            <h3 class="card-title">Tax-loss harvesting</h3>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <label class="text-muted text-sm" for="harvestRate" style="white-space:nowrap;">Marginal rate</label>
+              <input type="number" id="harvestRate" step="0.1" min="0" max="100" placeholder="43.4"
+                onchange="App.loadHarvest()" title="Optional — used only to estimate the tax saved"
+                style="width:70px;padding:0.2rem 0.4rem;font-size:0.85rem;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text-primary);">
+              <span class="text-muted text-sm">%</span>
+            </div>
+          </div>
+          <p class="text-muted text-sm" style="margin:0 0 0.85rem;">
+            Losses in <strong>non-registered</strong> accounts that could offset this year's realized gains.
+            Cost base is the pooled ACB from the replay above, not the broker's per-account average.
+            Estimates only — confirm against your own records before acting.
+          </p>
+          <div id="harvestBody">
+            <div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading harvest candidates…</p></div>
+          </div>
+        </div>
+
+        <div class="card mb-3">
+          <div class="card-header">
             <h3 class="card-title">Dispositions (T5008 boxes)</h3>
             <span id="t5008Count" class="text-muted text-sm"></span>
           </div>

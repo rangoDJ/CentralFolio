@@ -253,6 +253,9 @@ export async function getT5008Report(
   return {
     dispositions: filtered,
     summaryByYear: summarizeByYear(filtered),
+    // Pools still open across every non-registered account — the harvest view
+    // reads these; the year filter above does not apply to a current position.
+    openPositions: result.openPositions,
     warnings,
     year: year ?? null,
     availableYears,

@@ -8,14 +8,20 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Express renders err.stack into its default error page unless this is set,
+# and it enables the framework's production optimisations. The global error
+# handler in src/server.ts no longer relies on it, but both should hold.
+ENV NODE_ENV=production
+
 # Set working directory
 WORKDIR /app
 
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies. NOT --omit=dev: the container runs TypeScript directly
+# through tsx, which is a devDependency, so trimming them breaks the entrypoint.
+RUN npm ci --include=dev
 
 # Copy application source
 COPY . .

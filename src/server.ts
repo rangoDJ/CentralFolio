@@ -94,18 +94,27 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     logger.error('Server', `Unhandled error on ${req.method} ${req.path}: ${err.message}`, err.stack);
   }
 
+  // Kept generic on purpose — err.message can carry internals.
+  const message =
+    status === 413 ? 'Request body too large'
+    : status === 400 ? 'Malformed request body'
+    : status === 416 ? 'Range Not Satisfiable'
+    : callerFault ? 'Bad request'
+    : 'Internal Server Error';
+
   // Both prefixes are JSON APIs; /auth/ used to fall through to Express's
   // default HTML error page, which the frontend cannot parse.
   if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
-    // Kept generic on purpose — err.message can carry internals.
-    const message =
-      status === 413 ? 'Request body too large'
-      : status === 400 ? 'Malformed request body'
-      : callerFault ? 'Bad request'
-      : 'Internal Server Error';
     return res.status(status).json({ error: message });
   }
-  next(err);
+
+  // Everything else — static assets included — is answered here too rather
+  // than passed on. Express's default handler renders err.stack into the page
+  // whenever NODE_ENV is not "production", and static files are served before
+  // requireAuth, so a malformed Range header on any asset leaked absolute
+  // filesystem paths to an unauthenticated caller. Handling it here means that
+  // holds regardless of how the process was started.
+  res.status(status).type('text/plain').send(message);
 });
 
 const server = app.listen(port, () => {

@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getAllJobStatuses, getJobStatus, triggerJob, updateJobInterval } from "../services/schedulerService.js";
+import { getAllJobStatuses, getJobStatus, triggerJob, updateJobInterval, MAX_INTERVAL_DAYS } from "../services/schedulerService.js";
 import { setSetting } from "../models/db.js";
 import { logger } from "../utils/logger.js";
 import { getJobRuns } from "../repositories/jobRepository.js";
@@ -30,6 +30,12 @@ export const updateJobSchedule = (req: Request, res: Response) => {
   }
   if (h > 0 && h < 0.1) {
     return res.status(400).json({ error: 'intervalHours must be at least 0.1 (6 minutes) or 0 for manual-only' });
+  }
+  // Anything longer can't be expressed as a cron day-of-month step, so say so
+  // rather than accept a value the scheduler would quietly turn into monthly.
+  const maxHours = MAX_INTERVAL_DAYS * 24;
+  if (h > maxHours) {
+    return res.status(400).json({ error: `intervalHours must be at most ${maxHours} (${MAX_INTERVAL_DAYS} days)` });
   }
 
   const newIntervalMs = h === 0 ? null : Math.round(h * 3_600_000);

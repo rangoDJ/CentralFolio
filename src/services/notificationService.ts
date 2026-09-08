@@ -23,6 +23,11 @@ export interface NotificationResult {
   error?: string;
 }
 
+// Without an explicit signal, fetch only gives up at undici's ~300s header
+// timeout — long enough for a black-holed webhook URL to stall the admin
+// "test notification" request (which awaits this) for five minutes.
+const WEBHOOK_TIMEOUT_MS = 10_000;
+
 /**
  * Fires a generic JSON webhook (Discord-compatible `content` field included)
  * if one is configured and enabled. Never throws — a broken notification must
@@ -41,6 +46,7 @@ export async function sendWebhookNotification(title: string, message: string): P
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(buildWebhookPayload(title, message)),
+      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
     });
     if (!res.ok) {
       logger.warn("Notify", `Webhook returned ${res.status} ${res.statusText}`);
@@ -48,7 +54,12 @@ export async function sendWebhookNotification(title: string, message: string): P
     }
     return { sent: true };
   } catch (err: any) {
-    logger.warn("Notify", `Webhook delivery failed: ${err.message}`);
-    return { sent: false, error: err.message };
+    // AbortSignal.timeout rejects with a TimeoutError whose message ("The
+    // operation was aborted due to timeout") doesn't say what timed out.
+    const reason = err?.name === "TimeoutError"
+      ? `Webhook did not respond within ${WEBHOOK_TIMEOUT_MS / 1000}s`
+      : err.message;
+    logger.warn("Notify", `Webhook delivery failed: ${reason}`);
+    return { sent: false, error: reason };
   }
 }

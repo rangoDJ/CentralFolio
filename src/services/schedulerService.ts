@@ -35,9 +35,24 @@ const registry = new Map<string, RegisteredJob>();
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
+ * Longest interval a day-of-month step can express. Cron's day field is 1-31,
+ * so a step of 33 there does not mean "every 33 days" — it enumerates 1, 34,
+ * 67... against a 1-31 range and yields only the 1st, turning any longer
+ * interval into a silent "monthly". 28 is the largest step that still fires
+ * every month, February included.
+ */
+export const MAX_INTERVAL_DAYS = 28;
+
+/**
  * Convert hours → a cron expression that fires every N hours.
  * Fractional hours (< 1) are converted to minutes.
  * Returns null for 0 (manual-only).
+ *
+ * Note that day and hour steps restart each month/day, so a 7-day step fires
+ * on the 1st, 8th, 15th, 22nd and 29th rather than strictly every 168 hours.
+ * That is a property of cron, not a defect here — but a step past the field's
+ * range is a defect, so longer intervals are clamped rather than silently
+ * degraded to monthly.
  */
 export function hoursToCron(hours: number): string | null {
   if (!hours || hours <= 0) return null;
@@ -49,7 +64,11 @@ export function hoursToCron(hours: number): string | null {
     const roundedHours = Math.max(1, Math.min(23, Math.round(hours)));
     return `0 */${roundedHours} * * *`;
   }
-  const days = Math.max(1, Math.round(hours / 24));
+  const requestedDays = Math.max(1, Math.round(hours / 24));
+  const days = Math.min(MAX_INTERVAL_DAYS, requestedDays);
+  if (days !== requestedDays) {
+    logger.warn('Scheduler', `Interval of ${hours}h (${requestedDays} days) exceeds the ${MAX_INTERVAL_DAYS}-day maximum a cron day step can express — clamped to every ${days} days`);
+  }
   return `0 0 */${days} * *`;
 }
 

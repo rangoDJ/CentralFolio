@@ -247,6 +247,20 @@ export const executeRebalance = async (req: Request, res: Response) => {
     const portfolio = getUserPortfolioById(portfolioId);
     if (!portfolio) return res.status(404).json({ error: 'User Portfolio not found' });
 
+    // Reject a batch containing an account outside this portfolio here, rather
+    // than staging it and refusing each trade after the user confirms.
+    // placeRebalanceTrades re-checks the same thing (membership can change while
+    // a token is pending), so this is a usability guard, not the security one —
+    // but /trade rejects the equivalent single order at 403 and this should too.
+    const allowed = new Set(portfolio.accountIds ?? []);
+    const foreign = trades
+      .map((t: any) => t?.accountId)
+      .filter((id: any) => typeof id !== 'string' || !allowed.has(id));
+    if (foreign.length > 0) {
+      logger.warn('Rebalance', `executeRebalance — ${foreign.length} trade(s) target accounts outside portfolio ${portfolioId}`);
+      return res.status(403).json({ error: 'One or more trades target an account that does not belong to this portfolio' });
+    }
+
     // Step 1 — stage. Orders are placed only on /rebalance/confirm with the
     // returned token (TTL-bound, single-use).
     const now = Date.now();
@@ -277,7 +291,11 @@ export const confirmRebalance = async (req: Request, res: Response) => {
 
   try {
     const results = await placeRebalanceTrades(portfolioId, trades);
-    res.json({ success: true, results });
+    // `success` reflects what actually happened. Reporting true for a batch in
+    // which every order was refused buried the failure inside `results`, where
+    // a caller checking the top-level flag would never look.
+    const placed = results.filter((r: any) => r.success).length;
+    res.json({ success: placed > 0, placed, failed: results.length - placed, results });
   } catch (err: any) {
     logger.error('Rebalance', `confirmRebalance failed: ${err.message}`);
     res.status(500).json({ error: 'Failed to execute rebalance trades' });

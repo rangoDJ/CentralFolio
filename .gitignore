@@ -16,3 +16,6 @@ tmp_*/
 # Database backups / salvaged copies (same secrets as the live DB)
 backup_db_*/
 *.db.CORRUPT
+
+# Scratch launch configs created while testing
+.claude/launch.json.bak

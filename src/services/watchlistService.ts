@@ -7,6 +7,7 @@ import { getDividendHistory } from "../repositories/dividendHistoryRepository.js
 import { computeDividendGrowth } from "./dividendGrowth.js";
 import { ensureProfile } from "./assetProfileService.js";
 import { syncSymbol } from "./priceHistoryService.js";
+import { evaluateTargets, type WatchlistTargets, type TargetVerdict } from "./watchlistTargets.js";
 
 export interface ScreenerRow {
   symbol: string;
@@ -23,6 +24,10 @@ export interface ScreenerRow {
   growthStreakYears: number;
   ratingScore: number | null;
   ratingLabel: string | null;
+  /** The user's buy criteria for this symbol. */
+  targets: WatchlistTargets;
+  /** Those criteria checked against the figures above. */
+  verdict: TargetVerdict;
 }
 
 const norm = (s: string) => s.toUpperCase().trim();
@@ -59,6 +64,14 @@ function buildRow(entry: WatchlistEntry): ScreenerRow {
   const growth = computeDividendGrowth(getDividendHistory(symbol));
   const bestDgr = growth.dgr5y ?? growth.dgr3y ?? growth.dgr1y;
 
+  const yieldPct = ttmDividend != null && price != null && price > 0 ? (ttmDividend / price) * 100 : null;
+  const targets: WatchlistTargets = {
+    targetPrice: entry.targetPrice,
+    targetYieldPct: entry.targetYieldPct,
+    maxRatingScore: entry.maxRatingScore,
+    minGrowthStreak: entry.minGrowthStreak,
+  };
+
   return {
     symbol,
     notes: entry.notes,
@@ -69,11 +82,16 @@ function buildRow(entry: WatchlistEntry): ScreenerRow {
     assetType: profile?.assetType ?? null,
     price,
     ttmDividend,
-    yieldPct: ttmDividend != null && price != null && price > 0 ? (ttmDividend / price) * 100 : null,
+    yieldPct,
     dgr5yPct: bestDgr != null ? bestDgr * 100 : null,
     growthStreakYears: growth.growthStreakYears,
     ratingScore: rating?.score ?? null,
     ratingLabel: rating?.label ?? null,
+    targets,
+    verdict: evaluateTargets(
+      { price, yieldPct, ratingScore: rating?.score ?? null, growthStreakYears: growth.growthStreakYears },
+      targets,
+    ),
   };
 }
 

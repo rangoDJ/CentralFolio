@@ -9,6 +9,8 @@ import {
 import { getScopedAccounts } from "./accountScope.js";
 import { getDividendHistory } from "../repositories/dividendHistoryRepository.js";
 import { getAllRatings } from "../repositories/stockRatingRepository.js";
+import { getWatchlistRows } from "./watchlistService.js";
+import { describeVerdict } from "./watchlistTargets.js";
 import { computeDividendGrowth } from "./dividendGrowth.js";
 import { computeRebalance } from "./rebalanceService.js";
 import { getAllDividendsForAllPortfolios } from "./dividendService.js";
@@ -39,6 +41,7 @@ import { logger } from "../utils/logger.js";
 
 const norm = (s: unknown) => String(s ?? "").toUpperCase().trim();
 const RATING_STATE_PREFIX = "rating:";
+const WATCHLIST_STATE_PREFIX = "watchlist_met:";
 
 function todayIso(now: Date = new Date()): string {
   return now.toISOString().slice(0, 10);
@@ -174,6 +177,18 @@ export async function runAlertEvaluation(dryRun = false): Promise<AlertRunResult
     if (Number.isFinite(score)) previousRatingScores.set(symbol, score);
   }
 
+  // Watched symbols meeting every criterion set on them. Rows with no criteria
+  // are plain bookmarks and never match.
+  const watchlistRows = getWatchlistRows();
+  const watchlistMatches = watchlistRows
+    .filter(r => r.verdict.hasTargets && r.verdict.met)
+    .map(r => ({ symbol: r.symbol, name: r.name, detail: describeVerdict(r.symbol, r.verdict).replace(`${r.symbol}: `, "") }));
+
+  const previouslyMetWatchlist = new Set<string>();
+  for (const [symbol, value] of getAlertStateByPrefix(WATCHLIST_STATE_PREFIX)) {
+    if (value === "1") previouslyMetWatchlist.add(symbol);
+  }
+
   const inputs: AlertInputs = {
     today: todayIso(),
     heldSymbols: held,
@@ -182,6 +197,8 @@ export async function runAlertEvaluation(dryRun = false): Promise<AlertRunResult
     drift: allocationDrift(),
     ratings: ratings.map(r => ({ symbol: norm(r.symbol), score: r.score, label: r.label, summary: r.summary })),
     previousRatingScores,
+    watchlistMatches,
+    previouslyMetWatchlist,
   };
 
   // A dry run must see every rule, including the ones currently switched off.
@@ -197,6 +214,13 @@ export async function runAlertEvaluation(dryRun = false): Promise<AlertRunResult
   // Done regardless of whether anything fired — otherwise the first downgrade
   // after a quiet period would compare against a stale score.
   for (const r of ratings) setAlertState(`${RATING_STATE_PREFIX}${norm(r.symbol)}`, String(r.score));
+
+  // Same for watchlist matches: recording the current state is what makes the
+  // next run fire on a transition rather than on the state persisting.
+  const matched = new Set(watchlistMatches.map(m => m.symbol));
+  for (const row of watchlistRows) {
+    setAlertState(`${WATCHLIST_STATE_PREFIX}${row.symbol}`, matched.has(row.symbol) ? "1" : "0");
+  }
 
   if (alerts.length === 0) {
     logger.debug("Alerts", `Evaluated ${enabled.length} rule(s) — nothing new`);

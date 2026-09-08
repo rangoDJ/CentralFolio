@@ -2185,3 +2185,22 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
 /* Alert rule on/off switch */
 .alert-toggle { display: inline-flex; align-items: center; padding-top: 0.15rem; cursor: pointer; }
 .alert-toggle input { accent-color: var(--primary); width: 16px; height: 16px; cursor: pointer; margin: 0; }
+
+/* Watchlist buy signal */
+.wl-signal {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+.wl-signal:hover { border-color: var(--border-hover); }
+.wl-signal-met     { background: rgba(0,208,156,0.14); color: var(--success); }
+.wl-signal-miss    { background: var(--surface-2);     color: var(--text-muted); }
+.wl-signal-unknown { background: rgba(245,166,35,0.12); color: var(--warning); }
+.wl-signal-none    { background: none; border: 1px dashed var(--border-hover); color: var(--text-muted); }
+.wl-signal-none:hover { color: var(--primary); border-color: var(--primary); border-style: solid; }

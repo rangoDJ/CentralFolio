@@ -1173,6 +1173,55 @@
     </div>
   </div>
 
+  <!-- Watchlist buy-criteria modal -->
+  <div id="watchlistTargetsModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:440px;">
+      <button class="modal-close" id="watchlistTargetsModalClose">&times;</button>
+      <h2 class="modal-title">Buy Criteria — <span id="wtSymbol"></span></h2>
+      <p class="text-muted text-sm" style="margin:-0.5rem 0 1rem;">
+        Leave a field blank to ignore that condition. When every condition you set is met,
+        the symbol shows <strong>Buy range</strong> — and, with the
+        <strong>Watchlist target</strong> alert enabled, tells you once when it gets there.
+      </p>
+      <form id="watchlistTargetsForm">
+        <div style="display:flex;gap:0.75rem;">
+          <div class="form-group" style="flex:1;">
+            <label for="wtPrice">Buy at or below</label>
+            <input type="number" id="wtPrice" step="any" min="0" placeholder="e.g. 60.00">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label for="wtYield">Yield at or above (%)</label>
+            <input type="number" id="wtYield" step="any" min="0" max="100" placeholder="e.g. 3.5">
+          </div>
+        </div>
+        <div style="display:flex;gap:0.75rem;">
+          <div class="form-group" style="flex:1;">
+            <label for="wtRating">Rating at least</label>
+            <select id="wtRating">
+              <option value="">Any</option>
+              <option value="1">Strong Buy</option>
+              <option value="2">Buy or better</option>
+              <option value="3">Hold or better</option>
+              <option value="4">Caution or better</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label for="wtStreak">Growth streak (years)</label>
+            <input type="number" id="wtStreak" step="1" min="0" placeholder="e.g. 10">
+          </div>
+        </div>
+        <div id="wtCurrent" class="text-muted text-sm" style="margin-bottom:0.85rem;"></div>
+        <div id="wtErrorMsg" style="display:none;color:var(--danger,#ef4444);font-size:0.85rem;padding:0.5rem 0.75rem;background:rgba(239,68,68,0.1);border-radius:var(--radius-sm,6px);margin-bottom:0.75rem;"></div>
+        <div style="display:flex;gap:0.75rem;">
+          <button type="button" class="btn btn-outline" onclick="App.clearWatchlistTargets()">Clear all</button>
+          <button type="submit" id="saveWatchlistTargetsBtn" class="btn btn-primary" style="flex:1;">
+            <span class="loader"></span><span class="btn-text">Save Criteria</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Manual transaction modal — for activity the brokerage never supplied -->
   <div id="manualTxnModal" class="modal-overlay">
     <div class="modal-content" style="max-width:520px;">

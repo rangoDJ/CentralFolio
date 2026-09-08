@@ -3,6 +3,7 @@ import {
   getWatchlist,
   addWatchlist,
   updateWatchlistNotes,
+  setWatchlistTargetsHandler,
   deleteWatchlist,
 } from "../controllers/watchlistController.js";
 import {
@@ -10,7 +11,7 @@ import {
   getHeldDividendGrowth,
 } from "../controllers/dividendGrowthController.js";
 import { validateBody } from "../middleware/validate.js";
-import { addWatchlistSchema } from "../schemas/watchlistSchema.js";
+import { addWatchlistSchema, watchlistTargetsSchema } from "../schemas/watchlistSchema.js";
 
 const router = Router();
 
@@ -18,6 +19,7 @@ const router = Router();
 router.get("/watchlist", getWatchlist);
 router.post("/watchlist", validateBody(addWatchlistSchema), addWatchlist);
 router.patch("/watchlist/:symbol", updateWatchlistNotes);
+router.put("/watchlist/:symbol/targets", validateBody(watchlistTargetsSchema), setWatchlistTargetsHandler);
 router.delete("/watchlist/:symbol", deleteWatchlist);
 
 // Dividend-growth metrics

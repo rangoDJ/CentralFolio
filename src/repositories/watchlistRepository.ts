@@ -5,10 +5,29 @@ export interface WatchlistEntry {
   symbol: string;
   notes: string | null;
   addedAt: string;
+  /** Buy criteria; null means "not a condition I care about". */
+  targetPrice: number | null;
+  targetYieldPct: number | null;
+  maxRatingScore: number | null;
+  minGrowthStreak: number | null;
 }
 
-const stmtList = db.prepare(`SELECT symbol, notes, addedAt FROM watchlist ORDER BY addedAt DESC`);
-const stmtGet = db.prepare(`SELECT symbol, notes, addedAt FROM watchlist WHERE symbol = ?`);
+/** The four criteria, as accepted from the API. */
+export interface WatchlistTargetInput {
+  targetPrice?: number | null;
+  targetYieldPct?: number | null;
+  maxRatingScore?: number | null;
+  minGrowthStreak?: number | null;
+}
+
+const COLUMNS = "symbol, notes, addedAt, targetPrice, targetYieldPct, maxRatingScore, minGrowthStreak";
+
+const stmtList = db.prepare(`SELECT ${COLUMNS} FROM watchlist ORDER BY addedAt DESC`);
+const stmtGet = db.prepare(`SELECT ${COLUMNS} FROM watchlist WHERE symbol = ?`);
+const stmtSetTargets = db.prepare(`
+  UPDATE watchlist SET targetPrice = ?, targetYieldPct = ?, maxRatingScore = ?, minGrowthStreak = ?
+  WHERE symbol = ?
+`);
 const stmtInsert = db.prepare(
   `INSERT OR IGNORE INTO watchlist (symbol, notes, addedAt) VALUES (?, ?, CURRENT_TIMESTAMP)`
 );
@@ -32,6 +51,22 @@ export function addWatchlistSymbol(symbol: string, notes?: string): boolean {
 
 export function setWatchlistNotes(symbol: string, notes: string | null): void {
   stmtUpdateNotes.run(notes, symbol);
+}
+
+/**
+ * Replace a symbol's buy criteria. Undefined fields are cleared rather than
+ * left alone, so the caller always sends the complete set — a partial update
+ * that silently kept an old threshold would be hard to reason about.
+ */
+export function setWatchlistTargets(symbol: string, targets: WatchlistTargetInput): void {
+  stmtSetTargets.run(
+    targets.targetPrice ?? null,
+    targets.targetYieldPct ?? null,
+    targets.maxRatingScore ?? null,
+    targets.minGrowthStreak ?? null,
+    symbol,
+  );
+  logger.info("Watchlist", `Targets for ${symbol}: ${JSON.stringify(targets)}`);
 }
 
 export function removeWatchlistSymbol(symbol: string): boolean {

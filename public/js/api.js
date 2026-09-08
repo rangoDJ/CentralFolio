@@ -581,6 +581,17 @@ const API = {
         return data;
     },
 
+    /** Replace a symbol's buy criteria. Null/omitted fields clear that criterion. */
+    async setWatchlistTargets(symbol, targets) {
+        const res = await this._fetch(`/api/watchlist/${encodeURIComponent(symbol)}/targets`, {
+            method: 'PUT',
+            body: JSON.stringify(targets)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to save buy criteria');
+        return data;
+    },
+
     async removeWatchlist(symbol) {
         const res = await this._fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: 'DELETE' });
         const data = await this._json(res);

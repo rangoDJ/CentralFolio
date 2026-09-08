@@ -20,6 +20,8 @@ function inputs(overrides: Partial<AlertInputs> = {}): AlertInputs {
     drift: [],
     ratings: [],
     previousRatingScores: new Map(),
+    watchlistMatches: [],
+    previouslyMetWatchlist: new Set(),
     ...overrides,
   };
 }
@@ -226,6 +228,50 @@ test("a downgrade smaller than minChange is ignored", () => {
     previousRatingScores: new Map([["ENB.TO", 2]]),
   }), rules, new Set());
   assert.equal(a.length, 0);
+});
+
+// ── watchlist_target ────────────────────────────────────────────────────────
+
+test("a watched symbol entering buy range fires once, on the transition", () => {
+  const match = { symbol: "KO", name: "Coca-Cola", detail: "Price 58.00 vs target <= 60.00" };
+
+  const entered = evaluateAlerts(inputs({ watchlistMatches: [match] }), only("watchlist_target"), new Set());
+  assert.equal(entered.length, 1);
+  assert.match(entered[0].title, /KO meets your buy criteria/);
+  assert.match(entered[0].body, /Coca-Cola — Price 58\.00/);
+
+  // Still in range on the next run, but no longer news.
+  const stillMet = evaluateAlerts(
+    inputs({ watchlistMatches: [match], previouslyMetWatchlist: new Set(["KO"]) }),
+    only("watchlist_target"), new Set(),
+  );
+  assert.equal(stillMet.length, 0);
+});
+
+test("a symbol that drops out and comes back later is a new opportunity", () => {
+  const match = { symbol: "KO", name: "Coca-Cola", detail: "back in range" };
+
+  const first = evaluateAlerts(inputs({ watchlistMatches: [match] }), only("watchlist_target"), new Set());
+  assert.equal(first.length, 1);
+
+  // Months later it re-enters range. The earlier key is still inside the
+  // dedupe retention window, so a fixed key would silently swallow this.
+  const later = evaluateAlerts(
+    inputs({ today: "2026-11-20", watchlistMatches: [match] }),
+    only("watchlist_target"),
+    new Set([first[0].dedupeKey]),
+  );
+  assert.equal(later.length, 1, "a re-entry on a later day must still alert");
+  assert.notEqual(later[0].dedupeKey, first[0].dedupeKey);
+});
+
+test("watchlist matches do not require the symbol to be held", () => {
+  // The whole point is symbols you do not own yet.
+  const a = evaluateAlerts(inputs({
+    heldSymbols: new Set(),
+    watchlistMatches: [{ symbol: "KO", name: "Coca-Cola", detail: "in range" }],
+  }), only("watchlist_target"), new Set());
+  assert.equal(a.length, 1);
 });
 
 // ── engine behaviour ────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import {
   addWatchlistSymbol,
   setWatchlistNotes,
+  setWatchlistTargets,
   removeWatchlistSymbol,
   getWatchlistEntry,
 } from "../repositories/watchlistRepository.js";
@@ -47,6 +48,19 @@ export const updateWatchlistNotes = (req: Request, res: Response) => {
   const notes = req.body?.notes ?? null;
   setWatchlistNotes(symbol, notes == null ? null : String(notes).slice(0, 500));
   res.json({ success: true });
+};
+
+// PUT /api/watchlist/:symbol/targets — replace this symbol's buy criteria.
+// Body validated by validateBody(watchlistTargetsSchema); an omitted or null
+// field clears that criterion.
+export const setWatchlistTargetsHandler = (req: Request, res: Response) => {
+  const symbol = String(req.params.symbol).toUpperCase().trim();
+  if (!SYMBOL_RE.test(symbol)) return res.status(400).json({ error: "Invalid symbol" });
+  if (!getWatchlistEntry(symbol)) return res.status(404).json({ error: "Symbol not on watchlist" });
+
+  setWatchlistTargets(symbol, req.body);
+  const row = getWatchlistRows().find(r => r.symbol === symbol);
+  res.json(row ?? { symbol });
 };
 
 // DELETE /api/watchlist/:symbol — remove a symbol.

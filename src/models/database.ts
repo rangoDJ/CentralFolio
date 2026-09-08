@@ -252,6 +252,12 @@ const migrations: Array<{ name: string; sql: string }> = [
   ` },
   { name: 'fx_rates.idx_pair', sql: `CREATE INDEX IF NOT EXISTS idx_fx_rates_pair ON fx_rates(pair)` },
   { name: 'dividend_metadata.currency', sql: `ALTER TABLE dividend_metadata ADD COLUMN currency TEXT` },
+  // Buy criteria per watched symbol — the watchlist already derives price,
+  // yield, growth and rating; these are the user's own thresholds for them.
+  { name: 'watchlist.targetPrice',      sql: `ALTER TABLE watchlist ADD COLUMN targetPrice REAL` },
+  { name: 'watchlist.targetYieldPct',   sql: `ALTER TABLE watchlist ADD COLUMN targetYieldPct REAL` },
+  { name: 'watchlist.maxRatingScore',   sql: `ALTER TABLE watchlist ADD COLUMN maxRatingScore INTEGER` },
+  { name: 'watchlist.minGrowthStreak',  sql: `ALTER TABLE watchlist ADD COLUMN minGrowthStreak INTEGER` },
   { name: 'notification_rules.create', sql: `
     CREATE TABLE IF NOT EXISTS notification_rules (
       type      TEXT PRIMARY KEY,          -- one config row per rule type

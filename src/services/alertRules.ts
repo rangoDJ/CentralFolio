@@ -16,13 +16,15 @@ export type AlertRuleType =
   | "dividend_cut"
   | "ex_dividend_soon"
   | "allocation_drift"
-  | "rating_downgrade";
+  | "rating_downgrade"
+  | "watchlist_target";
 
 export const ALERT_RULE_TYPES: AlertRuleType[] = [
   "dividend_cut",
   "ex_dividend_soon",
   "allocation_drift",
   "rating_downgrade",
+  "watchlist_target",
 ];
 
 /** Defaults used when a rule has never been configured. */
@@ -31,6 +33,8 @@ export const DEFAULT_RULE_CONFIG: Record<AlertRuleType, Record<string, number>> 
   ex_dividend_soon: { days: 7 },
   allocation_drift: { thresholdPct: 5 },
   rating_downgrade: { minChange: 1 },
+  // Nothing to tune: a symbol either meets the criteria you set on it or not.
+  watchlist_target: {},
 };
 
 export interface AlertRule {
@@ -71,6 +75,10 @@ export interface AlertInputs {
   ratings: Array<{ symbol: string; score: number; label: string; summary?: string }>;
   /** Score last seen for each symbol, so only a *change* alerts. */
   previousRatingScores: Map<string, number>;
+  /** Watched symbols currently meeting every buy criterion set on them. */
+  watchlistMatches: Array<{ symbol: string; name?: string | null; detail: string }>;
+  /** Symbols that already met their criteria last run, so only a *transition* alerts. */
+  previouslyMetWatchlist: Set<string>;
 }
 
 const money = (n: number) => `$${Math.abs(n).toFixed(2)}`;
@@ -205,11 +213,39 @@ function ratingDowngrades(inputs: AlertInputs, config: Record<string, number>): 
   return out;
 }
 
+/**
+ * A watched symbol that has just come into buy range.
+ *
+ * Fires on the transition into "meets everything", not on the state: a symbol
+ * sitting below your price target for a month should say so once, not daily.
+ * Dropping out and coming back is a genuinely new opportunity and alerts again.
+ */
+function watchlistTargets(inputs: AlertInputs, _config: Record<string, number>): Alert[] {
+  const out: Alert[] = [];
+  for (const match of inputs.watchlistMatches) {
+    if (inputs.previouslyMetWatchlist.has(match.symbol)) continue;
+    out.push({
+      ruleType: "watchlist_target",
+      // Dated, not a fixed "entered": `previouslyMetWatchlist` already stops
+      // this repeating while the symbol stays in range, and a fixed key would
+      // make the 180-day dedupe window permanently swallow a genuine re-entry
+      // months later.
+      dedupeKey: `watchlist_target:${match.symbol}:${inputs.today}`,
+      severity: "info",
+      symbol: match.symbol,
+      title: `${match.symbol} meets your buy criteria`,
+      body: `${match.name ? match.name + " — " : ""}${match.detail}`,
+    });
+  }
+  return out;
+}
+
 const EVALUATORS: Record<AlertRuleType, (i: AlertInputs, c: Record<string, number>) => Alert[]> = {
   dividend_cut: dividendCuts,
   ex_dividend_soon: exDividendsSoon,
   allocation_drift: allocationDrift,
   rating_downgrade: ratingDowngrades,
+  watchlist_target: watchlistTargets,
 };
 
 /**

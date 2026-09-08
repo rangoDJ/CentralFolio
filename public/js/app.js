@@ -93,6 +93,10 @@ const App = {
         document.getElementById('manualTxnForm').onsubmit = (e) => this.handleManualTxnSubmit(e);
         document.getElementById('txnImportModalClose').onclick = () => this.closeTxnImportModal();
 
+        // Watchlist buy-criteria modal
+        document.getElementById('watchlistTargetsModalClose').onclick = () => this.closeWatchlistTargets();
+        document.getElementById('watchlistTargetsForm').onsubmit = (e) => this.handleWatchlistTargetsSubmit(e);
+
         // Clicking the "Manual" badge on a ledger row opens it for editing.
         document.getElementById('transactions-tables').addEventListener('click', e => {
             const badge = e.target.closest('.manual-txn-badge');
@@ -147,6 +151,7 @@ const App = {
             if (e.target === document.getElementById('manualAssetModal')) UI.closeManualAssetModal();
             if (e.target === document.getElementById('manualTxnModal')) this.closeManualTxnModal();
             if (e.target === document.getElementById('txnImportModal')) this.closeTxnImportModal();
+            if (e.target === document.getElementById('watchlistTargetsModal')) this.closeWatchlistTargets();
         };
 
         // Clicking any element tagged with data-stock opens the stock detail page.
@@ -2532,6 +2537,69 @@ const App = {
             if (container) container.innerHTML = `<div class="empty-state" style="color: var(--danger)">Error: ${sanitize(err.message)}</div>`;
         } finally {
             if (btn) btn.classList.remove('loading');
+        }
+    },
+
+    // ── Watchlist buy criteria ────────────────────────────────────────────────
+    openWatchlistTargets(symbol) {
+        const row = (this._watchlistRows || []).find(r => r.symbol === symbol);
+        if (!row) return;
+        this._wtSymbol = symbol;
+
+        document.getElementById('wtSymbol').textContent = symbol;
+        const t = row.targets || {};
+        document.getElementById('wtPrice').value  = t.targetPrice ?? '';
+        document.getElementById('wtYield').value  = t.targetYieldPct ?? '';
+        document.getElementById('wtRating').value = t.maxRatingScore ?? '';
+        document.getElementById('wtStreak').value = t.minGrowthStreak ?? '';
+
+        // Show what the symbol is doing right now, so the thresholds can be set
+        // against something concrete rather than from memory.
+        const n = (v, dp = 2) => v == null ? '—' : Number(v).toFixed(dp);
+        document.getElementById('wtCurrent').textContent =
+            `Now: price ${n(row.price)} · yield ${n(row.yieldPct, 1)}% · rating ${row.ratingLabel || 'not rated'} · streak ${row.growthStreakYears}y`;
+
+        document.getElementById('wtErrorMsg').style.display = 'none';
+        document.getElementById('watchlistTargetsModal').classList.add('open');
+    },
+
+    closeWatchlistTargets() {
+        document.getElementById('watchlistTargetsModal')?.classList.remove('open');
+    },
+
+    clearWatchlistTargets() {
+        for (const id of ['wtPrice', 'wtYield', 'wtRating', 'wtStreak']) {
+            document.getElementById(id).value = '';
+        }
+    },
+
+    async handleWatchlistTargetsSubmit(e) {
+        e.preventDefault();
+        const btn = document.getElementById('saveWatchlistTargetsBtn');
+        const errEl = document.getElementById('wtErrorMsg');
+        const num = id => {
+            const v = document.getElementById(id).value.trim();
+            return v === '' ? null : Number(v);
+        };
+
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            await API.setWatchlistTargets(this._wtSymbol, {
+                targetPrice: num('wtPrice'),
+                targetYieldPct: num('wtYield'),
+                maxRatingScore: num('wtRating'),
+                minGrowthStreak: num('wtStreak'),
+            });
+            this.closeWatchlistTargets();
+            UI.showToast(`Buy criteria saved for ${this._wtSymbol}`);
+            await this.loadWatchlist();
+        } catch (err) {
+            errEl.textContent = err.message;
+            errEl.style.display = 'block';
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
         }
     },
 

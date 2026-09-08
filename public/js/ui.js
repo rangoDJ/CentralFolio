@@ -64,6 +64,41 @@ const UI = {
         this.renderWatchlist(this._wlRows);
     },
 
+    /**
+     * Buy-signal cell: whether the criteria set on a symbol are currently met.
+     *
+     * Three states, not two — a criterion whose data is missing (no dividend
+     * history, not yet rated) is "can't tell", which must not look like a
+     * failure or the symbol quietly never surfaces.
+     */
+    wlSignalCell(r) {
+        const v = r.verdict || {};
+        if (!v.hasTargets) {
+            return `<button class="wl-signal wl-signal-none" onclick="App.openWatchlistTargets('${sanitize(r.symbol)}')"
+                title="No buy criteria set — click to add some">Set targets</button>`;
+        }
+
+        const tip = (v.checks || []).map(c => `${c.label}: ${c.detail}`).join('\n');
+        const cls = v.met ? 'wl-signal-met' : v.indeterminate ? 'wl-signal-unknown' : 'wl-signal-miss';
+        const label = v.met
+            ? 'Buy range'
+            : v.indeterminate
+                ? `${v.metCount}/${v.totalCount} · no data`
+                : `${v.metCount}/${v.totalCount}`;
+
+        return `<button class="wl-signal ${cls}" onclick="App.openWatchlistTargets('${sanitize(r.symbol)}')"
+            title="${sanitize(tip)}">${sanitize(label)}</button>`;
+    },
+
+    /** How far price sits from its target — the number you act on. */
+    wlGapCell(r) {
+        const gap = r.verdict?.priceGapPct;
+        if (gap == null) return '<span class="text-muted">—</span>';
+        const below = gap <= 0;
+        return `<span style="color:${below ? 'var(--success)' : 'var(--text-secondary)'};font-weight:${below ? '600' : '400'};"
+            title="${below ? 'Below' : 'Above'} your price target">${gap > 0 ? '+' : ''}${gap.toFixed(1)}%</span>`;
+    },
+
     renderWatchlist(rows) {
         this._wlRows = rows || [];
         const container = document.getElementById('watchlist-content');
@@ -112,6 +147,8 @@ const UI = {
                 <td style="text-align:right;">${dgrCell(r.dgr5yPct)}</td>
                 <td style="text-align:center;">${streakCell(r.growthStreakYears)}</td>
                 <td style="text-align:center;">${ratingCell(r)}</td>
+                <td style="text-align:right;">${this.wlGapCell(r)}</td>
+                <td style="text-align:center;">${this.wlSignalCell(r)}</td>
                 <td style="text-align:right;">
                     <button class="btn btn-outline btn-sm" title="Remove from watchlist"
                         onclick="App.removeWatchlistSymbol('${sanitize(r.symbol)}')"
@@ -131,11 +168,13 @@ const UI = {
                         ${th('dgr5yPct', 'DGR', 'right')}
                         ${th('growthStreakYears', 'Streak', 'center')}
                         ${th('ratingScore', 'Rating', 'center')}
+                        <th style="text-align:right;white-space:nowrap;" title="Distance from your price target">vs Target</th>
+                        <th style="text-align:center;white-space:nowrap;">Buy signal</th>
                         <th></th>
                     </tr></thead>
                     <tbody>${body}</tbody>
                 </table>
-                <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">Yield = trailing-12-month dividends ÷ latest close. DGR = compound annual growth of yearly dividends (best of 5y/3y/1y). Data from Yahoo; may lag or be missing for some listings.</p>
+                <p class="text-muted" style="font-size:0.72rem;margin-top:0.75rem;">Click a buy signal to set price, yield, rating and growth-streak criteria for that symbol. Yield = trailing-12-month dividends ÷ latest close. DGR = compound annual growth of yearly dividends (best of 5y/3y/1y). Data from Yahoo; may lag or be missing for some listings.</p>
             </div>`;
     },
 
@@ -2001,6 +2040,11 @@ const UI = {
             label: 'AI rating downgrade',
             blurb: 'The stock rating got worse since the last check.',
             fields: { minChange: { label: 'At least', suffix: 'steps', step: '1' } },
+        },
+        watchlist_target: {
+            label: 'Watchlist target hit',
+            blurb: 'A watched symbol now meets every buy criterion you set on it.',
+            fields: {},
         },
     },
 

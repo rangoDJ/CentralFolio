@@ -61,9 +61,9 @@ export const getTradeLoginLink = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `getTradeLoginLink — generated trade URL for "${portfolio.name}"`);
     res.json({ loginUrl });
   } catch (err: any) {
-    const { log, client } = snapTradeError(err, "Trade login generation failed");
+    const { log, client, status } = snapTradeError(err, "Trade login generation failed");
     logger.error('SnapTrade', `getTradeLoginLink failed for portfolioId=${portfolioId}: ${log}`);
-    res.status(500).json({ error: client });
+    res.status(status).json({ error: client });
   }
 };
 
@@ -106,9 +106,9 @@ export const placeTrade = async (req: Request, res: Response) => {
       preview: { portfolioId, accountId, ticker: ticker.trim(), action, orderType, units, notional_value, price },
     });
   } catch (err: any) {
-    const { log } = snapTradeError(err, "Order staging failed");
+    const { log, status } = snapTradeError(err, "Order staging failed");
     logger.error('SnapTrade', `placeTrade failed for account ${accountId}: ${log}`);
-    res.status(500).json({ error: "Failed to stage order" });
+    res.status(status).json({ error: "Failed to stage order" });
   }
 };
 
@@ -169,8 +169,8 @@ export const confirmTrade = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `placeTrade — order placed successfully for account ${accountId}`);
     res.json({ success: true, order: response.data });
   } catch (err: any) {
-    const { log, client } = snapTradeError(err, "Order placement failed");
+    const { log, client, status } = snapTradeError(err, "Order placement failed");
     logger.error('SnapTrade', `placeTrade failed for account ${accountId}: ${log}`);
-    res.status(500).json({ error: client });
+    res.status(status).json({ error: client });
   }
 };

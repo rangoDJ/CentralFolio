@@ -33,6 +33,12 @@ export const getTargets = (req: Request, res: Response) => {
   if (isNaN(portfolioId)) return res.status(400).json({ error: 'Invalid portfolio id' });
 
   try {
+    // Every sibling route on :id 404s an unknown portfolio; this one returned
+    // an empty array, so a caller could not tell "no targets configured" from
+    // "no such portfolio" — including after a portfolio was deleted.
+    if (!getUserPortfolioById(portfolioId)) {
+      return res.status(404).json({ error: 'User Portfolio not found' });
+    }
     const targets = getPortfolioTargets(portfolioId);
     res.json(targets);
   } catch (err: any) {

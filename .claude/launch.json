@@ -4,8 +4,21 @@
     {
       "name": "centralfolio",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start"],
+      "runtimeArgs": [
+        "run",
+        "start"
+      ],
       "port": 3000
+    },
+    {
+      "name": "centralfolio-audit",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "tsx",
+        "--env-file=.env",
+        "C:/Users/sneha/AppData/Local/Temp/claude/C--Users-sneha-Nextcloud--kodi-downloads--VibeCoding-CentralFolio/3e192d4e-3236-43e5-b629-43072d593e14/scratchpad/dev-server.mts"
+      ],
+      "port": 3100
     }
   ]
 }

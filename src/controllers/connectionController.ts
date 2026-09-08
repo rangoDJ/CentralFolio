@@ -34,9 +34,9 @@ export const getLoginLink = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `getLoginLink — generated URL for "${portfolio.name}"`);
     res.json({ loginUrl });
   } catch (err: any) {
-    const { log, client } = snapTradeError(err, "Login generation failed");
+    const { log, client, status } = snapTradeError(err, "Login generation failed");
     logger.error('SnapTrade', `getLoginLink failed for portfolioId=${portfolioId}: ${log}`);
-    res.status(500).json({ error: client });
+    res.status(status).json({ error: client });
   }
 };
 
@@ -61,9 +61,9 @@ export const getConnectionStatus = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `getConnectionStatus — portfolio=${portfolioId} type=${connectionType} (${auths.length} auth(s))`);
     res.json({ connectionType, authorizations: auths.length });
   } catch (err: any) {
-    const { log, client } = snapTradeError(err, "Failed to fetch connection status");
+    const { log, client, status } = snapTradeError(err, "Failed to fetch connection status");
     logger.error('SnapTrade', `getConnectionStatus failed for portfolioId=${portfolioId}: ${log}`);
-    res.status(500).json({ error: client });
+    res.status(status).json({ error: client });
   }
 };
 

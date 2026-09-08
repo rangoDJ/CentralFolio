@@ -156,8 +156,8 @@ export const getHoldings = async (req: Request, res: Response) => {
     saveCachedPositions(String(accountId), response.data);
     res.json(response.data);
   } catch (err: any) {
-    const { log, client } = snapTradeError(err, "Failed to fetch holdings");
+    const { log, client, status } = snapTradeError(err, "Failed to fetch holdings");
     logger.error('SnapTrade', `getHoldings failed for account ${accountId}: ${log}`);
-    res.status(500).json({ error: client });
+    res.status(status).json({ error: client });
   }
 };

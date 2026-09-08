@@ -39,7 +39,7 @@ export const registerUser = async (req: Request, res: Response) => {
 
     res.json({ success: true, userSecret });
   } catch (err: any) {
-    const { log, client } = snapTradeError(err, "Registration failed");
+    const { log, client, status } = snapTradeError(err, "Registration failed");
     logger.error('SnapTrade', `registerUser failed for portfolioId=${portfolioId}: ${log}`);
 
     const portfolio = getPortfolio(String(portfolioId));
@@ -48,7 +48,7 @@ export const registerUser = async (req: Request, res: Response) => {
       return res.json({ success: true, userSecret: portfolio.userSecret, cached: true });
     }
 
-    res.status(500).json({ error: client });
+    res.status(status).json({ error: client });
   }
 };
 
@@ -164,8 +164,8 @@ export const getDividendForecast = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `getDividendForecast — ${forecast.length} event(s) for account ${accountId} in ${Date.now() - start}ms`);
     res.json(forecast);
   } catch (err: any) {
-    const { log, client } = snapTradeError(err, "Failed to generate forecast");
+    const { log, client, status } = snapTradeError(err, "Failed to generate forecast");
     logger.error('SnapTrade', `getDividendForecast failed for account ${accountId}: ${log}`);
-    res.status(500).json({ error: client });
+    res.status(status).json({ error: client });
   }
 };

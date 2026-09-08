@@ -332,7 +332,14 @@ const migrations: Array<{ name: string; sql: string }> = [
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);
-const markApplied  = db.prepare(`INSERT INTO schema_migrations (name) VALUES (?)`);
+// OR IGNORE because recording a migration is not atomic with applying it, and
+// more than one process can be doing both at once — `npm test` runs test files
+// concurrently, and each one that does not set DATA_DIR opens the same
+// database. Two runners could then both hit the "duplicate column" branch below
+// and both try to record the same migration, and the loser crashed the process
+// with UNIQUE constraint failed: schema_migrations.name. Recording an
+// already-recorded migration means nothing, so ignoring the collision is right.
+const markApplied  = db.prepare(`INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)`);
 
 for (const m of migrations) {
   if (checkApplied.get(m.name)) {

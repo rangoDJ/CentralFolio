@@ -70,9 +70,18 @@ function recentAcquisitions(today: string): RecentAcquisition[] {
   return out;
 }
 
-/** Current market value per pool, in CAD, across taxable accounts only. */
-async function taxableMarketValues(): Promise<Map<string, { value: number; units: number; label: string; symbol: string }>> {
-  const byPool = new Map<string, { value: number; units: number; label: string; symbol: string }>();
+/** One security's pooled position across every taxable account. */
+interface PooledMarketValue {
+  /** Market value in CAD, converted from the security's own currency. */
+  value: number;
+  units: number;
+  /** Every taxable account holding this pool — a position can span several. */
+  accounts: string[];
+  symbol: string;
+}
+
+async function taxableMarketValues(): Promise<Map<string, PooledMarketValue>> {
+  const byPool = new Map<string, PooledMarketValue>();
   const nativeByPool = new Map<string, { native: number; currency: string }>();
 
   for (const acct of getScopedAccounts(null)) {
@@ -87,13 +96,14 @@ async function taxableMarketValues(): Promise<Map<string, { value: number; units
       const value = pos.marketValue ?? units * (pos.price ?? 0);
       if (!value) continue;
 
-      const existing = byPool.get(key);
-      byPool.set(key, {
-        value: 0,                                   // filled after FX below
-        units: (existing?.units ?? 0) + units,
-        label: existing ? `${existing.label}` : label,
-        symbol: existing?.symbol ?? symbol,
-      });
+      // Cost base is pooled across accounts, so market value must be too — and
+      // the row has to name *every* account it spans. Naming only the first
+      // sent the user to sell 200 units somewhere holding 100.
+      const existing = byPool.get(key) ?? { value: 0, units: 0, accounts: [], symbol };
+      existing.units += units;
+      if (!existing.accounts.includes(label)) existing.accounts.push(label);
+      byPool.set(key, existing);
+
       const native = nativeByPool.get(key);
       nativeByPool.set(key, {
         native: (native?.native ?? 0) + value,
@@ -151,7 +161,7 @@ export async function getHarvestReport(
     holdings.push({
       symbol: open.symbol,
       poolKey: open.poolKey,
-      accountLabel: market.label,
+      accountLabel: market.accounts.join(" + "),
       units: market.units,
       marketValue: market.value,
       acb: open.acb,

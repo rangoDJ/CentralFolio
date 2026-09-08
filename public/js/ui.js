@@ -2460,13 +2460,12 @@ const UI = {
         const rows = this.txAll || [];
         if (rows.length === 0) { this.showToast('No transactions to export', 'error'); return; }
         const header = ['Operation', 'Symbol', 'Holding', 'Date', 'Shares', 'Price', 'Amount', 'Currency', 'Account'];
-        const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-        const lines = [header.join(',')];
+        const lines = [header.map(csvCell).join(',')];
         rows.forEach(t => lines.push([
             (t.type || t.action || ''), t.symbol || '', t.description || '',
             t.date ? new Date(t.date).toISOString().slice(0, 10) : '',
             t.units ?? '', t.price ?? '', t.amount ?? '', t.currencyCode || '', t.accountName || ''
-        ].map(esc).join(',')));
+        ].map(csvCell).join(',')));
         const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -2478,8 +2477,9 @@ const UI = {
     },
 
     _downloadCsv(filename, header, rows) {
-        const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-        const lines = [header.join(','), ...rows.map(r => r.map(esc).join(','))];
+        // csvCell also neutralises spreadsheet formula injection — these exports
+        // carry broker-supplied account names the user never typed.
+        const lines = [header.map(csvCell).join(','), ...rows.map(r => r.map(csvCell).join(','))];
         const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');

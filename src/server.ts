@@ -75,12 +75,35 @@ app.get("/api/events", consumeSSETicket, streamEvents);
 // --- Protected API routes ---
 app.use("/api", requireAuth, apiRoutes);
 
-// Global error handler
+// Global error handler.
+//
+// Middleware attaches a status to faults that are the *caller's*: body-parser
+// raises 400 for malformed JSON and 413 for a body over the 1mb limit. Answering
+// 500 for those told the client the server had broken when the request was at
+// fault, and hid the fact that a limit had been hit at all.
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error('Server', `Unhandled error on ${req.method} ${req.path}: ${err.message}`, err.stack);
-  if (req.path.startsWith('/api/')) {
-    // Detail is logged above; do not expose internals to the client.
-    return res.status(500).json({ error: "Internal Server Error" });
+  const status: number =
+    typeof err?.status === 'number' ? err.status
+    : typeof err?.statusCode === 'number' ? err.statusCode
+    : 500;
+  const callerFault = status >= 400 && status < 500;
+
+  if (callerFault) {
+    logger.warn('Server', `${status} on ${req.method} ${req.path}: ${err.message}`);
+  } else {
+    logger.error('Server', `Unhandled error on ${req.method} ${req.path}: ${err.message}`, err.stack);
+  }
+
+  // Both prefixes are JSON APIs; /auth/ used to fall through to Express's
+  // default HTML error page, which the frontend cannot parse.
+  if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
+    // Kept generic on purpose — err.message can carry internals.
+    const message =
+      status === 413 ? 'Request body too large'
+      : status === 400 ? 'Malformed request body'
+      : callerFault ? 'Bad request'
+      : 'Internal Server Error';
+    return res.status(status).json({ error: message });
   }
   next(err);
 });

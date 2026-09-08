@@ -65,3 +65,33 @@ export function parseCsvRecords(text: string): { headers: string[]; records: Rec
 
   return { headers, records };
 }
+
+/**
+ * Render one value as a CSV cell: quoted where needed, and neutralised against
+ * spreadsheet formula injection.
+ *
+ * Excel and LibreOffice execute a cell beginning `=`, `+`, `-`, `@`, tab or CR
+ * as a formula, and these exports carry broker-supplied text (symbols, holding
+ * descriptions, account names) that the user never typed. Prefixing an
+ * apostrophe forces such a cell to be read as text.
+ *
+ * Plain numbers are deliberately exempt. A leading `-` is just a negative
+ * value, and quoting it turned every capital *loss* in the T5008 export into
+ * text that a spreadsheet cannot sum — in a file whose only purpose is being
+ * imported into tax software.
+ *
+ * The frontend keeps a matching copy in public/js/format.js; the two cannot
+ * share a module because one is TypeScript under src/ and the other is a plain
+ * script tag.
+ */
+export function csvCell(value: unknown): string {
+  let s = value == null ? "" : String(value);
+  // `-` sits last in the class so it reads as a literal, not a range.
+  if (/^[=+@\t\r-]/.test(s) && !isPlainNumber(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** A bare numeric literal as JS stringifies one — never a leading `+`. */
+function isPlainNumber(s: string): boolean {
+  return /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(s.trim());
+}

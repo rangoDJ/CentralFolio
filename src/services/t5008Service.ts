@@ -17,6 +17,7 @@ import { primeFxHistory, fxRateOn, assetCurrency } from "./fxService.js";
 import { computeDispositions, summarizeByYear, poolKey, sideOf, type Disposition, type T5008Result, type T5008Transaction } from "./t5008.js";
 import { computeCarryingCharges, type CarryingChargesResult, type CCTransaction } from "./carryingCharges.js";
 import { logger } from "../utils/logger.js";
+import { csvCell } from "../utils/csv.js";
 
 const BASE_CURRENCY = "CAD";
 
@@ -289,12 +290,6 @@ function filterChargesToYear(r: CarryingChargesResult, year: number): CarryingCh
 // ── CSV export ────────────────────────────────────────────────────────────────
 
 /** Escape a value for CSV, guarding against spreadsheet formula injection. */
-function csvCell(value: unknown): string {
-  let s = value == null ? "" : String(value);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
 const CSV_HEADERS = [
   "Account",
   "Box 14 - Date of disposition",

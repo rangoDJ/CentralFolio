@@ -321,8 +321,34 @@ export async function getStockDetail(symbol: string): Promise<StockDetail | null
 /**
  * Helper to fetch dividend metadata with cache-only non-blocking option
  */
+/**
+ * Start of the current forced refresh, as epoch ms.
+ *
+ * `forceRefresh` means "this data is stale, go and ask Snowball" — but it was
+ * threaded into every account's loop, and skipped both caches unconditionally.
+ * A symbol held in ten accounts was therefore fetched ten times, 20 seconds
+ * apart under the rate limiter, turning a 25-minute refresh into hours of
+ * re-asking Snowball for answers it had already given. One refetch per symbol
+ * per run is what "force" was ever meant to mean.
+ */
+let forceRefreshStartedAt = 0;
+
+/** Called once per forced run, so each symbol is refetched at most once. */
+function beginForcedRefresh() {
+  forceRefreshStartedAt = Date.now();
+}
+
 export async function fetchDividendMetadata(symbol: string, allowExternalFetch: boolean = true, forceRefresh: boolean = false): Promise<any> {
   const now = Date.now();
+
+  // 0. A forced run still reuses what *this* run already fetched.
+  if (forceRefresh && forceRefreshStartedAt > 0) {
+    const fresh = divMetadataCache.get(symbol);
+    if (fresh && fresh.timestamp >= forceRefreshStartedAt) {
+      logger.debug('Cache', `fetchDividendMetadata(${symbol}) → already refreshed in this forced run`);
+      return fresh;
+    }
+  }
 
   // 1. Check in-memory Cache (skipped on forceRefresh)
   if (!forceRefresh && divMetadataCache.has(symbol)) {
@@ -553,6 +579,8 @@ export async function getAllDividendsForAllPortfolios(
   forceRefresh: boolean = false,
   allowExternalFetch: boolean = true
 ): Promise<any[]> {
+  if (forceRefresh) beginForcedRefresh();
+
   if (!forceRefresh) {
     const mem = getCachedAllDividends();
     if (mem) {

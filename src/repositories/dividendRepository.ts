@@ -9,9 +9,16 @@ const stmtGetMetadata = db.prepare(
 );
 
 const stmtUpsertMetadata = db.prepare(`
-  INSERT OR REPLACE INTO dividend_metadata (symbol, frequency, lastExDate, amountPerShare, name, provider, currency, cachedAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  INSERT OR REPLACE INTO dividend_metadata (symbol, frequency, lastExDate, payDate, amountPerShare, name, provider, currency, cachedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 `);
+
+// Newest write across the whole table, as epoch ms. The assembled forecast is
+// cached in memory for a week; without this it kept serving dates from before
+// the last Snowball pull.
+const stmtMaxCachedAt = db.prepare(
+  "SELECT MAX(cachedAt) AS maxCachedAt FROM dividend_metadata"
+);
 
 const stmtGetAllMetadata = db.prepare(
   "SELECT * FROM dividend_metadata ORDER BY cachedAt DESC"
@@ -41,12 +48,22 @@ export function saveCachedDividendMetadata(symbol: string, data: any, provider?:
     symbol,
     data.frequency       ?? null,
     data.lastExDate      ?? null,
+    data.payDate         ?? null,
     data.amountPerShare  ?? null,
     data.name            ?? null,
     provider             ?? null,
     data.currency        ?? null
   );
   emitDataChanged('dividends');
+}
+
+/** Epoch ms of the most recent metadata write, or 0 when the table is empty. */
+export function getDividendMetadataMaxCachedAt(): number {
+  const row = stmtMaxCachedAt.get() as { maxCachedAt: string | null } | undefined;
+  if (!row?.maxCachedAt) return 0;
+  // SQLite CURRENT_TIMESTAMP is "YYYY-MM-DD HH:MM:SS" in UTC, with no zone marker.
+  const ms = new Date(row.maxCachedAt.replace(' ', 'T') + 'Z').getTime();
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 export function getAllCachedDividendMetadata(): any[] {

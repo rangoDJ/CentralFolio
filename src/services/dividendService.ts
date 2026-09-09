@@ -1,30 +1,24 @@
-import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache, getAccountFetchTimestamps } from "../models/db.js";
+import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getDividendMetadataMaxCachedAt, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { sleep } from "../utils/sleep.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { emitDataChanged } from "./eventBus.js";
 import { assetCurrency, toBaseCurrency } from "./fxService.js";
+import { projectDistributions, payLagDays } from "./dividendSchedule.js";
 import { z } from "zod";
 
 const BASE_CURRENCY = "CAD";
 
 // In-memory cache for dividend metadata (24h TTL)
-const divMetadataCache = new Map<string, {
-  frequency: number,
-  lastExDate: string,
-  amountPerShare: number,
-  name: string,
-  currency: string,
-  timestamp: number
-}>();
+const divMetadataCache = new Map<string, DivCacheEntry>();
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days — dividend schedules rarely change
 
 // Cap the in-memory metadata cache so a long-running process can't grow it without bound.
 // SQLite remains the source of truth, so evicting a memory entry only costs a DB lookup.
 const DIV_CACHE_MAX_ENTRIES = 2000;
-type DivCacheEntry = { frequency: number; lastExDate: string | null; amountPerShare: number; name: string; currency: string; timestamp: number };
+type DivCacheEntry = { frequency: number; lastExDate: string | null; payDate?: string | null; amountPerShare: number; name: string; currency: string; timestamp: number };
 
 function setDivCache(symbol: string, data: DivCacheEntry) {
   // Refresh insertion order (Map iterates oldest-first) so eviction approximates LRU.
@@ -48,7 +42,10 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
 
 export interface DividendEvent {
   symbol: string;
+  /** Pay date — when the cash lands. This is what the calendar places. */
   date: string;
+  /** Ex-dividend date for the same distribution; you must hold before this. */
+  exDate: string;
   amount: number;            // native currency of the trade/dividend
   amountCAD: number;         // converted — this is the field aggregate totals/yield must sum
   currency: string;
@@ -197,14 +194,21 @@ async function fetchFromSnowball(symbol: string): Promise<any> {
   const annualPayout = asset.divPerYearFWD ?? 0;
   const amountPerShare = (frequency > 0 && annualPayout > 0) ? (annualPayout / frequency) : 0;
   const lastExDate = asset.exDividendDate ? asset.exDividendDate.split("T")[0] : null;
+  // Snowball's `nextDividendDate` is the *payment* date for the same
+  // distribution `exDividendDate` describes — for HDIV.TO those are 8 days
+  // apart, for ENB.TO 18. Snowball's own calendar places a payout on this
+  // date; ours placed it on the ex-date, so entries showed up weeks early
+  // (and, for a month-end ex-date, in the wrong month entirely).
+  const payDate = asset.nextDividendDate ? asset.nextDividendDate.split("T")[0] : null;
   // Snowball reports the payout's own currency; fall back to the exchange-suffix
   // heuristic (same one t5008/analytics use) when it doesn't.
   const currency = (asset.divCurrency || asset.currency || assetCurrency(symbol)).toUpperCase();
 
-  logger.info('Snowball', `${symbol} -> found dividend data (annualPayout=${annualPayout}, freq=${frequency}, lastEx=${lastExDate}, currency=${currency})`);
+  logger.info('Snowball', `${symbol} -> found dividend data (annualPayout=${annualPayout}, freq=${frequency}, lastEx=${lastExDate}, pay=${payDate}, currency=${currency})`);
   return {
     frequency,
     lastExDate,
+    payDate,
     amountPerShare,
     currency,
     name: asset.description || asset.name || symbol,
@@ -350,6 +354,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
       const data = {
         frequency: dbCached.frequency,
         lastExDate: dbCached.lastExDate,
+        payDate: dbCached.payDate ?? null,
         amountPerShare: dbCached.amountPerShare,
         name: dbCached.name,
         currency,
@@ -365,6 +370,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
       const data = {
         frequency: dbCached.frequency,
         lastExDate: dbCached.lastExDate,
+        payDate: dbCached.payDate ?? null,
         amountPerShare: dbCached.amountPerShare,
         name: dbCached.name,
         currency,
@@ -394,6 +400,7 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
     const placeholder = {
       frequency: 0,
       lastExDate: null,
+      payDate: null,
       amountPerShare: 0,
       name: 'No Dividend Data',
       currency: 'CAD', // inert — frequency=0 means this never reaches the forecast math
@@ -406,19 +413,6 @@ export async function fetchDividendMetadata(symbol: string, allowExternalFetch: 
   }
 }
 
-
-function advanceDate(date: Date, frequency: number): Date {
-  const newDate = new Date(date.getTime());
-  if (frequency === 1 || frequency === 2 || frequency === 4 || frequency === 6 || frequency === 12) {
-    const monthsToAdd = 12 / frequency;
-    newDate.setUTCMonth(newDate.getUTCMonth() + monthsToAdd);
-  } else {
-    // Fallback to days for weekly (52), bi-weekly (26), semi-monthly (24) or others
-    const daysToAdd = Math.round(365.25 / frequency);
-    newDate.setUTCDate(newDate.getUTCDate() + daysToAdd);
-  }
-  return newDate;
-}
 
 export async function getDividendForecastForAccount(
   portfolio: Portfolio,
@@ -498,8 +492,8 @@ export async function getDividendForecastForAccount(
           continue;
         }
 
-        const { frequency, lastExDate, amountPerShare, name, currency } = metadata;
-        logger.info('Forecast', `  ${symbol} — metadata: freq=${frequency}, lastEx=${lastExDate}, amount=${amountPerShare}`);
+        const { frequency, lastExDate, payDate, amountPerShare, name, currency } = metadata;
+        logger.info('Forecast', `  ${symbol} — metadata: freq=${frequency}, lastEx=${lastExDate}, pay=${payDate}, amount=${amountPerShare}`);
 
         // Validate metadata
         if (!frequency || frequency <= 0 || !lastExDate || amountPerShare < 0) {
@@ -507,23 +501,19 @@ export async function getDividendForecastForAccount(
           continue;
         }
 
-        let currentProjDate = new Date(lastExDate);
-        logger.info('Forecast', `  ${symbol} — starting projection from ${currentProjDate.toISOString()}`);
+        // How long after going ex the cash actually arrives, learned from the
+        // ex/pay pair Snowball reported for the next distribution. Clamped to a
+        // quarter so one garbled date can't push a payout months out of place;
+        // 0 when Snowball gave no pay date, which reproduces the old behaviour
+        // for that symbol rather than inventing a lag.
+        const lag = payLagDays(lastExDate, payDate);
+        logger.info('Forecast', `  ${symbol} — projecting from ex ${lastExDate} with a ${lag}-day pay lag`);
 
-        let loopCount = 0;
-        while (currentProjDate < now && loopCount < 100) {
-          currentProjDate = advanceDate(currentProjDate, frequency);
-          loopCount++;
-        }
-        if (loopCount >= 100) {
-          logger.warn('Forecast', `  ${symbol} — hit 100-iteration safety cap; lastExDate=${lastExDate} may be stale`);
-        }
-        logger.info('Forecast', `  ${symbol} — caught up to present in ${loopCount} iterations`);
-
-        for (let i = 0; i < frequency; i++) {
+        for (const dist of projectDistributions(lastExDate, payDate, frequency, now)) {
           forecast.push({
             symbol,
-            date: currentProjDate.toISOString(),
+            date: dist.payDate,
+            exDate: dist.exDate,
             amount: amountPerShare * units,
             amountCAD: 0, // filled below, once per distinct currency rather than per event
             currency: currency || "CAD",
@@ -532,7 +522,6 @@ export async function getDividendForecastForAccount(
             units,
             name
           });
-          currentProjDate = advanceDate(currentProjDate, frequency);
         }
         logger.info('Forecast', `  ${symbol} → added ${frequency} projected event(s)`);
       } catch (err) {
@@ -659,6 +648,15 @@ export async function getAllDividendsFromCacheOnly(): Promise<any[]> {
 export function getCachedAllDividends(): any[] | null {
   const now = Date.now();
   if (cachedAllDividends.length > 0 && (now - cachedDividendsTime < CACHE_DIVIDENDS_TTL_MS)) {
+    // The assembled forecast is a *derived* snapshot, and it was held for a
+    // week regardless of what happened underneath it. Any newer write to
+    // dividend_metadata — a Snowball pull, a manual correction — means these
+    // dates are out of date, so recompute rather than serve them.
+    const metadataChangedAt = getDividendMetadataMaxCachedAt();
+    if (metadataChangedAt > cachedDividendsTime) {
+      logger.info('Cache', 'getCachedAllDividends → stale (dividend metadata changed since the snapshot); recomputing');
+      return null;
+    }
     logger.debug('Cache', 'getCachedAllDividends → cache HIT');
     return cachedAllDividends;
   }

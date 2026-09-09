@@ -252,6 +252,11 @@ const migrations: Array<{ name: string; sql: string }> = [
   ` },
   { name: 'fx_rates.idx_pair', sql: `CREATE INDEX IF NOT EXISTS idx_fx_rates_pair ON fx_rates(pair)` },
   { name: 'dividend_metadata.currency', sql: `ALTER TABLE dividend_metadata ADD COLUMN currency TEXT` },
+  // Snowball reports two dates per security: `exDividendDate` (the ex-date) and
+  // `nextDividendDate` (the date the cash actually lands). Only the ex-date was
+  // ever stored, so the calendar placed every payout on the ex-date — weeks
+  // early, and in the wrong month for anything with a long settlement lag.
+  { name: 'dividend_metadata.payDate', sql: `ALTER TABLE dividend_metadata ADD COLUMN payDate TEXT` },
   // Buy criteria per watched symbol — the watchlist already derives price,
   // yield, growth and rating; these are the user's own thresholds for them.
   { name: 'watchlist.targetPrice',      sql: `ALTER TABLE watchlist ADD COLUMN targetPrice REAL` },

@@ -36,6 +36,7 @@ export {
   getCachedDividendMetadata,
   saveCachedDividendMetadata,
   getAllCachedDividendMetadata,
+  getDividendMetadataMaxCachedAt,
   deleteCachedDividendMetadata,
   clearDividendMetadataCache,
   getDividendProviders,

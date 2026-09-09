@@ -3831,9 +3831,12 @@ const UI = {
                 const y = yieldFor(e);
                 const badge = (e.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4);
                 const status = e._status || 'expected';
+                // Cards are placed on the pay date; name the ex-date too, since
+                // that is the one you have to hold before.
+                const exNote = e.exDate ? ` · ex ${e.exDate}` : '';
                 const tip = status === 'received'
-                    ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}`
-                    : status === 'overdue' ? 'Projected — no matching transaction yet' : (e.name || e.symbol);
+                    ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}${exNote}`
+                    : status === 'overdue' ? `Projected — no matching transaction yet${exNote}` : `${e.name || e.symbol}${exNote}`;
                 return `<div class="divcal-event div-${status} stock-link" data-stock="${sanitize(e.symbol)}" title="${sanitize(tip)}">
                     <div class="divcal-event-top"><span class="divcal-event-badge">${sanitize(badge)}</span><span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong> ${sanitize((e.name || '').slice(0, 20))}</span></div>
                     <div class="divcal-event-bot"><span class="divcal-event-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>

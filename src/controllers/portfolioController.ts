@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio, getAllCachedDividendMetadata, listSettings, saveCachedDividendMetadata, deleteCachedDividendMetadata } from "../models/db.js";
+import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfolioTradingEnabled, Portfolio, getAllCachedDividendMetadata, listSettings, saveCachedDividendMetadata, getCachedDividendMetadata, deleteCachedDividendMetadata } from "../models/db.js";
 import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches, clearDividendMemoryCache, lookupDividendWithAI, getAllDividendsFromCacheOnly } from "../services/dividendService.js";
 import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
@@ -142,7 +142,7 @@ export const manualSaveDividendMetadataHandler = (req: Request, res: Response) =
     return res.status(400).json({ error: 'Invalid symbol' });
   }
 
-  const { frequency, amountPerShare, lastExDate, name } = req.body;
+  const { frequency, amountPerShare, lastExDate, payDate, name } = req.body;
 
   const freq = Number(frequency);
   if (!FREQ_VALUES.has(freq)) {
@@ -155,12 +155,20 @@ export const manualSaveDividendMetadataHandler = (req: Request, res: Response) =
   if (lastExDate && !/^\d{4}-\d{2}-\d{2}$/.test(lastExDate)) {
     return res.status(400).json({ error: 'lastExDate must be YYYY-MM-DD or omitted' });
   }
+  if (payDate && !/^\d{4}-\d{2}-\d{2}$/.test(payDate)) {
+    return res.status(400).json({ error: 'payDate must be YYYY-MM-DD or omitted' });
+  }
 
   logger.info('Portfolio', `PUT /api/portfolios/dividend-metadata/${symbol} — manual save`);
+  // The save is a full row replace, so an omitted pay date would silently drop
+  // whatever Snowball had recorded and send that symbol back to being placed on
+  // its ex-date. Keep the stored one unless the caller is changing it.
+  const existing = getCachedDividendMetadata(symbol);
   saveCachedDividendMetadata(symbol, {
     frequency: freq,
     amountPerShare: amount,
     lastExDate: lastExDate || null,
+    payDate: payDate || existing?.payDate || null,
     name: name ? String(name).trim() : symbol,
   }, 'manual');
 

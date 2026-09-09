@@ -3738,6 +3738,7 @@ const UI = {
         // Gather events for the selected account scope (tagging each with its account currency).
         const curByAcct = this.accountCurrencyMap();
         let allEvents = [];
+        let pastEvents = [];
         let annualTotalCAD = 0;
         const includedAccountIds = new Set();
         (cachedDividendsData || []).forEach(acct => {
@@ -3752,13 +3753,18 @@ const UI = {
             } else include = acct.accountId === selectedAccountId;
             if (include) {
                 includedAccountIds.add(acct.accountId);
+                const tag = e => ({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: this._assetCurrency(e.symbol, curByAcct.get(acct.accountId)) });
                 (acct.dividends || []).forEach(e => {
-                    allEvents.push({ ...e, accountId: acct.accountId, portfolioName: acct.portfolioName, accountName: acct.accountName, _cur: this._assetCurrency(e.symbol, curByAcct.get(acct.accountId)) });
+                    allEvents.push(tag(e));
                     // amountCAD is the backend's FX-converted figure — summing native
                     // `amount` here mixed currencies (a USD dividend added straight
                     // into a CAD total) and understated/inflated the headline number.
                     annualTotalCAD += amountCAD(e);
                 });
+                // Payouts that already happened, reconstructed from the schedule
+                // because the provider only names the next one. Shown on the grid,
+                // never summed into annual income — `dividends` alone is the year.
+                (acct.pastDividends || []).forEach(e => pastEvents.push(tag(e)));
             }
         });
 
@@ -3768,9 +3774,14 @@ const UI = {
         // income summary/chart — only the day grid below.
         const allTx = (typeof App !== 'undefined' && App.getFilteredTransactionsData) ? (App.getFilteredTransactionsData() || []) : [];
         const scopedTx = allTx.filter(a => includedAccountIds.has(a.accountId));
-        const received = DivMath.collectReceivedDividends(allEvents, scopedTx, { divTypes: this._DIV_TYPES, monthsBack: 6 });
+        // Past events go in first so a real cash transaction is matched against
+        // the payout it belongs to: that tags it received, moves the card onto
+        // the date the broker actually paid, and stops the same dividend being
+        // emitted a second time from the transaction ledger.
+        const schedule = pastEvents.concat(allEvents);
+        const received = DivMath.collectReceivedDividends(schedule, scopedTx, { divTypes: this._DIV_TYPES, monthsBack: 6 });
         received.forEach(e => { e._cur = this._assetCurrency(e.symbol, curByAcct.get(e.accountId)); });
-        const displayEvents = allEvents.concat(received);
+        const displayEvents = schedule.concat(received);
         this.divCalEvents = displayEvents;
 
         // Per-holding current price for the yield figure on each event card.
@@ -3836,7 +3847,9 @@ const UI = {
                 const exNote = e.exDate ? ` · ex ${e.exDate}` : '';
                 const tip = status === 'received'
                     ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}${exNote}`
-                    : status === 'overdue' ? `Projected — no matching transaction yet${exNote}` : `${e.name || e.symbol}${exNote}`;
+                    : status === 'overdue'
+                        ? `${e.estimated ? 'Estimated from the payment schedule' : 'Projected'} — no matching transaction yet${exNote}`
+                        : `${e.name || e.symbol}${exNote}`;
                 return `<div class="divcal-event div-${status} stock-link" data-stock="${sanitize(e.symbol)}" title="${sanitize(tip)}">
                     <div class="divcal-event-top"><span class="divcal-event-badge">${sanitize(badge)}</span><span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong> ${sanitize((e.name || '').slice(0, 20))}</span></div>
                     <div class="divcal-event-bot"><span class="divcal-event-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>

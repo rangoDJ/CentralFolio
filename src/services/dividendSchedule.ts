@@ -86,6 +86,34 @@ export function advanceDate(date: Date, frequency: number, anchorDom?: number): 
   return addDays(date, daysToAdd);
 }
 
+/**
+ * Step back one distribution period — the inverse of `advanceDate`.
+ *
+ * Needed because Snowball's two date fields describe only the *next*
+ * distribution. A payout whose ex-date has already passed is invisible to it,
+ * so projecting forward alone leaves the current month empty of everything
+ * that has already paid this month.
+ */
+export function retreatDate(date: Date, frequency: number, anchorDom?: number): Date {
+  if (MONTHLY_FAMILY.has(frequency)) {
+    const monthsToSub = 12 / frequency;
+    const y = date.getUTCFullYear();
+    const m = date.getUTCMonth() - monthsToSub;
+    const dom = anchorDom ?? date.getUTCDate();
+    const lastDom = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(y, m, Math.min(dom, lastDom)));
+  }
+  if (frequency === 24) {
+    const y = date.getUTCFullYear();
+    const m = date.getUTCMonth();
+    // advanceDate maps 15 -> month-end -> next 15, so invert that pairing.
+    if (date.getUTCDate() === 15) return new Date(Date.UTC(y, m, 0));
+    return new Date(Date.UTC(y, m, 15));
+  }
+  const daysToSub = frequency === 52 ? 7 : frequency === 26 ? 14 : Math.round(365.25 / frequency);
+  return addDays(date, -daysToSub);
+}
+
 /** Longest ex-to-pay gap we will believe from a provider, in days. */
 export const MAX_PAY_LAG_DAYS = 90;
 
@@ -109,10 +137,22 @@ export interface Distribution {
   payDate: string;
   /** Ex-dividend date for the same distribution. */
   exDate: string;
+  /**
+   * True for a back-projected distribution: the schedule says it happened,
+   * but no provider stated this date. Present so callers can tell a derived
+   * past payout from a scheduled future one.
+   */
+  estimated?: boolean;
 }
 
 /** Guard against a stale ex-date spinning the catch-up loop forever. */
 const MAX_CATCHUP_STEPS = 100;
+
+/** Calendar months of history to reconstruct behind the next known payout. */
+const BACKFILL_MONTHS = 3;
+
+/** Ceiling on back-projection: a weekly payer needs ~14 steps per quarter. */
+const MAX_BACKFILL_STEPS = 40;
 
 /**
  * How far back a distribution can sit and still be worth showing.
@@ -158,6 +198,26 @@ export function projectDistributions(
   }
 
   const out: Distribution[] = [];
+
+  // Distributions that already paid. Snowball names only the next one, so
+  // without this the current month shows nothing but the handful of
+  // securities whose next payout happens to fall inside it.
+  // Derived, not observed: only the first forward distribution carries a pay
+  // date the provider actually stated, and issuers shift payments off
+  // weekends and holidays, so these can sit a day or two from the true date
+  // until the broker's own cash transaction arrives and supersedes them.
+  const backfillFrom = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - BACKFILL_MONTHS, 1);
+  let back = retreatDate(ex, frequency, anchorDom);
+  for (let i = 0; i < MAX_BACKFILL_STEPS && addDays(back, lag).getTime() >= backfillFrom; i++) {
+    out.push({
+      exDate: back.toISOString().slice(0, 10),
+      payDate: addDays(back, lag).toISOString(),
+      estimated: true,
+    });
+    back = retreatDate(back, frequency, anchorDom);
+  }
+  out.reverse();
+
   for (let i = 0; i < frequency; i++) {
     out.push({
       exDate: ex.toISOString().slice(0, 10),

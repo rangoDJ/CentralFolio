@@ -159,10 +159,12 @@ export const getDividendForecast = async (req: Request, res: Response) => {
     }
 
     const start = Date.now();
-    const forecast = await getDividendForecastForAccount(portfolio, String(accountId), forceRefresh);
+    // Back-projected past payouts stay out of this response: it has always
+    // been "the upcoming year", and callers sum it as such.
+    const { dividends } = await getDividendForecastForAccount(portfolio, String(accountId), forceRefresh);
 
-    logger.info('SnapTrade', `getDividendForecast — ${forecast.length} event(s) for account ${accountId} in ${Date.now() - start}ms`);
-    res.json(forecast);
+    logger.info('SnapTrade', `getDividendForecast — ${dividends.length} event(s) for account ${accountId} in ${Date.now() - start}ms`);
+    res.json(dividends);
   } catch (err: any) {
     const { log, client, status } = snapTradeError(err, "Failed to generate forecast");
     logger.error('SnapTrade', `getDividendForecast failed for account ${accountId}: ${log}`);

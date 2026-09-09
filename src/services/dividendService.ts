@@ -46,6 +46,11 @@ export interface DividendEvent {
   date: string;
   /** Ex-dividend date for the same distribution; you must hold before this. */
   exDate: string;
+  /**
+   * True for a back-projected payout that has already happened. Kept out of
+   * `dividends` so every income total keeps summing exactly one forward year.
+   */
+  estimated?: boolean;
   amount: number;            // native currency of the trade/dividend
   amountCAD: number;         // converted — this is the field aggregate totals/yield must sum
   currency: string;
@@ -445,7 +450,7 @@ export async function getDividendForecastForAccount(
   accountId: string,
   forceRefresh: boolean = false,
   allowExternalFetch: boolean = true
-): Promise<DividendEvent[]> {
+): Promise<{ dividends: DividendEvent[]; pastDividends: DividendEvent[] }> {
   if (!portfolio.userSecret) throw new Error(`Portfolio "${portfolio.name}" is not registered with SnapTrade`);
   logger.info('Forecast', `getDividendForecastForAccount — portfolio="${portfolio.name}" account=${accountId} forceRefresh=${forceRefresh} allowExternalFetch=${allowExternalFetch}`);
 
@@ -479,6 +484,10 @@ export async function getDividendForecastForAccount(
     }
 
     const forecast: DividendEvent[] = [];
+    // Payouts that already happened, reconstructed from the schedule. Held
+    // apart from `forecast` so the six places that sum a year of income keep
+    // summing exactly that.
+    const past: DividendEvent[] = [];
     const now = new Date();
     const validPositions = positions.filter(p => {
       const sym = (p.symbol as any)?.symbol?.symbol;
@@ -536,10 +545,11 @@ export async function getDividendForecastForAccount(
         logger.info('Forecast', `  ${symbol} — projecting from ex ${lastExDate} with a ${lag}-day pay lag`);
 
         for (const dist of projectDistributions(lastExDate, payDate, frequency, now)) {
-          forecast.push({
+          (dist.estimated ? past : forecast).push({
             symbol,
             date: dist.payDate,
             exDate: dist.exDate,
+            estimated: dist.estimated,
             amount: amountPerShare * units,
             amountCAD: 0, // filled below, once per distinct currency rather than per event
             currency: currency || "CAD",
@@ -559,12 +569,15 @@ export async function getDividendForecastForAccount(
     // currency present, rather than summing raw amounts across currencies —
     // the previous version of this forecast did that, which inflated (or
     // deflated) the total for any account holding US-listed positions.
-    const converted = await toBaseCurrency(forecast, e => e.currency, e => e.amount, BASE_CURRENCY);
-    for (let i = 0; i < forecast.length; i++) forecast[i].amountCAD = Math.round(converted[i].valueBase * 100) / 100;
+    const all = forecast.concat(past);
+    const converted = await toBaseCurrency(all, e => e.currency, e => e.amount, BASE_CURRENCY);
+    for (let i = 0; i < all.length; i++) all[i].amountCAD = Math.round(converted[i].valueBase * 100) / 100;
 
-    const sorted = forecast.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    logger.info('Forecast', `getDividendForecastForAccount complete — account ${accountId}: ${sorted.length} event(s) projected`);
-    return sorted;
+    const byDate = (a: DividendEvent, b: DividendEvent) => new Date(a.date).getTime() - new Date(b.date).getTime();
+    forecast.sort(byDate);
+    past.sort(byDate);
+    logger.info('Forecast', `getDividendForecastForAccount complete — account ${accountId}: ${forecast.length} upcoming, ${past.length} back-projected`);
+    return { dividends: forecast, pastDividends: past };
   } catch (err: any) {
     logger.error('DividendSvc', `getDividendForecastForAccount failed — account ${accountId}: ${err.message}`);
     throw err;
@@ -636,13 +649,14 @@ export async function getAllDividendsForAllPortfolios(
       for (const acc of activeAccounts) {
         logger.info('DividendSvc', `    Account: "${acc.name ?? acc.id}" (${acc.id})`);
         try {
-          const dividends = await getDividendForecastForAccount(portfolio, acc.id, forceRefresh, allowExternalFetch);
-          logger.info('DividendSvc', `    → ${dividends.length} projected dividend event(s)`);
+          const { dividends, pastDividends } = await getDividendForecastForAccount(portfolio, acc.id, forceRefresh, allowExternalFetch);
+          logger.info('DividendSvc', `    → ${dividends.length} projected, ${pastDividends.length} back-projected dividend event(s)`);
           results.push({
             portfolioName: portfolio.name,
             accountName: acc.customName || acc.name,
             accountId: acc.id,
-            dividends: dividends
+            dividends,
+            pastDividends
           });
         } catch (err: any) {
           logger.warn('DividendSvc', `    → forecast failed for "${acc.customName || acc.name}": ${err.message}`);
@@ -651,7 +665,8 @@ export async function getAllDividendsForAllPortfolios(
             accountName: acc.customName || acc.name,
             accountId: acc.id,
             error: err.message,
-            dividends: []
+            dividends: [],
+            pastDividends: []
           });
         }
       }

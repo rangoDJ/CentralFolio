@@ -115,6 +115,23 @@ export interface Distribution {
 const MAX_CATCHUP_STEPS = 100;
 
 /**
+ * How far back a distribution can sit and still be worth showing.
+ *
+ * Pay dates are date-only, so they compare as UTC midnight. Measuring against
+ * the current instant made a payout "past" the moment the UTC day ticked over
+ * — for an Eastern user, a dividend paying today disappeared from the calendar
+ * at 8pm the evening before. A day of slack covers every timezone offset and
+ * also carries the payout through the gap before the broker posts the matching
+ * cash transaction, at which point it is tagged received rather than dropped.
+ */
+const GRACE_DAYS = 1;
+
+/** Start of the UTC day `GRACE_DAYS` before `now`, in epoch ms. */
+function catchUpCutoff(now: Date): number {
+  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - GRACE_DAYS * DAY_MS;
+}
+
+/**
  * One year of upcoming distributions for a security.
  *
  * Catch-up runs on the **pay** date, not the ex-date: a distribution that has
@@ -133,8 +150,9 @@ export function projectDistributions(
   let ex = utcDay(lastExDate);
   const anchorDom = anchorDayFor(ex);
 
+  const cutoff = catchUpCutoff(now);
   let steps = 0;
-  while (addDays(ex, lag) < now && steps < MAX_CATCHUP_STEPS) {
+  while (addDays(ex, lag).getTime() < cutoff && steps < MAX_CATCHUP_STEPS) {
     ex = advanceDate(ex, frequency, anchorDom);
     steps++;
   }

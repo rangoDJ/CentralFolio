@@ -98,9 +98,28 @@ test("a payout that has gone ex but not yet paid is still upcoming", () => {
   assert.equal(first.payDate.slice(0, 10), "2026-10-08");
 });
 
+test("a payout dated today survives the whole day", () => {
+  // GDXW: ex Sep 8, pays Sep 9. Comparing against the instant dropped it at
+  // 00:00:01Z — 8pm the evening before, in Eastern time.
+  for (const t of ["2026-09-09T00:00:01Z", "2026-09-09T12:00:00Z", "2026-09-09T23:59:59Z"]) {
+    const [first] = projectDistributions("2026-09-08", "2026-09-09", 52, new Date(t));
+    assert.equal(first.payDate.slice(0, 10), "2026-09-09", `dropped at ${t}`);
+  }
+});
+
+test("yesterday's payout is still shown, covering timezone skew and broker lag", () => {
+  const [first] = projectDistributions("2026-09-08", "2026-09-09", 52, new Date("2026-09-10T12:00:00Z"));
+  assert.equal(first.payDate.slice(0, 10), "2026-09-09");
+});
+
+test("a payout two days old has rolled forward", () => {
+  const [first] = projectDistributions("2026-09-08", "2026-09-09", 52, new Date("2026-09-11T12:00:00Z"));
+  assert.equal(first.payDate.slice(0, 10), "2026-09-16");
+});
+
 test("a distribution whose cash has already landed is skipped", () => {
   // Sep 30 is month-end, so the next ex is Oct 31 — not Oct 30.
-  const [first] = projectDistributions("2026-09-30", "2026-10-08", 12, new Date("2026-10-09T12:00:00Z"));
+  const [first] = projectDistributions("2026-09-30", "2026-10-08", 12, new Date("2026-10-10T12:00:00Z"));
   assert.equal(first.exDate, "2026-10-31");
   assert.equal(first.payDate.slice(0, 10), "2026-11-08");
 });

@@ -1055,10 +1055,18 @@
                 </div>
                 <div class="danger-zone">
                   <div class="danger-zone-title">Danger Zone</div>
-                  <p class="text-muted text-sm mb-2">Delete all custom portfolios, cached accounts, holdings, transaction histories, and cached dividend metadata. Brokerage connection secrets are preserved.</p>
+                  <p class="text-muted text-sm mb-2">
+                    <strong>Permanently deletes</strong> your custom portfolios, their account
+                    assignments and their rebalance targets &mdash; none of which exist at your
+                    broker, so nothing can bring them back. It also clears cached accounts,
+                    holdings, transactions and dividend metadata, which do re-sync on their own.
+                    Brokerage connection secrets are preserved. A backup of your portfolios is
+                    downloaded first. To clear dividend data only, use
+                    <em>Clear Dividend Cache</em>.
+                  </p>
                   <button id="purgeDataBtn" class="btn btn-danger w-full" style="margin-bottom: 1.25rem;">
                     <span class="loader"></span>
-                    <span class="btn-text">Purge User & Dividend Data</span>
+                    <span class="btn-text">Delete Custom Portfolios &amp; Reset Caches</span>
                   </button>
                   <p class="text-muted text-sm mb-2">Wipe all users from SnapTrade. Cannot be undone.</p>
                   <button id="wipeBtn" class="btn btn-danger w-full">

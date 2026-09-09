@@ -641,9 +641,61 @@ const App = {
         }
     },
 
+    /**
+     * Download the user-created data this purge is about to destroy.
+     *
+     * Custom portfolios, their account assignments and their rebalance targets
+     * exist nowhere else - not at the broker, not in any cache - so once the
+     * purge runs they are gone for good. Everything else it clears re-syncs by
+     * itself. A failure here aborts the purge: destroying this without a copy
+     * is the whole failure mode.
+     */
+    async backupUserPortfolios() {
+        const portfolios = await API.getUserPortfolios();
+        const withTargets = [];
+        for (const p of (portfolios || [])) {
+            let targets = null;
+            try { targets = await API.getPortfolioTargets(p.id); } catch (_) { /* none set */ }
+            withTargets.push({ ...p, targets });
+        }
+        const blob = new Blob([JSON.stringify({
+            exportedAt: new Date().toISOString(),
+            note: 'Restore by recreating each portfolio, assigning its accountIds, then re-entering targets.',
+            userPortfolios: withTargets,
+        }, null, 2)], { type: 'application/json' });
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `centralfolio-portfolios-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        return withTargets.length;
+    },
+
     async handlePurgeData() {
-        const input = prompt('DELETE ALL custom user portfolios, targets, cash balances, transaction logs, and cached dividend metadata?\nThis keeps your brokerage / SnapTrade connection keys intact.\nTo confirm, type "PURGE DATA" below:');
-        if (input !== 'PURGE DATA') {
+        let count;
+        try {
+            count = await this.backupUserPortfolios();
+        } catch (err) {
+            UI.showToast('Purge cancelled - could not back up your portfolios first: ' + err.message, 'error');
+            return;
+        }
+
+        // Name the irreversible part, and count it. This button used to read
+        // "Purge User & Dividend Data", which looked like the dividend cache
+        // clear sitting right above it - the thing someone reaching for it
+        // usually wants instead.
+        const input = prompt(
+            `This PERMANENTLY DELETES ${count} custom portfolio(s), their account assignments and their rebalance targets.\n` +
+            `Nothing can restore them - they do not exist at your broker. A backup has just been downloaded to your browser.\n\n` +
+            `Cached accounts, holdings, transactions and dividend metadata are cleared too, but those re-sync on their own.\n` +
+            `Your brokerage connection keys are kept.\n\n` +
+            `To clear dividend data only, cancel and use "Clear Dividend Cache" instead.\n\n` +
+            `To go ahead, type DELETE PORTFOLIOS below:`);
+        if (input !== 'DELETE PORTFOLIOS') {
             UI.showToast('Purge cancelled');
             return;
         }
@@ -651,7 +703,7 @@ const App = {
         purgeBtn.classList.add('loading');
         try {
             await API.purgeAdminData('PURGE_DATA');
-            UI.showToast('All custom portfolios and cached data purged');
+            UI.showToast(`Deleted ${count} custom portfolio(s) and reset all caches`);
             // Reload portfolios to reflect clean state immediately
             await this.loadPortfolios();
         } catch (err) {

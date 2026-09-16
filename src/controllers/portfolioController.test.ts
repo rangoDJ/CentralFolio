@@ -80,3 +80,27 @@ test("createOrUpdatePortfolio: editing credentials rebuilds the SnapTrade client
 
   assert.notEqual(getSnapTradeClientForPortfolio(id), first, "a new client must be built after a credential change");
 });
+
+test("createOrUpdatePortfolio: credentials are stored trimmed", async () => {
+  // A pasted consumerKey carrying a trailing newline breaks SnapTrade's request
+  // signature ("Unable to verify signature sent") while looking correct in the form.
+  const { getPortfolio } = await import("../models/db.js");
+
+  const res = mockRes();
+  createOrUpdatePortfolio({
+    body: { name: " Padded ", clientId: " c-pad\n", consumerKey: "k-pad \t", userId: "\nu-pad " },
+  } as Request, res);
+  assert.equal(res.statusCode, 200);
+
+  const saved = getPortfolio(res.body.id)!;
+  assert.equal(saved.clientId, "c-pad");
+  assert.equal(saved.consumerKey, "k-pad");
+  assert.equal(saved.userId, "u-pad");
+  assert.equal(saved.name, "Padded");
+});
+
+test("createOrUpdatePortfolio: a whitespace-only credential is rejected, not stored blank", () => {
+  const res = mockRes();
+  createOrUpdatePortfolio({ body: { ...validBody, consumerKey: "   " } } as Request, res);
+  assert.equal(res.statusCode, 400);
+});

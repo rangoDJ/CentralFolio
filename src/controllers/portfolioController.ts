@@ -38,9 +38,22 @@ export const getAllDividends = async (req: Request, res: Response) => {
   res.json({ fetching, data });
 };
 
+// Credentials are pasted, and a copied key routinely carries a trailing newline
+// or space. clientId and consumerKey are fed into SnapTrade's request signature,
+// so a single invisible character makes every call fail with "Unable to verify
+// signature sent" — an error that says nothing about where the stray byte came
+// from, against a key that looks correct in the form.
+// A non-string collapses to '' and is then rejected by the required-field check
+// below, matching how the rest of this API refuses non-string input outright.
+const trimmed = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
 export const createOrUpdatePortfolio = (req: Request, res: Response) => {
   // userSecret is intentionally excluded — it is set only by the backend after SnapTrade registration
-  const { id, name, clientId, consumerKey, userId } = req.body;
+  const { id } = req.body;
+  const name = trimmed(req.body.name);
+  const clientId = trimmed(req.body.clientId);
+  const consumerKey = trimmed(req.body.consumerKey);
+  const userId = trimmed(req.body.userId);
   const action = id ? `UPDATE id=${id}` : 'CREATE';
   logger.info('Portfolio', `POST /api/portfolios — ${action} name="${name}"`);
 

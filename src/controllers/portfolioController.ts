@@ -3,6 +3,7 @@ import { getPortfolio, listPortfolios, savePortfolio, deletePortfolio, setPortfo
 import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividendCaches, clearDividendMemoryCache, lookupDividendWithAI, getAllDividendsFromCacheOnly } from "../services/dividendService.js";
 import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
+import { evictSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 
 // Strip server-side secrets before sending portfolios to the client, but expose a
@@ -70,6 +71,9 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
 
   try {
     const savedId = savePortfolio(portfolio);
+    // The cached SnapTrade client was built from the previous clientId/consumerKey,
+    // so it has to go or the new credentials never reach SnapTrade.
+    evictSnapTradeClientForPortfolio(savedId);
     logger.info('Portfolio', `Portfolio saved with id=${savedId}`);
     res.json({ success: true, id: savedId });
   } catch (err: any) {
@@ -205,6 +209,7 @@ export const removePortfolio = (req: Request, res: Response) => {
   try {
     onPortfolioDeleted(String(id));
     deletePortfolio(String(id));
+    evictSnapTradeClientForPortfolio(String(id));
     logger.info('Portfolio', `Portfolio id=${id} deleted`);
     res.json({ success: true });
   } catch (err: any) {

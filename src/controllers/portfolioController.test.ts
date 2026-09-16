@@ -61,3 +61,22 @@ test("createOrUpdatePortfolio: rejects a zero/negative id", () => {
   createOrUpdatePortfolio({ body: { ...validBody, id: -1 } } as Request, res2);
   assert.equal(res2.statusCode, 400);
 });
+
+test("createOrUpdatePortfolio: editing credentials rebuilds the SnapTrade client", async () => {
+  // The client cache is keyed by portfolio id, so without eviction the client
+  // built from the original consumerKey survives the edit and keeps signing
+  // requests with the superseded key — registration then fails forever.
+  const { getSnapTradeClientForPortfolio } = await import("../services/snaptrade.js");
+
+  const created = mockRes();
+  createOrUpdatePortfolio({ body: { ...validBody, name: "Rotating", clientId: "c-old", consumerKey: "k-old" } } as Request, created);
+  const id = created.body.id;
+
+  const first = getSnapTradeClientForPortfolio(id);
+
+  const updated = mockRes();
+  createOrUpdatePortfolio({ body: { ...validBody, id, name: "Rotating", clientId: "c-new", consumerKey: "k-new" } } as Request, updated);
+  assert.equal(updated.statusCode, 200);
+
+  assert.notEqual(getSnapTradeClientForPortfolio(id), first, "a new client must be built after a credential change");
+});

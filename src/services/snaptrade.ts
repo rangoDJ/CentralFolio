@@ -8,6 +8,22 @@ export function clearSnapTradeClientCache() {
   clientCache.clear();
 }
 
+/**
+ * Drops the cached client for one portfolio.
+ *
+ * The cache is keyed by portfolio id, but the client it holds is built from the
+ * clientId/consumerKey those credentials had at the time. Editing a portfolio's
+ * credentials therefore had no effect until the process restarted: every later
+ * call kept signing with the superseded key and SnapTrade kept rejecting it. A
+ * single typo in a pasted key became permanent, because correcting it in the UI
+ * could not reach the client that was actually making the request.
+ */
+export function evictSnapTradeClientForPortfolio(id: number | string) {
+  if (clientCache.delete(String(id))) {
+    logger.debug('SnapTrade', `evictSnapTradeClientForPortfolio(${id}) — cached client dropped`);
+  }
+}
+
 export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | number | string) {
   let portfolio: Portfolio | null = null;
   

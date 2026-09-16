@@ -753,6 +753,7 @@
           <button class="underline-tab active" data-tab="portfolios" onclick="App.switchSettingsTab('portfolios', this)">Portfolios</button>
           <button class="underline-tab" data-tab="connections" onclick="App.switchSettingsTab('connections', this)">Brokerage Connections</button>
           <button class="underline-tab" data-tab="keys" onclick="App.switchSettingsTab('keys', this)">Keys &amp; Providers</button>
+          <button class="underline-tab" data-tab="features" onclick="App.switchSettingsTab('features', this)">Features</button>
           <button class="underline-tab" data-tab="alerts" onclick="App.switchSettingsTab('alerts', this)">Alerts</button>
           <button class="underline-tab" data-tab="scheduler" onclick="App.switchSettingsTab('scheduler', this)">Scheduler</button>
           <button class="underline-tab" data-tab="logs" onclick="App.switchSettingsTab('logs', this)">Logs</button>
@@ -833,6 +834,17 @@
             </div>
             <p class="text-muted text-sm mb-3">Logs of the latest background and manual job executions.</p>
             <div id="jobHistoryPanel"><div class="empty-state" style="padding:1rem;">Loading execution history…</div></div>
+          </div>
+        </div>
+
+        <!-- Features pane (turn optional pages on/off) -->
+        <div id="settings-features-pane" class="pane">
+          <div class="card">
+            <div class="card-header" style="margin-bottom:0.75rem;">
+              <span class="card-title">Features</span>
+            </div>
+            <p class="text-muted text-sm mb-3">Turn off pages you don't use to keep the navigation focused. Nothing is deleted — your watchlist, targets and transactions are kept and everything returns when you switch a feature back on.</p>
+            <div id="featureTogglesPanel"></div>
           </div>
         </div>
 

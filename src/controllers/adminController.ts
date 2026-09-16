@@ -5,6 +5,7 @@ import { clearAllCaches } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 import { emitDataChanged } from "../services/eventBus.js";
 import { sendWebhookNotification } from "../services/notificationService.js";
+import { FEATURE_SETTING_KEYS } from "../services/featureFlags.js";
 
 // Keys that must never be written via the settings API — only set internally
 const PROTECTED_SETTINGS = new Set(['jwt_secret', 'auth_password_hash']);
@@ -24,7 +25,9 @@ const ALLOWED_SETTINGS = new Set([
   'job_holdings-refresh_interval_hours',
   'job_transactions-refresh_interval_hours',
   'notification_webhook_url',
-  'notification_webhook_enabled'
+  'notification_webhook_enabled',
+  // Settings → Features page toggles (feature_<name>_enabled)
+  ...FEATURE_SETTING_KEYS,
 ]);
 
 // Pattern for values that must be masked before sending to the client

@@ -5,7 +5,9 @@ import {
   getCachedAccounts,
   listPortfolios,
   getActiveAccountIds,
+  getSetting,
 } from "../models/db.js";
+import { pausingFeature } from "./featureFlags.js";
 import { getScopedAccounts } from "./accountScope.js";
 import { getDividendHistory } from "../repositories/dividendHistoryRepository.js";
 import { getAllRatings } from "../repositories/stockRatingRepository.js";
@@ -161,7 +163,9 @@ export interface AlertRunResult {
  * it on, without burning the dedupe keys.
  */
 export async function runAlertEvaluation(dryRun = false): Promise<AlertRunResult & { alerts: Alert[] }> {
-  const rules = listAlertRules();
+  // A rule whose feature is switched off (e.g. drift while Rebalancing is off)
+  // is treated as disabled, and stays out of previews too.
+  const rules = listAlertRules().filter(r => !pausingFeature(r.type, getSetting));
   const enabled = rules.filter(r => r.enabled);
 
   if (enabled.length === 0 && !dryRun) {

@@ -22,6 +22,7 @@ A self-hosted portfolio and dividend tracking app. Connect brokerage accounts th
 - **Performance history** — the value curve is reconstructed by replaying transactions against price history, and anchored to **nightly snapshots** of what each account was actually worth. Snapshots are independent of the transaction ledger, so the curve holds even where the broker never reported an activity. They accumulate from first run; earlier dates stay reconstructed.
 - **Background jobs** — automatic dividend, holdings, transaction and price-history refresh, nightly portfolio snapshots, alert evaluation, and optional AI stock ratings — each on its own configurable schedule (**Settings → Scheduler**).
 - **API tokens** — issue revocable, non-browser tokens (**Settings → Brokerage Connections → Security**) for scripts and other API clients, separate from your login session.
+- **Feature toggles** — switch off the Compare, Dividend Tracker, Watchlist, Rebalancing and Tax pages you don't use (**Settings → Features**). Nothing is deleted; turning Watchlist or Rebalancing off also pauses its alert rule.
 - **Live log viewer** — tail the running server's logs from the browser (**Settings → Logs**), with level filtering, search, and pause/autoscroll.
 
 ## Requirements

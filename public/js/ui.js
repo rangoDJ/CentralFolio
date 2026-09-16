@@ -2091,6 +2091,14 @@ const UI = {
                 </label>`;
             }).join('');
 
+            const pausedLabel = rule.pausedBy
+                ? (App.FEATURES.find(f => f.key === rule.pausedBy)?.label || rule.pausedBy)
+                : null;
+            const paused = pausedLabel
+                ? `<div class="text-sm" style="margin-top:0.35rem;color:var(--warning);">Paused — ${sanitize(pausedLabel)} is turned off in
+                       <a href="#" onclick="App.switchSettingsTab('features');return false;" style="color:inherit;text-decoration:underline;">Settings → Features</a>.</div>`
+                : '';
+
             return `<div style="display:flex;align-items:flex-start;gap:1rem;padding:0.85rem 0;border-bottom:1px solid var(--border);">
                 <label class="alert-toggle" title="${rule.enabled ? 'Enabled' : 'Disabled'}">
                     <input type="checkbox" id="alert-enabled-${sanitize(rule.type)}" ${rule.enabled ? 'checked' : ''}
@@ -2099,6 +2107,7 @@ const UI = {
                 <div style="flex:1;min-width:0;">
                     <div style="font-weight:600;font-size:0.9rem;">${sanitize(meta.label)}</div>
                     <div class="text-muted text-sm" style="margin-top:0.1rem;">${sanitize(meta.blurb)}</div>
+                    ${paused}
                     <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem;">${fields}</div>
                 </div>
             </div>`;

@@ -10,11 +10,18 @@ import {
 } from "../repositories/alertRepository.js";
 import { runAlertEvaluation } from "../services/alertService.js";
 import { ALERT_RULE_TYPES, DEFAULT_RULE_CONFIG, type AlertRuleType } from "../services/alertRules.js";
+import { getSetting } from "../models/db.js";
+import { pausingFeature } from "../services/featureFlags.js";
 import { logger } from "../utils/logger.js";
+
+// Annotates each rule with the feature (if any) currently pausing it, so the
+// Alerts pane can explain why an enabled rule isn't firing.
+const rulesWithPauseState = () =>
+  listAlertRules().map(r => ({ ...r, pausedBy: pausingFeature(r.type, getSetting) }));
 
 // GET /api/alerts/rules
 export const listRulesHandler = (_req: Request, res: Response) => {
-  res.json({ rules: listAlertRules(), defaults: DEFAULT_RULE_CONFIG });
+  res.json({ rules: rulesWithPauseState(), defaults: DEFAULT_RULE_CONFIG });
 };
 
 // PUT /api/alerts/rules/:type
@@ -45,7 +52,7 @@ export const saveRuleHandler = (req: Request, res: Response) => {
   }
 
   saveAlertRule(type, enabled, clean);
-  res.json({ success: true, rules: listAlertRules() });
+  res.json({ success: true, rules: rulesWithPauseState() });
 };
 
 // GET /api/alerts?limit=100

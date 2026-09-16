@@ -28,6 +28,81 @@ const App = {
     currentTradeAction: 'BUY',
     currentTradeNotional: null,
 
+    // ── Optional features (Settings → Features) ────────────────────────────────
+    // Each maps to a main tab. Stored server-side as feature_<key>_enabled and
+    // on unless explicitly 'false'; keep the keys in sync with
+    // src/services/featureFlags.ts.
+    FEATURES: [
+        { key: 'compare',   tab: 'compare',          label: 'Compare portfolios', desc: 'Side-by-side matrix of symbols across portfolios.' },
+        { key: 'dividends', tab: 'dividend-tracker', label: 'Dividend tracker',   desc: 'Forecast, calendar and dividend database pages. Dividend figures on the dashboard and holdings stay.' },
+        { key: 'watchlist', tab: 'watchlist',        label: 'Watchlist',          desc: 'Candidate symbols with buy criteria. Also pauses the “Watchlist target hit” alert.' },
+        { key: 'rebalance', tab: 'rebalance',        label: 'Rebalancing',        desc: 'Target allocations and suggested trades. Also pauses the “Allocation drift” alert.' },
+        { key: 'tax',       tab: 'tax',              label: 'Tax & T5008',        desc: 'Canadian T5008 / Schedule 3 reporting and tax-loss harvesting.' },
+    ],
+    featureFlags: {},
+
+    featureSettingKey(key) {
+        return `feature_${key}_enabled`;
+    },
+
+    isTabEnabled(tabId) {
+        const feature = this.FEATURES.find(f => f.tab === tabId);
+        return !feature || this.featureFlags[feature.key] !== false;
+    },
+
+    /** Read feature flags from the settings payload and apply them to the nav. */
+    applyFeatureFlags(settings) {
+        for (const f of this.FEATURES) {
+            this.featureFlags[f.key] = settings?.[this.featureSettingKey(f.key)] !== 'false';
+        }
+        this.applyFeatureNav();
+    },
+
+    applyFeatureNav() {
+        for (const f of this.FEATURES) {
+            const btn = document.querySelector(`.topnav-item[data-tab="${f.tab}"]`);
+            if (btn) btn.style.display = this.featureFlags[f.key] === false ? 'none' : '';
+        }
+        // Don't restore a page that has since been turned off.
+        const saved = localStorage.getItem('activeMainTab');
+        if (saved && !this.isTabEnabled(saved)) localStorage.setItem('activeMainTab', 'dashboard');
+    },
+
+    renderFeatureToggles() {
+        const el = document.getElementById('featureTogglesPanel');
+        if (!el) return;
+        el.innerHTML = this.FEATURES.map(f => `
+            <div class="settings-row">
+                <div class="settings-row-info">
+                    <div class="settings-row-label">${sanitize(f.label)}</div>
+                    <div class="settings-row-desc">${sanitize(f.desc)}</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" id="feature-toggle-${f.key}" aria-label="${sanitize(f.label)}" ${this.featureFlags[f.key] !== false ? 'checked' : ''}
+                        onchange="App.toggleFeature('${f.key}', this)">
+                    <span class="slider"></span>
+                </label>
+            </div>`).join('');
+    },
+
+    async toggleFeature(key, input) {
+        const feature = this.FEATURES.find(f => f.key === key);
+        if (!feature) return;
+        const enabled = input.checked;
+        input.disabled = true;
+        try {
+            await API.updateSettings({ [this.featureSettingKey(key)]: enabled ? 'true' : 'false' });
+            this.featureFlags[key] = enabled;
+            this.applyFeatureNav();
+            UI.showToast(`${feature.label} ${enabled ? 'enabled' : 'disabled'}`);
+        } catch (err) {
+            input.checked = !enabled; // revert
+            UI.showToast(`Failed to save: ${err.message}`, 'error');
+        } finally {
+            input.disabled = false;
+        }
+    },
+
     async init() {
         this.initTheme();
 
@@ -754,6 +829,8 @@ const App = {
     async loadSettings() {
         try {
             const settings = await API.getSettings();
+
+            this.applyFeatureFlags(settings);
 
             // Load refresh interval
             const intervalHours = parseInt(settings.data_refresh_interval_hours ?? '24', 10);
@@ -2149,6 +2226,11 @@ const App = {
     },
 
     switchMainTab(tabId, btnElement) {
+        // A disabled feature's page can't be opened (stale localStorage, old links).
+        if (!this.isTabEnabled(tabId)) {
+            tabId = 'dashboard';
+            btnElement = null;
+        }
         this.closeSidebarOnMobile();
         localStorage.setItem('activeMainTab', tabId);
         // Update active class on nav items
@@ -2881,6 +2963,8 @@ const App = {
                     keyEl.placeholder = 'Key saved — enter a new one to replace it';
                 }
             } catch (_) {}
+        } else if (paneId === 'features') {
+            this.renderFeatureToggles();
         } else if (paneId === 'portfolios') {
             this.loadUserPortfolios();
         } else if (paneId === 'connections') {

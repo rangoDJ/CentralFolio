@@ -104,3 +104,47 @@ test("createOrUpdatePortfolio: a whitespace-only credential is rejected, not sto
   createOrUpdatePortfolio({ body: { ...validBody, consumerKey: "   " } } as Request, res);
   assert.equal(res.statusCode, 400);
 });
+
+test("createOrUpdatePortfolio: an edit that omits consumerKey keeps the stored key", async () => {
+  // The key is stripped before portfolios are sent to the client, so the edit
+  // form has nothing to echo back. A blank one must mean "unchanged" — treating
+  // it as "erase" destroyed the credential that signs every SnapTrade request.
+  const { getPortfolio } = await import("../models/db.js");
+
+  const created = mockRes();
+  createOrUpdatePortfolio({ body: { ...validBody, name: "Keeps", consumerKey: "real-secret" } } as Request, created);
+  const id = created.body.id;
+
+  const edited = mockRes();
+  createOrUpdatePortfolio({ body: { id, name: "Renamed", clientId: "c1", userId: "u1" } } as Request, edited);
+  assert.equal(edited.statusCode, 200);
+
+  const saved = getPortfolio(id)!;
+  assert.equal(saved.name, "Renamed");
+  assert.equal(saved.consumerKey, "real-secret", "the stored key must survive an unrelated edit");
+});
+
+test("createOrUpdatePortfolio: a supplied consumerKey still replaces the stored one", async () => {
+  const { getPortfolio } = await import("../models/db.js");
+
+  const created = mockRes();
+  createOrUpdatePortfolio({ body: { ...validBody, name: "Rotates", consumerKey: "old-secret" } } as Request, created);
+  const id = created.body.id;
+
+  const edited = mockRes();
+  createOrUpdatePortfolio({ body: { ...validBody, id, name: "Rotates", consumerKey: "new-secret" } } as Request, edited);
+  assert.equal(edited.statusCode, 200);
+  assert.equal(getPortfolio(id)!.consumerKey, "new-secret");
+});
+
+test("createOrUpdatePortfolio: a new portfolio still requires a consumerKey", () => {
+  const res = mockRes();
+  createOrUpdatePortfolio({ body: { name: "No key", clientId: "c1", userId: "u1" } } as Request, res);
+  assert.equal(res.statusCode, 400);
+});
+
+test("createOrUpdatePortfolio: an edit against a missing portfolio is a 404", () => {
+  const res = mockRes();
+  createOrUpdatePortfolio({ body: { ...validBody, id: 999999 } } as Request, res);
+  assert.equal(res.statusCode, 404);
+});

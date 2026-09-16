@@ -184,13 +184,25 @@ const UI = {
             document.getElementById('portId').value       = portfolio.id;
             document.getElementById('portName').value     = portfolio.name;
             document.getElementById('clientId').value     = portfolio.clientId;
-            document.getElementById('consumerKey').value  = portfolio.consumerKey;
             document.getElementById('userId').value       = portfolio.userId;
+            // The consumerKey never leaves the server, so there is nothing to echo
+            // here. Assigning the missing property wrote the string "undefined"
+            // into the field, and saving stored that over the real key. Leave it
+            // blank: the server keeps the stored key when this is empty.
+            const consumerKeyEl = document.getElementById('consumerKey');
+            consumerKeyEl.value = '';
+            consumerKeyEl.required = false;
+            consumerKeyEl.placeholder = 'Key saved — enter a new one to replace it';
             document.getElementById('userSecret').value   = portfolio.userSecret || '';
         } else {
             this.modalTitle.textContent = 'Add Portfolio';
             this.portfolioForm.reset();
             document.getElementById('portId').value = '';
+            // openModal(portfolio) relaxes these for the edit case; a new portfolio
+            // must supply a key, so restore what the markup declares.
+            const consumerKeyEl = document.getElementById('consumerKey');
+            consumerKeyEl.required = true;
+            consumerKeyEl.placeholder = 'SnapTrade Consumer Key';
         }
         this.portfolioModal.classList.add('open');
     },

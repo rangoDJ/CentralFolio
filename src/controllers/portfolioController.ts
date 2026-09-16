@@ -57,7 +57,7 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
   const action = id ? `UPDATE id=${id}` : 'CREATE';
   logger.info('Portfolio', `POST /api/portfolios — ${action} name="${name}"`);
 
-  if (!name || !clientId || !consumerKey || !userId) {
+  if (!name || !clientId || !userId) {
     logger.warn('Portfolio', 'createOrUpdatePortfolio — missing required fields');
     return res.status(400).json({ error: "Missing required fields: name, clientId, consumerKey, userId" });
   }
@@ -74,11 +74,26 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
     }
   }
 
+  // The consumerKey is a secret and is never sent to the client, so an edit form
+  // cannot echo it back. A blank one on an update therefore means "unchanged",
+  // not "erase it" — otherwise saving an unrelated field on an existing
+  // connection would silently destroy the key that signs its requests.
+  const existing = portfolioId ? getPortfolio(portfolioId) : null;
+  if (portfolioId && !existing) {
+    return res.status(404).json({ error: "Portfolio not found" });
+  }
+
+  const effectiveConsumerKey = consumerKey || existing?.consumerKey || '';
+  if (!effectiveConsumerKey) {
+    logger.warn('Portfolio', 'createOrUpdatePortfolio — missing required fields');
+    return res.status(400).json({ error: "Missing required fields: name, clientId, consumerKey, userId" });
+  }
+
   const portfolio: Portfolio = {
     id: portfolioId,
     name,
     clientId,
-    consumerKey,
+    consumerKey: effectiveConsumerKey,
     userId,
   };
 

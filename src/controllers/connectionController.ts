@@ -4,9 +4,10 @@ import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { onBrokerageReconnected } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
+import { safeRedirect } from "../utils/safeRedirect.js";
 
 export const getLoginLink = async (req: Request, res: Response) => {
-  const { portfolioId } = req.body;
+  const { portfolioId, redirectUrl } = req.body;
   logger.info('SnapTrade', `POST /snapTrade/loginLink — portfolioId=${portfolioId}`);
 
   if (!portfolioId) {
@@ -23,9 +24,16 @@ export const getLoginLink = async (req: Request, res: Response) => {
 
     const client = getSnapTradeClientForPortfolio(portfolio);
     logger.info('SnapTrade', `getLoginLink — generating login URL for "${portfolio.name}" (userId: ${portfolio.userId})`);
+    // Send the user straight back to the app once the connection completes,
+    // instead of leaving them on SnapTrade's own success screen.
+    const customRedirect = safeRedirect(req, redirectUrl);
+    if (redirectUrl && !customRedirect) {
+      logger.warn('SnapTrade', `getLoginLink — rejected redirectUrl (host does not match ${req.hostname})`);
+    }
     const loginResponse = await client.authentication.loginSnapTradeUser({
       userId: portfolio.userId,
       userSecret: portfolio.userSecret,
+      ...(customRedirect ? { customRedirect, immediateRedirect: true } : {}),
     });
 
     const data = loginResponse.data as any;

@@ -74,6 +74,8 @@ const App = {
         if (activeSettingsTab === 'portfolios') {
             this.loadUserPortfolios();
         }
+
+        await this.handleConnectionReturn();
     },
 
     setupEventListeners() {
@@ -257,15 +259,15 @@ const App = {
         }
     },
 
+    // The SnapTrade portal is opened in this same tab: on completion SnapTrade
+    // redirects back here and handleConnectionReturn() registers the new
+    // accounts. A separate tab would leave this one unaware of the result.
     async connectBrokerage(id, btn) {
         btn.classList.add('loading');
         try {
-            const loginUrl = await API.getLoginUrl(id);
-            window.open(loginUrl, '_blank');
-            UI.showToast('Portal opened. Refresh accounts after connecting.');
+            window.location.assign(await API.getLoginUrl(id));
         } catch (err) {
             UI.showToast(err.message, 'error');
-        } finally {
             btn.classList.remove('loading');
         }
     },
@@ -273,22 +275,37 @@ const App = {
     async reconnectForTrading(id, btn) {
         btn.classList.add('loading');
         try {
-            const loginUrl = await API.getTradeLoginUrl(id);
-            const popup = window.open(loginUrl, '_blank');
-            UI.showToast('Trade portal opened. Complete the reconnect to enable trade permissions.');
-            // Poll until popup closes, then invalidate stale cache and refresh the badge
-            const poll = setInterval(async () => {
-                if (popup && popup.closed) {
-                    clearInterval(poll);
-                    try { await API.invalidatePortfolioCache(id); } catch (_) {}
-                    this.loadConnectionBadge(id);
-                }
-            }, 1000);
+            window.location.assign(await API.getTradeLoginUrl(id));
         } catch (err) {
             UI.showToast(err.message, 'error');
-        } finally {
             btn.classList.remove('loading');
         }
+    },
+
+    // Runs on load after SnapTrade redirects back with ?snaptrade=...&portfolioId=...
+    async handleConnectionReturn() {
+        const params = new URLSearchParams(window.location.search);
+        const mode = params.get('snaptrade');
+        if (mode !== 'connected' && mode !== 'trade-connected') return;
+        const portfolioId = params.get('portfolioId');
+
+        // Strip the params first so a reload doesn't repeat this.
+        params.delete('snaptrade');
+        params.delete('portfolioId');
+        const qs = params.toString();
+        history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+
+        if (portfolioId) {
+            try { await API.invalidatePortfolioCache(portfolioId); } catch (_) {}
+        }
+
+        this.switchMainTab('settings', document.querySelector('.topnav-item[data-tab="settings"]'));
+        await this.switchSettingsTab('connections');
+        await this.fetchAccounts(true);
+
+        UI.showToast(mode === 'trade-connected'
+            ? 'Brokerage reconnected with trading enabled'
+            : 'Brokerage connected — accounts refreshed');
     },
 
     async loadConnectionBadge(portfolioId, tradingEnabled = true) {
@@ -561,9 +578,7 @@ const App = {
 
     async connectBrokerageById(id) {
         try {
-            const loginUrl = await API.getLoginUrl(id);
-            window.open(loginUrl, '_blank');
-            UI.showToast('Connection portal opened. Refresh after linking your account.');
+            window.location.assign(await API.getLoginUrl(id));
         } catch (err) {
             UI.showToast(err.message, 'error');
         }

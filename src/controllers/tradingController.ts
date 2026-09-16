@@ -4,6 +4,7 @@ import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedAcc
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
+import { safeRedirect } from "../utils/safeRedirect.js";
 import type { TradeOrder } from "../schemas/tradeSchema.js";
 
 // Orders are staged on a POST (preview), then actually placed only on a second
@@ -46,13 +47,18 @@ export const getTradeLoginLink = async (req: Request, res: Response) => {
       logger.info('SnapTrade', `getTradeLoginLink — reconnecting auth id=${reconnectAuthId ?? 'none'}`);
     } catch (_) { /* proceed without reconnect param */ }
 
+    const customRedirect = safeRedirect(req, redirectUrl);
+    if (redirectUrl && !customRedirect) {
+      logger.warn('SnapTrade', `getTradeLoginLink — rejected redirectUrl (host does not match ${req.hostname})`);
+    }
+
     logger.info('SnapTrade', `getTradeLoginLink — generating trade-enabled URL for "${portfolio.name}"`);
     const loginResponse = await client.authentication.loginSnapTradeUser({
       userId: portfolio.userId,
       userSecret: portfolio.userSecret,
       connectionType: 'trade' as any,
       ...(reconnectAuthId ? { reconnect: reconnectAuthId } : {}),
-      ...(redirectUrl ? { customRedirect: String(redirectUrl) } : {}),
+      ...(customRedirect ? { customRedirect, immediateRedirect: true } : {}),
     });
 
     const data = loginResponse.data as any;

@@ -75,10 +75,20 @@ const API = {
         return data;
     },
 
+    // Where SnapTrade sends the browser once a connection completes. App.init()
+    // picks up the query params, refreshes the new accounts, then strips them.
+    _connectionReturnUrl(id, mode) {
+        const url = new URL(window.location.pathname, window.location.origin);
+        url.searchParams.set('snaptrade', mode);
+        url.searchParams.set('portfolioId', String(id));
+        return url.toString();
+    },
+
     async getLoginUrl(id) {
+        const redirectUrl = this._connectionReturnUrl(id, 'connected');
         const res = await this._fetch('/api/login', {
             method: 'POST',
-            body: JSON.stringify({ portfolioId: id })
+            body: JSON.stringify({ portfolioId: id, redirectUrl })
         });
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to get link');
@@ -86,7 +96,7 @@ const API = {
     },
 
     async getTradeLoginUrl(id) {
-        const redirectUrl = window.location.origin + window.location.pathname + '#settings';
+        const redirectUrl = this._connectionReturnUrl(id, 'trade-connected');
         const res = await this._fetch('/api/login/trade', {
             method: 'POST',
             body: JSON.stringify({ portfolioId: id, redirectUrl })

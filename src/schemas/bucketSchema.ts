@@ -66,6 +66,8 @@ export const bucketRunSchema = z.object({
   cashValue: z.coerce.number().finite().positive().max(1_000_000).optional(),
   /** Set once the preview has shown under-minimum orders and the user accepted them. */
   allowBelowMinimum: z.boolean().optional(),
+  /** Ask the preview to re-read balances from the broker first. */
+  refreshBalances: z.boolean().optional(),
 });
 
 export type BucketRunBody = z.infer<typeof bucketRunSchema>;

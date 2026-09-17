@@ -820,12 +820,16 @@ const API = {
         return true;
     },
 
-    /** What a run would place, with nothing placed. */
-    async previewBucket(id, accounts, cashValue) {
+    /**
+     * What a run would place, with nothing placed. `refreshBalances` re-reads
+     * cash from the broker first — used when the run screen opens, not on every
+     * edit, since it costs a live call per connection.
+     */
+    async previewBucket(id, accounts, cashValue, refreshBalances) {
         const res = await this._fetch(`/api/buckets/${encodeURIComponent(id)}/preview`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accounts, cashValue }),
+            body: JSON.stringify({ accounts, cashValue, refreshBalances: !!refreshBalances }),
         });
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to preview bucket');
@@ -847,6 +851,7 @@ const API = {
         if (!res.ok) {
             const err = new Error(data.error || 'Failed to stage bucket run');
             err.requiresBelowMinimumAck = !!data.requiresBelowMinimumAck;
+            err.balanceCheckFailed = !!data.balanceCheckFailed;
             err.plan = data.plan;
             throw err;
         }

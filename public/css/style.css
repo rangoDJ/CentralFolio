@@ -2378,3 +2378,9 @@ input::placeholder { color: var(--text-muted); opacity: 0.55; }
   font-size: 0.82rem;
 }
 .hb-select, .hb-select-all { cursor: pointer; width: 14px; height: 14px; }
+.bucket-balance-note {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.6rem;
+  line-height: 1.4;
+}

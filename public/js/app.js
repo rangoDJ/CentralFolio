@@ -917,6 +917,9 @@ const App = {
             try { this.activePortfolios = await API.getPortfolios(); } catch (_) { /* picker shows the empty note */ }
         }
         UI.renderBucketRunAccounts(this.currentGroups, this.inactiveAccountIds, new Set(), this.activePortfolios);
+        // First preview of the session re-reads balances from the broker, so
+        // the cash figures on screen are current rather than last-synced.
+        this._bucketNeedsBalanceRefresh = true;
         this.refreshBucketPreview();
     },
 
@@ -955,7 +958,9 @@ const App = {
         }
 
         try {
-            const plan = await API.previewBucket(this.bucketRun.bucket.id, accounts, cashValue);
+            const wantsRefresh = this._bucketNeedsBalanceRefresh;
+            this._bucketNeedsBalanceRefresh = false;
+            const plan = await API.previewBucket(this.bucketRun.bucket.id, accounts, cashValue, wantsRefresh);
             this.bucketRun.plan = plan;
             UI.renderBucketPreview(plan);
             btn.disabled = (plan.errors || []).length > 0 || plan.orderCount === 0;
@@ -981,6 +986,14 @@ const App = {
             } catch (err) {
                 // Under-minimum orders are the user's call to make, so ask once
                 // and retry with the acknowledgement rather than refusing.
+                if (err.balanceCheckFailed) {
+                    // Nothing was placed — the run stops until the broker can be
+                    // reached, rather than falling back to a cached balance.
+                    document.getElementById('bucketRunPreview').innerHTML =
+                        `<div class="bucket-alert bucket-alert-error">${sanitize(err.message)}</div>`;
+                    UI.showToast('No orders placed — cash balances could not be verified', 'error');
+                    return;
+                }
                 if (err.requiresBelowMinimumAck) {
                     const ok = confirm(`${err.message}\n\nThose orders will most likely be rejected by the broker. Place them anyway?`);
                     if (!ok) { UI.showToast('Run cancelled'); return; }

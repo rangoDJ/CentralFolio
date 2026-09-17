@@ -6,6 +6,7 @@ import {
 import { getPortfolio, accountBelongsToPortfolio } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { planBucketRun, type BucketPlan } from "../services/bucketService.js";
+import { refreshAccountBalances } from "../services/accountBalanceService.js";
 import { ensureProfile } from "../services/assetProfileService.js";
 import { syncSymbol } from "../services/priceHistoryService.js";
 import { logger } from "../utils/logger.js";
@@ -31,6 +32,7 @@ interface ValidatedRunBody {
   accounts: Array<{ portfolioId: string; accountId: string }>;
   cashValue?: number;
   allowBelowMinimum?: boolean;
+  refreshBalances?: boolean;
 }
 
 const toBucketInput = (body: ValidatedBucketBody): BucketInput => ({
@@ -102,23 +104,56 @@ async function warmSymbols(symbols: string[]): Promise<void> {
 }
 
 /** What a run would place, with nothing placed. */
-export const previewBucketHandler = (req: Request, res: Response) => {
+export const previewBucketHandler = async (req: Request, res: Response) => {
   const bucket = getBucket(Number(req.params.id));
   if (!bucket) return res.status(404).json({ error: "Bucket not found" });
 
-  const { accounts, cashValue } = req.body as ValidatedRunBody;
-  res.json(planBucketRun(bucket, accounts, cashValue));
+  const { accounts, cashValue, refreshBalances } = req.body as ValidatedRunBody;
+
+  // The page asks for a refresh when the run screen opens, so the cash figures
+  // start out current. It does not ask on every edit — that would be a live
+  // brokerage call per keystroke. The staging step refreshes unconditionally.
+  let balances;
+  if (refreshBalances) {
+    balances = await refreshAccountBalances(accounts.map(a => a.portfolioId));
+  }
+
+  const plan = planBucketRun(bucket, accounts, cashValue);
+  if (balances && balances.failures.length > 0) {
+    plan.warnings.push(
+      `Balances could not be refreshed for ${balances.failures.length} connection(s): ` +
+      balances.failures.map(f => f.error).join("; ")
+    );
+  }
+  res.json({ ...plan, balancesRefreshed: !!refreshBalances && balances!.failures.length === 0 });
 };
 
 /**
  * Step 1 of a run — recompute the plan, refuse it if anything blocks, and hand
  * back a single-use token.
  */
-export const stageBucketRunHandler = (req: Request, res: Response) => {
+export const stageBucketRunHandler = async (req: Request, res: Response) => {
   const bucket = getBucket(Number(req.params.id));
   if (!bucket) return res.status(404).json({ error: "Bucket not found" });
 
   const { accounts, cashValue, allowBelowMinimum } = req.body as ValidatedRunBody;
+
+  // Always re-read the balances from the broker before staging. A run is
+  // refused when an account cannot fund it, and refusing on a cached figure
+  // would mean blocking a funded account, or clearing an unfunded one, on
+  // stale data. This is the last point before live orders, so it is worth a
+  // call per connection.
+  const balances = await refreshAccountBalances(accounts.map(a => a.portfolioId));
+  if (balances.failures.length > 0) {
+    // Unverifiable is not the same as sufficient: without a current balance
+    // the funding check cannot be performed, so the run does not proceed.
+    return res.status(502).json({
+      error: "Could not verify cash balances with the brokerage, so no orders were placed. " +
+             balances.failures.map(f => f.error).join("; "),
+      balanceCheckFailed: true,
+    });
+  }
+
   const plan = planBucketRun(bucket, accounts, cashValue);
 
   if (plan.errors.length > 0) {

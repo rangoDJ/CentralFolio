@@ -1989,8 +1989,11 @@ const UI = {
                  <strong>Grand total ${this.moneyC(plan.grandTotal, '')}</strong>
                </div>`
             : '';
+        // Balances are re-read from the broker again at the moment of placing,
+        // so say so — the figures above are never the deciding ones.
+        const balanceNote = `<div class="bucket-balance-note">Cash balances are re-checked with the brokerage before any order is placed.</div>`;
 
-        el.innerHTML = errors + warnings + accountBlocks + grand;
+        el.innerHTML = errors + warnings + accountBlocks + grand + balanceNote;
     },
 
     /** Outcome of a run, order by order. */

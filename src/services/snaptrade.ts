@@ -1,6 +1,6 @@
 import { Snaptrade, SnaptradeAuth, type CommercialApiKeyAuth } from "snaptrade-typescript-sdk";
 import { listPortfolios, getPortfolio, Portfolio } from "../models/db.js";
-import { logger } from "../utils/logger.js";
+import { logger, redactUrl } from "../utils/logger.js";
 
 /**
  * CentralFolio authenticates with a clientId + consumerKey pair, which SDK v12
@@ -31,6 +31,54 @@ export function evictSnapTradeClientForPortfolio(id: number | string) {
   }
 }
 
+/**
+ * Log every outbound call to SnapTrade.
+ *
+ * Inbound requests to this app were logged; outbound ones were not, so a
+ * bucket placing five orders showed the five decisions this app made and
+ * nothing about the five calls it actually sent. When a brokerage rejects an
+ * order, the log should say that a request went out, where to, and what came
+ * back — not just that a catch block ran.
+ *
+ * Every API group shares one axios instance, so a single pair of interceptors
+ * covers accounts, holdings, transactions, trading and connections alike.
+ *
+ * Only the method, path, status and duration are recorded. The SDK signs
+ * requests with the consumer key and puts `userSecret` in the query string, so
+ * the URL is redacted, and bodies are never logged — an order's details are
+ * already logged by the code that decided to place it.
+ */
+function attachRequestLogging(client: SnapTradeClient): void {
+  const axios = (client as any)?.accountInformation?.axios;
+  if (!axios?.interceptors) {
+    logger.warn('SnapTrade', 'Could not attach request logging — outbound calls will not appear in the log');
+    return;
+  }
+
+  axios.interceptors.request.use((config: any) => {
+    config.__startedAt = Date.now();
+    return config;
+  });
+
+  axios.interceptors.response.use(
+    (response: any) => {
+      const ms = Date.now() - (response.config?.__startedAt ?? Date.now());
+      const method = String(response.config?.method ?? 'get').toUpperCase();
+      logger.info('SnapTradeAPI', `${method} ${redactUrl(response.config?.url ?? '?')} → ${response.status} (${ms}ms)`);
+      return response;
+    },
+    (error: any) => {
+      const ms = Date.now() - (error.config?.__startedAt ?? Date.now());
+      const method = String(error.config?.method ?? 'get').toUpperCase();
+      const status = error.response?.status ?? 'no response';
+      // The brokerage's own reason for refusing, which is the useful part.
+      const detail = error.response?.data?.detail ?? error.response?.data?.message ?? error.message ?? '';
+      logger.warn('SnapTradeAPI', `${method} ${redactUrl(error.config?.url ?? '?')} → ${status} (${ms}ms) ${detail}`.trim());
+      return Promise.reject(error);
+    },
+  );
+}
+
 export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | number | string) {
   let portfolio: Portfolio | null = null;
   
@@ -54,7 +102,7 @@ export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | numbe
   const cacheKey = portfolio.id ? String(portfolio.id) : `${portfolio.clientId}:${portfolio.consumerKey}`;
   if (!clientCache.has(cacheKey)) {
     logger.debug('SnapTrade', `Building new client instance for portfolio "${portfolio.name}" (userId: ${portfolio.userId})`);
-    clientCache.set(cacheKey, new Snaptrade({
+    const client = new Snaptrade({
       // v12 moved the credentials behind an explicit auth mode; they used to sit
       // at the top level of the config object.
       auth: SnaptradeAuth.commercialApiKey({
@@ -64,7 +112,9 @@ export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | numbe
       baseOptions: {
         timeout: 15000,
       },
-    }));
+    });
+    attachRequestLogging(client);
+    clientCache.set(cacheKey, client);
   } else {
     logger.debug('SnapTrade', `Reusing cached client instance for portfolio "${portfolio.name}"`);
   }

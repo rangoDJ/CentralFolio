@@ -795,6 +795,26 @@ const API = {
         return true;
     },
 
+    // ── Orders ──────────────────────────────────────────────────────────────────
+    /** Open and recent orders, read live from the brokerage. */
+    async getOrders(state = 'all', days = 30) {
+        const res = await this._fetch(`/api/orders?state=${encodeURIComponent(state)}&days=${encodeURIComponent(days)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load orders');
+        return data;
+    },
+
+    async cancelOrder(portfolioId, accountId, brokerageOrderId) {
+        const res = await this._fetch('/api/orders/cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ portfolioId, accountId, brokerageOrderId }),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to cancel the order');
+        return data;
+    },
+
     // ── Buy buckets ─────────────────────────────────────────────────────────────
     async getBuckets() {
         const res = await this._fetch('/api/buckets');

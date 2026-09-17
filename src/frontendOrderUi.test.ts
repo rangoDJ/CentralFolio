@@ -344,6 +344,94 @@ test('a retry result is labelled as a retry', () => {
   assert.match(byId('bucketRunPreview').innerHTML, /Retry: placed 2 of 2/);
 });
 
+// ── Orders page ─────────────────────────────────────────────────────────────
+
+const orderRow = (over: any = {}) => ({
+  brokerageOrderId: 'ord-1', portfolioId: '1', accountId: 'acc-1', accountName: 'Retirement',
+  symbol: 'ENB.TO', description: 'Enbridge', action: 'BUY', status: 'EXECUTED',
+  orderType: 'Market', timeInForce: 'Day',
+  totalQuantity: 10, filledQuantity: 10, openQuantity: 0, canceledQuantity: 0,
+  executionPrice: 51.25, limitPrice: null, currency: 'CAD',
+  timePlaced: '2026-09-17T14:00:00Z', timeUpdated: null, timeExecuted: null,
+  isOpen: false, isFailed: false, cancellable: false, ...over,
+});
+
+const ordersResult = (orders: any[], errors: any[] = []) =>
+  ({ orders, errors, fetchedAt: '2026-09-17T15:00:00Z' });
+
+test('a filled order shows its execution price, not its limit', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderOrders(ordersResult([orderRow({ limitPrice: 50 })]));
+  const html = byId('orders-content').innerHTML;
+  assert.match(html, /51\.25/, 'the price it actually filled at');
+  assert.ok(!/limit/.test(html), 'the requested limit is not what happened');
+});
+
+test('an unfilled limit order shows the limit as a request', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderOrders(ordersResult([orderRow({
+    status: 'ACCEPTED', isOpen: true, executionPrice: null, limitPrice: 50, filledQuantity: 0,
+  })]));
+  assert.match(byId('orders-content').innerHTML, /limit/);
+});
+
+test('a partial fill shows filled against total', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderOrders(ordersResult([orderRow({ status: 'PARTIAL', filledQuantity: 4, totalQuantity: 10, isOpen: true })]));
+  assert.match(byId('orders-content').innerHTML, /4 \/ 10/);
+});
+
+test('Cancel is offered only on a cancellable order', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderOrders(ordersResult([orderRow({ status: 'ACCEPTED', isOpen: true, cancellable: true })]));
+  assert.match(byId('orders-content').innerHTML, /App\.cancelOrder/);
+
+  UI.renderOrders(ordersResult([orderRow()]));
+  assert.ok(!/App\.cancelOrder/.test(byId('orders-content').innerHTML), 'a filled order offers no cancel');
+});
+
+test('an account that could not be read is named, so an empty table is not misread', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderOrders(ordersResult([], [{ accountId: 'acc-9', accountName: 'Margin', error: 'connection disabled' }]));
+  const html = byId('orders-content').innerHTML;
+  assert.match(html, /Margin/);
+  assert.match(html, /connection disabled/);
+});
+
+test('the filters count and narrow the rows', () => {
+  const { UI, byId } = loadFrontend();
+  UI.ordersFilter = 'all';
+  UI.renderOrders(ordersResult([
+    orderRow({ brokerageOrderId: 'a', status: 'ACCEPTED', isOpen: true }),
+    orderRow({ brokerageOrderId: 'b' }),
+    orderRow({ brokerageOrderId: 'c', status: 'REJECTED', isFailed: true }),
+  ]));
+  assert.equal((byId('orders-content').innerHTML.match(/ord-badge/g) || []).length, 3, 'all three shown');
+
+  UI.setOrdersFilter('open');
+  assert.equal((byId('orders-content').innerHTML.match(/ord-badge/g) || []).length, 1, 'only the working one');
+
+  UI.setOrdersFilter('filled');
+  assert.equal((byId('orders-content').innerHTML.match(/ord-badge/g) || []).length, 1, 'only the filled one');
+  UI.setOrdersFilter('all');
+});
+
+test('statuses are shown in plain words, not broker enums', () => {
+  const { UI, byId } = loadFrontend();
+  UI.ordersFilter = 'all';
+  UI.renderOrders(ordersResult([orderRow({ status: 'PARTIAL_CANCELED' })]));
+  const html = byId('orders-content').innerHTML;
+  assert.match(html, /Part cancelled/);
+  assert.ok(!/PARTIAL_CANCELED/.test(html));
+});
+
+test('an empty result says so without implying an error', () => {
+  const { UI, byId } = loadFrontend();
+  UI.ordersFilter = 'all';
+  UI.renderOrders(ordersResult([]));
+  assert.match(byId('orders-content').innerHTML, /No orders in this period/);
+});
+
 test('the holdings selection bar appears only when something is selected', () => {
   const { UI, App, byId } = loadFrontend();
   App.selectedHoldingSymbols = new Set(['AAPL', 'MSFT']);

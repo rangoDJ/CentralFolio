@@ -146,6 +146,7 @@ export const stageBucketRunHandler = async (req: Request, res: Response) => {
   if (balances.failures.length > 0) {
     // Unverifiable is not the same as sufficient: without a current balance
     // the funding check cannot be performed, so the run does not proceed.
+    logger.warn("Buckets", `Run of "${bucket.name}" stopped — balances could not be verified, no orders placed`);
     return res.status(502).json({
       error: "Could not verify cash balances with the brokerage, so no orders were placed. " +
              balances.failures.map(f => f.error).join("; "),
@@ -156,14 +157,17 @@ export const stageBucketRunHandler = async (req: Request, res: Response) => {
   const plan = planBucketRun(bucket, accounts, cashValue);
 
   if (plan.errors.length > 0) {
+    logger.warn("Buckets", `Run of "${bucket.name}" refused — ${plan.errors.join(" ")}`);
     return res.status(400).json({ error: plan.errors.join(" "), plan });
   }
   if (plan.orderCount === 0) {
+    logger.warn("Buckets", `Run of "${bucket.name}" refused — it would place no orders`);
     return res.status(400).json({ error: "This run would place no orders.", plan });
   }
   // Under-minimum orders are the user's call, but they have to have made it:
   // the page sends allowBelowMinimum only after showing them the flagged rows.
   if (plan.belowMinimumCount > 0 && !allowBelowMinimum) {
+    logger.info("Buckets", `Run of "${bucket.name}" held — ${plan.belowMinimumCount} order(s) below the ${plan.minNotional} minimum, awaiting the user's go-ahead`);
     return res.status(409).json({
       error: `${plan.belowMinimumCount} order(s) fall below the ${plan.minNotional} broker minimum.`,
       requiresBelowMinimumAck: true,
@@ -329,6 +333,7 @@ export const retryBucketRunHandler = async (req: Request, res: Response) => {
 
   const pending = retryToken ? retryableRuns.get(retryToken) : undefined;
   if (!pending || now > pending.expiresAt) {
+    logger.warn("Buckets", "Retry refused — the token is missing, expired, or already used");
     return res.status(400).json({ error: "Nothing left to retry — the token is missing, expired, or already used." });
   }
   retryableRuns.delete(retryToken);   // single-use, like the run token
@@ -361,6 +366,7 @@ export const retryBucketRunHandler = async (req: Request, res: Response) => {
     if (!check.sufficient && check.message) short.push(check.message);
   }
   if (short.length > 0) {
+    logger.warn("Buckets", `Retry of "${bucketName}" refused — ${short.join(" ")}`);
     retryableRuns.set(retryToken, { bucketName, placements, expiresAt: now + RETRY_TTL_MS });
     return res.status(400).json({ error: short.join(" "), insufficientCash: true });
   }

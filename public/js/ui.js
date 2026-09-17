@@ -1814,6 +1814,141 @@ const UI = {
         return `<div class="hb-actions">${rows}</div>`;
     },
 
+    // ── Orders ───────────────────────────────────────────────────────────────
+
+    /** How each brokerage status should read and colour. */
+    _ORDER_STATUS: {
+        EXECUTED:  { label: 'Filled',        cls: 'ord-ok'   },
+        PARTIAL:   { label: 'Partial fill',  cls: 'ord-work' },
+        PENDING:   { label: 'Pending',       cls: 'ord-work' },
+        ACCEPTED:  { label: 'Working',       cls: 'ord-work' },
+        QUEUED:    { label: 'Queued',        cls: 'ord-work' },
+        TRIGGERED: { label: 'Triggered',     cls: 'ord-work' },
+        ACTIVATED: { label: 'Working',       cls: 'ord-work' },
+        CANCELED:  { label: 'Cancelled',     cls: 'ord-dead' },
+        PARTIAL_CANCELED: { label: 'Part cancelled', cls: 'ord-dead' },
+        CANCEL_PENDING:   { label: 'Cancelling',     cls: 'ord-work' },
+        REJECTED:  { label: 'Rejected',      cls: 'ord-bad'  },
+        FAILED:    { label: 'Failed',        cls: 'ord-bad'  },
+        EXPIRED:   { label: 'Expired',       cls: 'ord-dead' },
+        REPLACED:  { label: 'Replaced',      cls: 'ord-dead' },
+    },
+
+    ordersFilter: 'all',
+
+    setOrdersFilter(filter) {
+        this.ordersFilter = filter;
+        this.renderOrders(this._ordersResult);
+    },
+
+    /**
+     * Open and recent orders.
+     *
+     * Deliberately shows the brokerage's own status rather than this app's idea
+     * of what it asked for: the gap between "we sent an order" and "the order
+     * filled" is the whole reason the page exists.
+     */
+    renderOrders(result) {
+        const el = document.getElementById('orders-content');
+        if (!el) return;
+        this._ordersResult = result;
+
+        const stamp = document.getElementById('ordersFetchedAt');
+        if (stamp) {
+            stamp.textContent = result && result.fetchedAt
+                ? `As of ${new Date(result.fetchedAt).toLocaleTimeString()}`
+                : '';
+        }
+
+        if (!result) { el.innerHTML = '<div class="empty-state"><p>Loading orders…</p></div>'; return; }
+
+        const all = result.orders || [];
+        const counts = {
+            all: all.length,
+            open: all.filter(o => o.isOpen).length,
+            filled: all.filter(o => o.status === 'EXECUTED' || o.status === 'PARTIAL').length,
+        };
+        const filtered = this.ordersFilter === 'open' ? all.filter(o => o.isOpen)
+            : this.ordersFilter === 'filled' ? all.filter(o => o.status === 'EXECUTED' || o.status === 'PARTIAL')
+            : all;
+
+        // An account that could not be read is called out, so an empty table is
+        // never mistaken for "you have no orders".
+        const errors = (result.errors || []).length
+            ? `<div class="ord-alert">Could not read orders for ${(result.errors || []).map(e =>
+                `${sanitize(e.accountName)} (${sanitize(e.error)})`).join(', ')}.</div>`
+            : '';
+
+        const tabs = [['all', 'All', counts.all], ['open', 'Open', counts.open], ['filled', 'Filled', counts.filled]]
+            .map(([key, label, count]) =>
+                `<button class="hb-view ${this.ordersFilter === key ? 'active' : ''}" onclick="UI.setOrdersFilter('${key}')">${label} <span class="text-muted">${count}</span></button>`
+            ).join('');
+
+        const body = filtered.length === 0
+            ? `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:2rem;">
+                 ${all.length === 0 ? 'No orders in this period.' : 'No orders match this filter.'}
+               </td></tr>`
+            : filtered.map(o => this.renderOrderRow(o)).join('');
+
+        el.innerHTML = `${errors}
+            <div class="holdings-board card">
+                <div class="hb-toolbar">
+                    <div class="hb-views">${tabs}</div>
+                </div>
+                <div class="hb-scroll">
+                    <table class="hb-table">
+                        <thead><tr>
+                            <th>Status</th><th>Symbol</th><th>Side</th>
+                            <th class="right">Filled</th><th class="right">Price</th>
+                            <th>Type</th><th>Placed</th><th class="right"></th>
+                        </tr></thead>
+                        <tbody>${body}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    },
+
+    renderOrderRow(o) {
+        const meta = this._ORDER_STATUS[o.status] || { label: o.status, cls: 'ord-dead' };
+        const qty = n => n == null ? '—' : n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+
+        // What actually filled, against what was asked for — a partial fill is
+        // the case this column exists to make visible.
+        const filled = o.totalQuantity != null
+            ? `${qty(o.filledQuantity ?? 0)} / ${qty(o.totalQuantity)}`
+            : qty(o.filledQuantity);
+
+        // The executed price is the real one; a limit price is only the request.
+        const price = o.executionPrice != null
+            ? this.moneyC(o.executionPrice, o.currency || '')
+            : (o.limitPrice != null
+                ? `<span class="text-muted">limit ${this.moneyC(o.limitPrice, o.currency || '')}</span>`
+                : '—');
+
+        const placed = o.timePlaced ? new Date(o.timePlaced).toLocaleString(undefined,
+            { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+        const cancel = o.cancellable
+            ? `<button class="btn btn-outline btn-sm" onclick="App.cancelOrder('${sanitize(o.portfolioId)}','${sanitize(o.accountId)}','${sanitize(o.brokerageOrderId)}','${sanitize(o.symbol || 'this order')}')">Cancel</button>`
+            : '';
+
+        const side = (o.action || '').toUpperCase().includes('SELL') ? 'neg' : 'pos';
+
+        return `<tr>
+            <td><span class="ord-badge ${meta.cls}">${sanitize(meta.label)}</span></td>
+            <td>
+                <div class="ord-symbol">${sanitize(o.symbol || '—')}</div>
+                <div class="ord-account">${sanitize(o.accountName)}</div>
+            </td>
+            <td class="${side}">${sanitize(o.action || '—')}</td>
+            <td class="right">${sanitize(filled)}</td>
+            <td class="right">${price}</td>
+            <td class="text-muted">${sanitize(o.orderType || '—')}${o.timeInForce ? ` · ${sanitize(o.timeInForce)}` : ''}</td>
+            <td class="text-muted" style="white-space:nowrap;">${sanitize(placed)}</td>
+            <td class="right">${cancel}</td>
+        </tr>`;
+    },
+
     // ── Buy buckets ──────────────────────────────────────────────────────────
 
     /** The saved buckets, as cards with run/edit/delete. */

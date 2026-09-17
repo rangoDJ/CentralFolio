@@ -9,7 +9,7 @@ import type { AlertRuleType } from "./alertRules.js";
  * data and API stay available because other pages (dashboard, holdings)
  * reuse the same dividend, price and target data.
  */
-export const FEATURES = ["compare", "dividends", "watchlist", "rebalance", "tax"] as const;
+export const FEATURES = ["compare", "dividends", "watchlist", "rebalance", "tax", "orders"] as const;
 export type FeatureKey = (typeof FEATURES)[number];
 
 export const featureSettingKey = (feature: FeatureKey) => `feature_${feature}_enabled`;

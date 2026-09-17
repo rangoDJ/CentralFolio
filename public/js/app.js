@@ -40,6 +40,7 @@ const App = {
         { key: 'watchlist', tab: 'watchlist',        label: 'Watchlist',          desc: 'Candidate symbols with buy criteria. Also pauses the “Watchlist target hit” alert.' },
         { key: 'rebalance', tab: 'rebalance',        label: 'Rebalancing',        desc: 'Target allocations and suggested trades. Also pauses the “Allocation drift” alert.' },
         { key: 'tax',       tab: 'tax',              label: 'Tax & T5008',        desc: 'Canadian T5008 / Schedule 3 reporting and tax-loss harvesting.' },
+        { key: 'orders',    tab: 'orders',           label: 'Orders',             desc: 'Open and recent brokerage orders, with their fill status. Read live from the brokerage each time the page is opened.' },
     ],
     featureFlags: {},
 
@@ -730,6 +731,43 @@ const App = {
         } finally {
             btn.classList.remove('loading');
             btn.disabled = false;
+        }
+    },
+
+    // ── Orders ───────────────────────────────────────────────────────────────
+    //
+    // Read live from the brokerage every time, not cached. A stale order status
+    // is worse than none: one shown as open after it filled invites placing the
+    // order twice, and one shown as filled when it was rejected hides a problem.
+
+    async loadOrders() {
+        const btn = document.getElementById('refreshOrdersBtn');
+        if (btn) btn.classList.add('loading');
+        const days = parseInt(document.getElementById('ordersDays')?.value, 10) || 30;
+
+        try {
+            UI.renderOrders(await API.getOrders('all', days));
+        } catch (err) {
+            const el = document.getElementById('orders-content');
+            if (el) el.innerHTML = `<div class="empty-state" style="color:var(--danger)">Could not load orders: ${sanitize(err.message)}</div>`;
+        } finally {
+            if (btn) btn.classList.remove('loading');
+        }
+    },
+
+    async cancelOrder(portfolioId, accountId, brokerageOrderId, label) {
+        // Cancelling reaches the brokerage and cannot be undone from here.
+        if (!confirm(`Cancel the order for ${label}?\n\nThis is sent to the brokerage. If it has already filled, the cancellation will simply be rejected.`)) return;
+
+        try {
+            await API.cancelOrder(portfolioId, accountId, brokerageOrderId);
+            UI.showToast('Cancellation sent');
+            // Re-read rather than assume: the brokerage decides whether a
+            // cancellation lands, and it may have filled in the meantime.
+            await this.loadOrders();
+        } catch (err) {
+            UI.showToast('Could not cancel: ' + err.message, 'error');
+            await this.loadOrders();
         }
     },
 
@@ -2739,7 +2777,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', compare: 'Compare Portfolios', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', tax: 'Tax & T5008', rebalance: 'Rebalancing', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', compare: 'Compare Portfolios', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', tax: 'Tax & T5008', orders: 'Orders', rebalance: 'Rebalancing', settings: 'Settings' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -2758,6 +2796,8 @@ const App = {
             this.loadCompareTab();
         } else if (tabId === 'transactions') {
             this.loadAllTransactions();
+        } else if (tabId === 'orders') {
+            this.loadOrders();
         } else if (tabId === 'dividend-tracker') {
             const subTab = localStorage.getItem('activeDividendSubTab') || 'forecast';
             if (subTab === 'forecast') {

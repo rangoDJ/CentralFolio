@@ -1,6 +1,7 @@
 import type { Portfolio } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { snapTradeError } from "../utils/snapTradeError.js";
 
 /**
  * The one place that builds a brokerage order.
@@ -61,10 +62,22 @@ export async function placeBrokerageOrder(portfolio: Portfolio, order: OrderRequ
   const qty = form.notional_value != null ? `notional=${form.notional_value}` : `${form.units} units`;
   logger.info("Trading", `Placing ${form.action} ${qty} ${form.symbol} in ${form.account_id} (${form.order_type}/${form.time_in_force})`);
 
-  const response = await client.trading.placeForceOrder({
-    userId: portfolio.userId,
-    userSecret: portfolio.userSecret!,
-    ...form,
-  });
-  return response.data;
+  try {
+    const response = await client.trading.placeForceOrder({
+      userId: portfolio.userId,
+      userSecret: portfolio.userSecret!,
+      ...form,
+    });
+    // Logged here rather than left to each caller, so an order's outcome is in
+    // the log whether it came from the popup, a bucket or a rebalance.
+    const id = (response.data as any)?.brokerage_order_id ?? 'no id returned';
+    logger.info("Trading", `Placed ${form.action} ${qty} ${form.symbol} in ${form.account_id} — brokerage order ${id}`);
+    return response.data;
+  } catch (err: any) {
+    // The SDK's own error message carries a response-header dump; snapTradeError
+    // pulls out the brokerage's actual reason, which is the part worth logging.
+    const { log } = snapTradeError(err, "Order rejected");
+    logger.warn("Trading", `Rejected ${form.action} ${qty} ${form.symbol} in ${form.account_id}: ${log}`);
+    throw err;
+  }
 }

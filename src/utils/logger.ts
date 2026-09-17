@@ -86,6 +86,16 @@ const TAG_COLORS: Record<string, string> = {
   Portfolio:     COLORS.blue,
   Server:        COLORS.green,
   Migration:     COLORS.yellow,
+  SnapTradeAPI:  COLORS.blue,
+  Trading:       COLORS.green,
+  Buckets:       COLORS.green,
+  Orders:        COLORS.cyan,
+  Balances:      COLORS.blue,
+  Transactions:  COLORS.cyan,
+  Holdings:      COLORS.cyan,
+  Alerts:        COLORS.yellow,
+  Scheduler:     COLORS.magenta,
+  Auth:          COLORS.yellow,
 };
 
 function timestamp(): string {
@@ -142,10 +152,16 @@ export const logger = {
 /** Express middleware: logs every incoming request and its response status+duration. */
 import type { Request, Response, NextFunction } from 'express';
 
-// Redact secrets that may appear in query strings (e.g. the SSE ?token= used by
-// EventSource, which can't send an Authorization header) so they never hit logs.
-function redactUrl(url: string): string {
-  return url.replace(/([?&](?:token|userSecret|secret|password)=)[^&]+/gi, '$1[redacted]');
+/**
+ * Redact secrets that may appear in query strings — the SSE `?token=` that
+ * EventSource cannot send as a header, and the `userSecret`/`clientId` the
+ * SnapTrade SDK puts in the query of every outbound call.
+ *
+ * Exported because outbound request logging needs exactly the same treatment
+ * as inbound: a URL is not safe to log just because this app is the caller.
+ */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&](?:token|userSecret|secret|password|consumerKey|clientId|Signature|timestamp)=)[^&]+/gi, '$1[redacted]');
 }
 
 export function requestLogger(req: Request, res: Response, next: NextFunction) {

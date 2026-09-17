@@ -33,6 +33,7 @@ export async function searchSymbols(query: string, limit = 10): Promise<SymbolHi
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.results.slice(0, limit);
 
   try {
+    logger.debug("Yahoo", `search("${key}") — fetching symbol matches`);
     const res = await yahoo.search(key, { quotesCount: 20, newsCount: 0 });
     const results: SymbolHit[] = ((res as any)?.quotes ?? [])
       .filter((q: any) => q?.symbol && TRADABLE.has(String(q.quoteType ?? "").toUpperCase()))

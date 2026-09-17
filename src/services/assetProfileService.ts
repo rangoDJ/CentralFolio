@@ -26,6 +26,7 @@ async function fetchProfile(symbol: string): Promise<AssetProfile | null> {
   if (elapsed < FETCH_MIN_INTERVAL_MS) await sleep(FETCH_MIN_INTERVAL_MS - elapsed);
   lastFetchAt = Date.now();
 
+  logger.debug("Yahoo", `quoteSummary(${yahooSymbol}) — fetching profile`);
   const r = await yahoo.quoteSummary(yahooSymbol, { modules: ["assetProfile", "price", "quoteType"] });
   const profile: AssetProfile = {
     symbol,

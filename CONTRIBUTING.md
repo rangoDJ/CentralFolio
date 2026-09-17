@@ -27,16 +27,24 @@ Use a separate `DATA_DIR` for anything experimental. The default one holds your 
 
 ## What CI checks
 
-`.github/workflows/ci.yml` runs on every pull request and every push to `main`:
+`.github/workflows/ci.yml` is the only workflow, so a push produces one run with three jobs:
+
+| Job | Runs on | What it does |
+|---|---|---|
+| `typecheck-and-test` | everything | `npm run typecheck` and `npm test` |
+| `docker` | branch pushes | Builds and publishes the image to ghcr.io |
+| `android` | branch pushes and `v*` tags | Builds the APK, and attaches it to the release on a tag |
+
+Both publish jobs `need` the test job, so a failing suite stops the image and the APK. They run in parallel with each other.
+
+Run the checks locally before opening a pull request — they take a few seconds and catch nearly everything:
 
 ```bash
 npm run typecheck
 npm test
 ```
 
-Both must pass. Run them locally before opening a pull request — they take a few seconds and catch nearly everything.
-
-A merge to `main` also publishes a Docker image (`docker-publish.yml`), so `main` should stay releasable.
+A merge to `main` publishes a Docker image, so `main` should stay releasable.
 
 ## Layout
 

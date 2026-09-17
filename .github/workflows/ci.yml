@@ -1,13 +1,23 @@
 name: CI
 
+# One workflow, three jobs, so a push produces a single run rather than three
+# unrelated ones — and so the publish jobs can be made to wait for the tests.
 on:
   push:
     branches: [ "main", "master" ]
+    # The Android job attaches its APK to a release on a version tag.
+    tags: [ "v*" ]
   pull_request:
   workflow_dispatch:
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
+  # Job id kept as-is: any required status check configured against it keeps working.
   typecheck-and-test:
+    name: Typecheck and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,3 +35,90 @@ jobs:
 
       - name: Test
         run: npm test
+
+  docker:
+    name: Build and publish Docker image
+    runs-on: ubuntu-latest
+    # Previously this published in parallel with the tests, so a push with a
+    # failing suite still pushed `latest` to the registry. Now it cannot.
+    needs: typecheck-and-test
+    # Branch pushes only — not pull requests, and not tags, matching what this
+    # job did when it was its own workflow.
+    if: github.event_name != 'pull_request' && github.ref_type == 'branch'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  android:
+    name: Build Android app
+    runs-on: ubuntu-latest
+    needs: typecheck-and-test
+    # Branch pushes and version tags, as before. Runs alongside the Docker job
+    # rather than after it — neither depends on the other.
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
+
+      - name: Build with Gradle
+        run: gradle assembleDebug --stacktrace --info
+        working-directory: android
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

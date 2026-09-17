@@ -1833,9 +1833,9 @@ const UI = {
                     <div style="min-width:0;">
                         <div class="bucket-card-name">${sanitize(b.name)}</div>
                         <div class="bucket-card-meta">
-                            ${this.moneyC(b.cashValue, '')} per account ·
                             ${count} stock${count === 1 ? '' : 's'} ·
-                            ${weighted ? 'weighted' : 'split equally'}
+                            ${weighted ? 'weighted' : 'split equally'} ·
+                            amount chosen per run
                         </div>
                     </div>
                     <div style="display:flex;gap:0.4rem;flex-shrink:0;">
@@ -1850,7 +1850,7 @@ const UI = {
     },
 
     /** Editable rows for the symbols in the bucket being edited. */
-    renderBucketItemRows(items, splitMode, cashValue) {
+    renderBucketItemRows(items, splitMode) {
         const el = document.getElementById('bucketItems');
         if (!el) return;
 
@@ -1862,12 +1862,11 @@ const UI = {
         const weighted = splitMode === 'weighted';
         const total = items.reduce((sum, i) => sum + (Number(i.weight) || 0), 0);
         el.innerHTML = items.map((item, idx) => {
-            // Preview each row's share of the money as the user types, so the
-            // split is visible before the bucket is ever run.
+            // A bucket fixes proportions, not amounts, so each row shows its
+            // share as a percentage. The cash figures appear in the run preview.
             const share = weighted
                 ? (total > 0 ? ((Number(item.weight) || 0) / total) * 100 : 0)
                 : 100 / items.length;
-            const amount = cashValue > 0 ? Math.floor((cashValue * share) / 100 * 100) / 100 : null;
             const weightField = weighted
                 ? `<input type="number" class="bucket-weight-input" value="${item.weight != null ? item.weight : ''}"
                           min="0.01" max="100" step="0.01" aria-label="Weight for ${sanitize(item.symbol)}"
@@ -1880,7 +1879,7 @@ const UI = {
                     ${item.name ? `<div class="bucket-item-name">${sanitize(item.name)}</div>` : ''}
                 </div>
                 ${weightField}
-                <span class="bucket-item-amount">${amount != null ? this.moneyC(amount, '') : '—'}</span>
+                <span class="bucket-item-amount">${share.toFixed(share % 1 ? 2 : 0)}%</span>
                 <button class="bucket-item-remove" title="Remove ${sanitize(item.symbol)}"
                         onclick="App.removeBucketItem(${idx})">&times;</button>
             </div>`;

@@ -681,7 +681,19 @@ const App = {
             const notional_value = cashAmount;
             // Step 1 — stage the order server-side; it is only placed after an
             // explicit confirmation below (token is TTL-bound).
-            const staged = await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, notional_value, price: limitPrice, timeInForce });
+            let staged;
+            try {
+                staged = await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, notional_value, price: limitPrice, timeInForce });
+            } catch (err) {
+                // Both mean nothing was placed; say which, since one is the
+                // account's balance and the other is the brokerage being
+                // unreachable.
+                if (err.balanceCheckFailed || err.insufficientCash) {
+                    UI.showToast(err.message, 'error');
+                    return;
+                }
+                throw err;
+            }
             const where = accountName ? ` in ${accountName}` : '';
             const cur = this.currentTradeCurrency ? ` ${this.currentTradeCurrency}` : '';
             const desc = notional_value != null
@@ -694,7 +706,14 @@ const App = {
                 return;
             }
 
-            if (!confirm(`Place ${desc}? This order will be submitted to the brokerage.`)) {
+            // The balance was just re-read from the broker, so it is worth
+            // repeating here rather than leaving the cost to be guessed at.
+            const check = staged.cashCheck;
+            const cashNote = (check && check.required != null && check.cash != null)
+                ? `\n\nCosts about ${check.required} ${check.currency || ''}`.trimEnd() +
+                  `, and the account holds ${check.cash} ${check.currency || ''}`.trimEnd() + '.'
+                : '';
+            if (!confirm(`Place ${desc}?${cashNote}\n\nThis order will be submitted to the brokerage.`)) {
                 this.closeTradeModal();
                 UI.showToast('Order cancelled');
                 return;
@@ -741,15 +760,13 @@ const App = {
             ? {
                 id: existing.id,
                 name: existing.name,
-                cashValue: existing.cashValue,
                 splitMode: existing.splitMode,
                 items: (existing.items || []).map(i => ({ symbol: i.symbol, name: i.name, weight: i.weight })),
               }
-            : { id: null, name: '', cashValue: '', splitMode: 'equal', items: seedItems || [] };
+            : { id: null, name: '', splitMode: 'equal', items: seedItems || [] };
 
         document.getElementById('bucketModalTitle').textContent = existing ? 'Edit Bucket' : 'New Bucket';
         document.getElementById('bucketName').value = this.bucketDraft.name;
-        document.getElementById('bucketCashValue').value = this.bucketDraft.cashValue;
         document.getElementById('bucketSplitMode').value = this.bucketDraft.splitMode;
         document.getElementById('bucketSymbolSearch').value = '';
         UI.renderBucketSearchResults([], '');
@@ -765,9 +782,9 @@ const App = {
 
     renderBucketItems() {
         if (!this.bucketDraft) return;
-        const cashValue = parseFloat(document.getElementById('bucketCashValue').value) || 0;
-        this.bucketDraft.cashValue = cashValue;
-        UI.renderBucketItemRows(this.bucketDraft.items, this.bucketDraft.splitMode, cashValue);
+        // No amount at this stage — rows show each stock's share as a
+        // percentage, which is all a bucket actually fixes.
+        UI.renderBucketItemRows(this.bucketDraft.items, this.bucketDraft.splitMode);
 
         const count = this.bucketDraft.items.length;
         document.getElementById('bucketItemCount').textContent = count ? `(${count})` : '';
@@ -859,10 +876,8 @@ const App = {
     async saveBucket() {
         if (!this.bucketDraft) return;
         const name = document.getElementById('bucketName').value.trim();
-        const cashValue = parseFloat(document.getElementById('bucketCashValue').value);
 
         if (!name) { UI.showToast('Give the bucket a name', 'error'); return; }
-        if (!cashValue || cashValue <= 0) { UI.showToast('Enter a cash amount', 'error'); return; }
         if (this.bucketDraft.items.length === 0) { UI.showToast('Add at least one stock', 'error'); return; }
 
         const btn = document.getElementById('saveBucketBtn');
@@ -872,7 +887,6 @@ const App = {
             await API.saveBucket({
                 id: this.bucketDraft.id,
                 name,
-                cashValue,
                 splitMode: this.bucketDraft.splitMode,
                 items: this.bucketDraft.items,
             });
@@ -907,7 +921,9 @@ const App = {
         this.bucketRun = { bucket, plan: null, token: null, acknowledgedBelowMinimum: false };
 
         document.getElementById('bucketRunTitle').textContent = `Run "${bucket.name}"`;
-        document.getElementById('bucketRunCash').value = bucket.cashValue;
+        // Blank on purpose — the amount is a decision for this run, not a
+        // default inherited from the last one.
+        document.getElementById('bucketRunCash').value = '';
         document.getElementById('bucketRunPreview').innerHTML = '';
         document.getElementById('placeBucketBtn').disabled = true;
         document.getElementById('bucketRunModal').classList.add('open');

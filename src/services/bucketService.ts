@@ -82,9 +82,8 @@ function indexAccounts() {
 export function planBucketRun(
   bucket: Bucket,
   targets: { portfolioId: string; accountId: string }[],
-  cashValueOverride?: number,
+  cashValue: number,
 ): BucketPlan {
-  const cashValue = cashValueOverride ?? bucket.cashValue;
   const allocations = allocateBucket(bucket.items, cashValue, bucket.splitMode);
   const priced: BucketOrderRow[] = allocations.map(a => {
     const price = latestClose(a.symbol);

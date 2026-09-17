@@ -4,7 +4,7 @@ import {
   listBuckets, getBucket, createBucket, updateBucket, deleteBucket,
 } from "../repositories/bucketRepository.js";
 import { getPortfolio, accountBelongsToPortfolio } from "../models/db.js";
-import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
+import { placeBrokerageOrder } from "../services/orderPlacement.js";
 import { planBucketRun, type BucketPlan } from "../services/bucketService.js";
 import { refreshAccountBalances } from "../services/accountBalanceService.js";
 import { ensureProfile } from "../services/assetProfileService.js";
@@ -23,21 +23,19 @@ import type { BucketInput, SplitMode } from "../repositories/bucketRepository.js
  */
 interface ValidatedBucketBody {
   name: string;
-  cashValue: number;
   splitMode: SplitMode;
   items: Array<{ symbol: string; name: string | null; weight: number | null }>;
 }
 
 interface ValidatedRunBody {
   accounts: Array<{ portfolioId: string; accountId: string }>;
-  cashValue?: number;
+  cashValue: number;
   allowBelowMinimum?: boolean;
   refreshBalances?: boolean;
 }
 
 const toBucketInput = (body: ValidatedBucketBody): BucketInput => ({
   name: body.name,
-  cashValue: body.cashValue,
   splitMode: body.splitMode,
   items: body.items.map(i => ({ symbol: i.symbol, name: i.name ?? null, weight: i.weight ?? null })),
 });
@@ -223,21 +221,16 @@ export const confirmBucketRunHandler = async (req: Request, res: Response) => {
       baseFailure("Account does not belong to this connection"); continue;
     }
 
-    const client = getSnapTradeClientForPortfolio(portfolio);
     for (const order of account.orders) {
       try {
-        await (client as any).trading.placeForceOrder({
-          userId: portfolio.userId,
-          userSecret: portfolio.userSecret!,
-          account_id: account.accountId,
-          action: "BUY",
-          order_type: "Market",
-          time_in_force: "Day",
+        // A cash-amount order is what lets the broker fill a fraction of a
+        // share, which is the whole point of splitting a fixed sum many ways.
+        await placeBrokerageOrder(portfolio, {
+          accountId: account.accountId,
           symbol: order.symbol,
-          universal_symbol_id: null,
-          // A cash-amount order is what lets the broker fill a fraction of a
-          // share, which is the whole point of splitting a fixed sum many ways.
-          notional_value: { amount: order.amount, currency: account.currency },
+          action: "BUY",
+          orderType: "Market",
+          notionalValue: order.amount,
         });
         logger.info("Buckets", `Placed BUY ${order.amount} ${account.currency} of ${order.symbol} in ${account.accountId}`);
         results.push({

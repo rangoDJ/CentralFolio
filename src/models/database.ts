@@ -359,6 +359,30 @@ const migrations: Array<{ name: string; sql: string }> = [
     )
   ` },
   { name: 'buy_bucket_items.idx_bucketId', sql: `CREATE INDEX IF NOT EXISTS idx_buy_bucket_items_bucketId ON buy_bucket_items(bucketId)` },
+  // The cash amount moved out of the bucket and onto the run: a bucket says
+  // what to buy and in what proportions, and the amount is named each time.
+  //
+  // SQLite drops a column by rebuilding the table, and foreign keys must be off
+  // while that happens: DROP TABLE on a parent performs an implicit delete of
+  // its rows, which with foreign_keys ON would cascade through
+  // buy_bucket_items.bucketId and silently empty every bucket. The pragma is
+  // set inside this statement batch, which runs outside a transaction, so it
+  // takes effect (a pragma inside one is ignored).
+  { name: 'buy_buckets.drop_cashValue', sql: `
+    PRAGMA foreign_keys=off;
+    CREATE TABLE IF NOT EXISTS buy_buckets_new (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      name      TEXT NOT NULL,
+      splitMode TEXT NOT NULL DEFAULT 'equal',
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO buy_buckets_new (id, name, splitMode, createdAt, updatedAt)
+      SELECT id, name, splitMode, createdAt, updatedAt FROM buy_buckets;
+    DROP TABLE buy_buckets;
+    ALTER TABLE buy_buckets_new RENAME TO buy_buckets;
+    PRAGMA foreign_keys=on;
+  ` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

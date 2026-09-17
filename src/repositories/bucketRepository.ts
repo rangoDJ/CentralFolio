@@ -4,10 +4,10 @@ import { logger } from "../utils/logger.js";
 /**
  * Buy buckets: a named set of symbols bought together for one cash amount.
  *
- * A bucket holds only what the user decided — the symbols, how to divide the
- * money, and how much. The account is deliberately not stored: the same bucket
- * is meant to be run into a TFSA this month and an RRSP the next, so the
- * account(s) are chosen at the moment it is run.
+ * A bucket holds only what the user decided — which symbols, and in what
+ * proportions. Neither the account nor the cash amount is stored: the same
+ * bucket is meant to be run into a TFSA this month and an RRSP the next, for
+ * whatever sum is free at the time, so both are named when it is run.
  */
 
 export type SplitMode = "equal" | "weighted";
@@ -22,7 +22,6 @@ export interface BucketItem {
 export interface Bucket {
   id: number;
   name: string;
-  cashValue: number;
   splitMode: SplitMode;
   items: BucketItem[];
   createdAt?: string;
@@ -31,25 +30,24 @@ export interface Bucket {
 
 export interface BucketInput {
   name: string;
-  cashValue: number;
   splitMode: SplitMode;
   items: BucketItem[];
 }
 
 const stmtListBuckets = db.prepare(
-  "SELECT id, name, cashValue, splitMode, createdAt, updatedAt FROM buy_buckets ORDER BY name COLLATE NOCASE"
+  "SELECT id, name, splitMode, createdAt, updatedAt FROM buy_buckets ORDER BY name COLLATE NOCASE"
 );
 const stmtGetBucket = db.prepare(
-  "SELECT id, name, cashValue, splitMode, createdAt, updatedAt FROM buy_buckets WHERE id = ?"
+  "SELECT id, name, splitMode, createdAt, updatedAt FROM buy_buckets WHERE id = ?"
 );
 const stmtListItems = db.prepare(
   "SELECT symbol, name, weight FROM buy_bucket_items WHERE bucketId = ? ORDER BY position, id"
 );
 const stmtInsertBucket = db.prepare(
-  "INSERT INTO buy_buckets (name, cashValue, splitMode) VALUES (?, ?, ?)"
+  "INSERT INTO buy_buckets (name, splitMode) VALUES (?, ?)"
 );
 const stmtUpdateBucket = db.prepare(
-  "UPDATE buy_buckets SET name = ?, cashValue = ?, splitMode = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?"
+  "UPDATE buy_buckets SET name = ?, splitMode = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?"
 );
 const stmtDeleteBucket = db.prepare("DELETE FROM buy_buckets WHERE id = ?");
 const stmtDeleteItems = db.prepare("DELETE FROM buy_bucket_items WHERE bucketId = ?");
@@ -61,7 +59,6 @@ function hydrate(row: any): Bucket {
   return {
     id: row.id,
     name: row.name,
-    cashValue: row.cashValue,
     splitMode: row.splitMode === "weighted" ? "weighted" : "equal",
     items: stmtListItems.all(row.id) as BucketItem[],
     createdAt: row.createdAt,
@@ -92,20 +89,20 @@ const writeItems = db.transaction((bucketId: number, items: BucketItem[]) => {
 
 export function createBucket(input: BucketInput): Bucket {
   const create = db.transaction(() => {
-    const res = stmtInsertBucket.run(input.name, input.cashValue, input.splitMode);
+    const res = stmtInsertBucket.run(input.name, input.splitMode);
     const id = Number(res.lastInsertRowid);
     writeItems(id, input.items);
     return id;
   });
   const id = create();
-  logger.info("Buckets", `Created "${input.name}" — ${input.items.length} symbol(s), ${input.splitMode}, ${input.cashValue}`);
+  logger.info("Buckets", `Created "${input.name}" — ${input.items.length} symbol(s), ${input.splitMode}`);
   return getBucket(id)!;
 }
 
 export function updateBucket(id: number, input: BucketInput): Bucket | null {
   if (!stmtGetBucket.get(id)) return null;
   const update = db.transaction(() => {
-    stmtUpdateBucket.run(input.name, input.cashValue, input.splitMode, id);
+    stmtUpdateBucket.run(input.name, input.splitMode, id);
     writeItems(id, input.items);
   });
   update();

@@ -389,7 +389,14 @@ const API = {
             body: JSON.stringify({ portfolioId, accountId, ticker, action, orderType, units, notional_value, price, timeInForce })
         });
         const data = await this._json(res);
-        if (!res.ok) throw new Error(data.error || 'Order staging failed');
+        if (!res.ok) {
+            const err = new Error(data.error || 'Order staging failed');
+            // Distinguish "we could not check your cash" from "you do not have
+            // enough" — nothing was placed either way, but for different reasons.
+            err.balanceCheckFailed = !!data.balanceCheckFailed;
+            err.insufficientCash = !!data.insufficientCash;
+            throw err;
+        }
         return data;
     },
 
@@ -803,7 +810,6 @@ const API = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 name: bucket.name,
-                cashValue: bucket.cashValue,
                 splitMode: bucket.splitMode,
                 items: bucket.items,
             }),

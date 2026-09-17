@@ -21,7 +21,6 @@ const bucketItem = z.object({
 
 export const bucketSchema = z.object({
   name: z.string().transform(s => s.trim()).refine(s => s.length > 0 && s.length <= 60, "must be 1–60 characters"),
-  cashValue: z.coerce.number().finite().positive().max(1_000_000),
   splitMode: z.enum(["equal", "weighted"]).default("equal"),
   items: z.array(bucketItem).min(1, "add at least one symbol").max(50, "at most 50 symbols"),
 })
@@ -63,7 +62,15 @@ export const bucketRunSchema = z.object({
     portfolioId: z.union([z.string(), z.number()]).transform(v => String(v).trim()),
     accountId: z.union([z.string(), z.number()]).transform(v => String(v).trim()),
   })).min(1, "select at least one account").max(20),
-  cashValue: z.coerce.number().finite().positive().max(1_000_000).optional(),
+  /**
+   * Named per run — a bucket stores no amount of its own. Coercing `undefined`
+   * yields NaN, so the checks are spelled out to give a readable message
+   * instead of "expected number, received NaN".
+   */
+  cashValue: z.coerce.number({ error: "enter how much you want to spend" })
+    .refine(v => Number.isFinite(v), "enter how much you want to spend")
+    .refine(v => v > 0, "must be more than zero")
+    .refine(v => v <= 1_000_000, "is unrealistically large"),
   /** Set once the preview has shown under-minimum orders and the user accepted them. */
   allowBelowMinimum: z.boolean().optional(),
   /** Ask the preview to re-read balances from the broker first. */

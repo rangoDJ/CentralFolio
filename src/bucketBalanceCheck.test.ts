@@ -20,16 +20,18 @@ before(() => {
   db.prepare(`INSERT INTO accounts (id,portfolioId,name,currency,isActive,cashBalance,balanceTotal)
               VALUES ('acc-1',1,'TFSA','CAD',1,50,1000)`).run();
   bucketId = createBucket({
-    name: 'Core', cashValue: 100, splitMode: 'equal',
+    name: 'Core', splitMode: 'equal',
     items: [{ symbol: 'AAPL', name: null, weight: null }, { symbol: 'MSFT', name: null, weight: null }],
   }).id;
 });
 
 const target = [{ portfolioId: '1', accountId: 'acc-1' }];
+// The amount is named per run now, not stored on the bucket.
 const plan = () => planBucketRun(
-  { id: bucketId, name: 'Core', cashValue: 100, splitMode: 'equal' as const,
+  { id: bucketId, name: 'Core', splitMode: 'equal' as const,
     items: [{ symbol: 'AAPL', name: null, weight: null }, { symbol: 'MSFT', name: null, weight: null }] },
   target,
+  100,
 );
 
 test('an account short on cash blocks the run', () => {

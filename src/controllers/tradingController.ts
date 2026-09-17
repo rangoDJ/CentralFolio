@@ -2,6 +2,9 @@ import { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
+import { placeBrokerageOrder } from "../services/orderPlacement.js";
+import { refreshAccountBalances } from "../services/accountBalanceService.js";
+import { checkOrderCash } from "../services/cashCheck.js";
 import { logger } from "../utils/logger.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 import { safeRedirect } from "../utils/safeRedirect.js";
@@ -95,6 +98,28 @@ export const placeTrade = async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Account does not belong to this portfolio" });
     }
 
+    // Re-read the balance from the broker before staging. Same rule as a bucket
+    // run: the funding decision is never made on a cached figure, and a balance
+    // that cannot be verified is not treated as sufficient.
+    const balances = await refreshAccountBalances([String(portfolioId)]);
+    if (balances.failures.length > 0) {
+      logger.warn('SnapTrade', `placeTrade — balance check failed for portfolio ${portfolioId}, nothing staged`);
+      return res.status(502).json({
+        error: "Could not verify your cash balance with the brokerage, so no order was placed. " +
+               balances.failures.map(f => f.error).join("; "),
+        balanceCheckFailed: true,
+      });
+    }
+
+    const cash = checkOrderCash({
+      portfolioId, accountId: String(accountId), symbol: ticker,
+      action, orderType, units, notionalValue: notional_value, price,
+    });
+    if (!cash.sufficient) {
+      logger.warn('SnapTrade', `placeTrade — insufficient cash in ${accountId}, nothing staged`);
+      return res.status(400).json({ error: cash.message, insufficientCash: true, cashCheck: cash });
+    }
+
     // Step 1 — stage the order and hand back a confirmation token. The order is
     // placed only after /trade/confirm is called with that token (TTL-bound).
     const now = Date.now();
@@ -110,6 +135,7 @@ export const placeTrade = async (req: Request, res: Response) => {
       requiresConfirmation: true,
       confirmationToken,
       preview: { portfolioId, accountId, ticker: ticker.trim(), action, orderType, units, notional_value, price },
+      cashCheck: cash,
     });
   } catch (err: any) {
     const { log, status } = snapTradeError(err, "Order staging failed");
@@ -144,36 +170,18 @@ export const confirmTrade = async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Account does not belong to this portfolio" });
     }
 
-    const client = getSnapTradeClientForPortfolio(portfolio);
-    const qtyDesc = notional_value != null ? `notional=$${notional_value}` : `${units} units`;
-    logger.info('SnapTrade', `placeTrade — ${action} ${qtyDesc} ticker="${ticker}" account="${accountId}" orderType="${orderType}" tif="${timeInForce || 'Day'}"`);
-
-    const unitsNum = units;
-    const orderBody: any = {
-      userId: portfolio.userId,
-      userSecret: portfolio.userSecret!,
-      account_id: String(accountId),
+    const placed = await placeBrokerageOrder(portfolio, {
+      accountId: String(accountId),
+      symbol: ticker,
       action,
-      order_type: orderType,
-      time_in_force: (notional_value != null ? 'Day' : (timeInForce || 'Day')),
-      symbol: ticker.trim(),
-      universal_symbol_id: null,
-    };
-    if (notional_value != null) {
-      const accounts = getCachedAccounts(portfolioId);
-      const acc = accounts.find(a => a.id === String(accountId));
-      const currency = acc?.currency || 'USD';
-      orderBody.notional_value = { amount: notional_value, currency };
-    } else {
-      orderBody.units = unitsNum;
-    }
-    if (orderType === 'Limit') {
-      orderBody.price = Number(price);
-    }
-
-    const response = await (client as any).trading.placeForceOrder(orderBody);
+      orderType,
+      timeInForce,
+      units,
+      notionalValue: notional_value,
+      price,
+    });
     logger.info('SnapTrade', `placeTrade — order placed successfully for account ${accountId}`);
-    res.json({ success: true, order: response.data });
+    res.json({ success: true, order: placed });
   } catch (err: any) {
     const { log, client, status } = snapTradeError(err, "Order placement failed");
     logger.error('SnapTrade', `placeTrade failed for account ${accountId}: ${log}`);

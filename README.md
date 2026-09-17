@@ -18,7 +18,8 @@ A self-hosted portfolio and dividend tracking app. Connect brokerage accounts th
 - **Alerts** — get told when something needs attention instead of having to go looking. See [Alerts](#alerts).
 - **Custom portfolios** — group accounts from multiple brokerage connections into named, colour-labelled portfolios.
 - **Brokerage connections** — account ↔ portfolio link cards with last-sync time, on-demand sync, and connect/disconnect.
-- **Trading** — place buy/sell orders directly from holdings (where the brokerage supports it).
+- **Trading** — Buy and Sell sit in each holdings row, no menu to open first. Order by share count, or by a **cash amount** — the notional order that buys a fraction of a share where the brokerage supports it. Every buy is checked against a cash balance read live from the brokerage before anything is placed. See [Trading](#trading).
+- **Buy buckets** — a named set of stocks bought together for one cash amount, split equally or by weights you set, into one account or several at once. See [Buy buckets](#buy-buckets).
 - **Performance history** — the value curve is reconstructed by replaying transactions against price history, and anchored to **nightly snapshots** of what each account was actually worth. Snapshots are independent of the transaction ledger, so the curve holds even where the broker never reported an activity. They accumulate from first run; earlier dates stay reconstructed.
 - **Background jobs** — automatic dividend, holdings, transaction and price-history refresh, nightly portfolio snapshots, alert evaluation, and optional AI stock ratings — each on its own configurable schedule (**Settings → Scheduler**).
 - **API tokens** — issue revocable, non-browser tokens (**Settings → Brokerage Connections → Security**) for scripts and other API clients, separate from your login session.
@@ -73,6 +74,42 @@ Rules are evaluated in the background and surface under **Settings → Alerts**,
 
 Each situation notifies **once**. A dividend cut alerts on the year it happened, not on every run for as long as the cut remains true; drift is bucketed to whole percentage points so daily wobble around your threshold stays quiet. **Preview** evaluates every rule — including ones you haven't enabled — without sending or recording anything, so you can see what a rule would say before switching it on.
 
+## Trading
+
+Trading is available on connections you have explicitly enabled for it. Buy and Sell appear directly in each holdings row; where a holding is spread across several tradable accounts, each gets its own pair, because an order has to name one.
+
+An order can be sized two ways:
+
+- **Shares** — a share count, as Market or Limit, held for the Day or Good Til Cancelled.
+- **Cash amount** — spend a fixed sum. This is the *notional* order, and it is what buys a fraction of a share at brokerages that support it (Wealthsimple among them). It is Market-and-Day by definition, so order type and time in force do not apply and are hidden rather than shown as choices the brokerage would ignore.
+
+The popup names the account the order will hit, by your own name for it where you have renamed one.
+
+**Every buy re-reads your cash balance from the brokerage first**, rather than trusting the cached figure — a stale balance can block a funded account or clear an unfunded one. If the brokerage cannot be reached, nothing is placed: an unverifiable balance is not treated as a sufficient one. A share order at market is costed from the last cached close, which is an estimate; a cash-amount or limit order is costed exactly.
+
+Orders are staged and then confirmed as two separate requests, so a live order is never the result of a single one.
+
+## Buy buckets
+
+A bucket is a named set of stocks you buy together — managed under **Settings → Buckets**, or created straight from the Holdings page by ticking rows and choosing *Create bucket*.
+
+A bucket stores **what to buy and in what proportions**, and nothing else:
+
+- **Split equally** — every stock takes the same share.
+- **Split by weights** — you set each stock's percentage; they must total 100%.
+
+The amount and the accounts are chosen each time you run it, so the same bucket serves a $50 week and a $5,000 one, into a TFSA this month and an RRSP the next. Stocks are found with a ticker search, or typed in full for a listing the search misses.
+
+Running a bucket places one **market cash-amount order per stock**, which is what makes an arbitrary sum divisible across several holdings.
+
+**The amount is per account, not shared between them.** Running a $250 bucket into two accounts spends $500. The preview states the grand total before you confirm.
+
+The preview shows every order it would place — symbol, amount, estimated shares, per-account subtotal — and then:
+
+- **Balances are re-read from the brokerage before placing.** An account without the cash to cover its share blocks the run, naming the account and the shortfall. If the brokerage cannot be reached, nothing is placed.
+- **Orders below the brokerage minimum** (about $1) are flagged, never silently dropped. You decide whether to place them anyway.
+- **A rejected order does not stop the run.** Every order is attempted and the outcome reported individually, with the brokerage's reason for each failure.
+
 ## Tax reporting
 
 **The tax features assume a Canadian resident filing in CAD.** Amounts convert at each trade's own exchange rate, capital gains use the 50% inclusion rate, and the superficial-loss rule uses the CRA's 30-days-either-side window. They will not produce correct figures under another country's rules.
@@ -90,6 +127,10 @@ The 30-day window counts purchases in **any** of your accounts, registered ones 
 Where a disposition has no recorded purchase, the report says so rather than reporting the whole proceeds as a gain — enter the missing trade under **Transactions → Add transaction** to correct it.
 
 > These are estimates from your own cached data, not tax advice. Check them against your broker's slips before filing.
+
+## Development
+
+Running from source, tests, and the layout of the codebase are covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 

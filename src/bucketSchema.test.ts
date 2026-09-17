@@ -2,12 +2,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bucketSchema, bucketRunSchema } from './schemas/bucketSchema.js';
 
-const base = { name: 'Core 5', cashValue: 250, splitMode: 'equal' as const };
+const base = { name: 'Core 5', splitMode: 'equal' as const };
 
 test('a valid equal bucket parses and normalizes its symbols', () => {
   const out = bucketSchema.parse({ ...base, items: [{ symbol: ' aapl ' }, { symbol: 'msft' }] });
   assert.deepEqual(out.items.map((i: any) => i.symbol), ['AAPL', 'MSFT']);
-  assert.equal(out.cashValue, 250);
+});
+
+test('a bucket stores no cash amount — it is named when the bucket is run', () => {
+  const out: any = bucketSchema.parse({ ...base, items: [{ symbol: 'AAPL' }] });
+  assert.equal('cashValue' in out, false);
+  // A stray amount on the save payload is simply not carried through.
+  const withAmount: any = bucketSchema.parse({ ...base, cashValue: 250, items: [{ symbol: 'AAPL' }] });
+  assert.equal(withAmount.cashValue, undefined);
 });
 
 test('the same symbol twice is rejected', () => {
@@ -40,16 +47,19 @@ test('weights must add up to 100%', () => {
   assert.equal(exact.success, true);
 });
 
-test('a bucket needs a name, a positive amount and at least one symbol', () => {
+test('a bucket needs a name and at least one symbol', () => {
   assert.equal(bucketSchema.safeParse({ ...base, name: '  ', items: [{ symbol: 'AAPL' }] }).success, false);
-  assert.equal(bucketSchema.safeParse({ ...base, cashValue: 0, items: [{ symbol: 'AAPL' }] }).success, false);
-  assert.equal(bucketSchema.safeParse({ ...base, cashValue: -5, items: [{ symbol: 'AAPL' }] }).success, false);
   assert.equal(bucketSchema.safeParse({ ...base, items: [] }).success, false);
 });
 
-test('a run needs at least one account, and ids are coerced to strings', () => {
-  assert.equal(bucketRunSchema.safeParse({ accounts: [] }).success, false);
-  const out = bucketRunSchema.parse({ accounts: [{ portfolioId: 1, accountId: 'acc-1' }] });
+test('a run needs accounts and an amount, and ids are coerced to strings', () => {
+  assert.equal(bucketRunSchema.safeParse({ accounts: [], cashValue: 250 }).success, false);
+  // The amount lives on the run, so it is required here rather than optional.
+  assert.equal(bucketRunSchema.safeParse({ accounts: [{ portfolioId: 1, accountId: 'a' }] }).success, false);
+  assert.equal(bucketRunSchema.safeParse({ accounts: [{ portfolioId: 1, accountId: 'a' }], cashValue: 0 }).success, false);
+
+  const out = bucketRunSchema.parse({ accounts: [{ portfolioId: 1, accountId: 'acc-1' }], cashValue: 250 });
   assert.equal(out.accounts[0].portfolioId, '1');
   assert.equal(typeof out.accounts[0].portfolioId, 'string');
+  assert.equal(out.cashValue, 250);
 });

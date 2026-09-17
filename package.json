@@ -8,7 +8,7 @@
     "register": "tsx src/scripts/register.ts",
     "login": "tsx src/scripts/login.ts",
     "list-users": "tsx src/scripts/list-users.ts",
-    "start": "tsx --env-file=.env src/server.ts",
+    "start": "tsx --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },

@@ -10,6 +10,7 @@ import {
   Portfolio
 } from "../models/db.js";
 import { getUserPortfolioById } from "../repositories/userPortfolioRepository.js";
+import { placeBrokerageOrder } from "../services/orderPlacement.js";
 import { computeRebalance, RebalanceTrade } from "../services/rebalanceService.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
@@ -201,24 +202,17 @@ async function placeRebalanceTrades(portfolioId: number, trades: any[]) {
       }
 
       try {
-        const client = getSnapTradeClientForPortfolio(parent);
-        const qtyDesc = `$${amountNum}`;
-        logger.info('SnapTrade', `placeTrade (Rebalance) — ${action} ${qtyDesc} ticker="${symbol}" account="${accountId}"`);
-
-        const orderBody: any = {
-          userId: parent.userId,
-          userSecret: parent.userSecret!,
-          account_id: accountId,
+        // Same typed path as the order popup and a bucket run. This built its
+        // own payload once, with notional_value as { amount, currency }, which
+        // SnapTrade rejects — every rebalance trade failed at the broker.
+        const order = await placeBrokerageOrder(parent, {
+          accountId,
+          symbol,
           action,
-          order_type: 'Market',
-          time_in_force: 'Day',
-          symbol: symbol.trim(),
-          universal_symbol_id: null,
-          notional_value: { amount: amountNum, currency: account.currency || 'USD' }
-        };
-
-        const response = await (client as any).trading.placeForceOrder(orderBody);
-        return { trade: t, success: true, order: response.data };
+          orderType: 'Market',
+          notionalValue: amountNum,
+        });
+        return { trade: t, success: true, order };
       } catch (err: any) {
         const { log, client } = snapTradeError(err, 'Order placement failed');
         logger.error('SnapTrade', `placeTrade (Rebalance) failed for account ${accountId}: ${log}`);

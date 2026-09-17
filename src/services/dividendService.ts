@@ -629,10 +629,12 @@ export async function getAllDividendsForAllPortfolios(
           userId: portfolio.userId,
           userSecret: portfolio.userSecret,
         });
-        accounts = accountsResponse.data;
-        const accCount = Array.isArray(accounts) ? accounts.length : 0;
-        logger.info('SnapTrade', `  "${portfolio.name}" — received ${accCount} account(s), saving to cache`);
-        saveCachedAccounts(portfolio.id!, accounts);
+        const fetched = Array.isArray(accountsResponse.data) ? accountsResponse.data : [];
+        logger.info('SnapTrade', `  "${portfolio.name}" — received ${fetched.length} account(s), saving to cache`);
+        // Read back what was stored rather than keeping the API response: the
+        // response carries the broker's label, and a renamed account would show
+        // under that name instead of the user's until the cache warmed up.
+        accounts = saveCachedAccounts(portfolio.id!, fetched);
       }
 
       const activeAccounts = accounts.filter(acc => activeAccountIds.has(acc.id));

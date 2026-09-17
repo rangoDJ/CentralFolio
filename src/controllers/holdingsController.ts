@@ -60,8 +60,7 @@ export const listAccounts = async (req: Request, res: Response) => {
           const accountCount = Array.isArray(response.data) ? response.data.length : 0;
           logger.info('SnapTrade', `  "${portfolio.name}" — received ${accountCount} account(s), saving to cache`);
 
-          saveCachedAccounts(portfolio.id!, response.data);
-          const merged = getCachedAccounts(portfolio.id!);
+          const merged = saveCachedAccounts(portfolio.id!, response.data);
           const liveMap = new Map((response.data as any[]).map((a: any) => [a.id, a]));
           const accountsWithIsActive = merged.map((row: any) => {
             const live = liveMap.get(row.id) ?? {};

@@ -31,8 +31,7 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
         });
         const fetchedAccounts = Array.isArray(accsResponse.data) ? accsResponse.data : [];
         if (fetchedAccounts.length > 0) {
-          saveCachedAccounts(portfolio.id!, fetchedAccounts);
-          accounts = getCachedAccounts(portfolio.id!);
+          accounts = saveCachedAccounts(portfolio.id!, fetchedAccounts);
           activeAccountIds = getActiveAccountIds();
         }
       } catch (err: any) {

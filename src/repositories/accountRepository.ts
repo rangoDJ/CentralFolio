@@ -170,7 +170,17 @@ export function setAccountCustomName(accountId: string, customName: string | nul
   stmtSetAccountCustomName.run(customName || null, accountId);
 }
 
-export function saveCachedAccounts(portfolioId: number | string, accounts: any[]) {
+/**
+ * Store the brokerage's account list, and hand back the stored rows.
+ *
+ * Returning them is not a convenience. The API response knows nothing about
+ * names the user set in this app, so anything displayed straight from it shows
+ * the broker's own label instead of the rename — which is exactly what the
+ * dividend tracker did on a cold cache. The rows that come back carry
+ * `customName` and the resolved `displayName`, so using the return value is
+ * both the shortest path and the correct one.
+ */
+export function saveCachedAccounts(portfolioId: number | string, accounts: any[]): any[] {
   logger.info('DB', `saveCachedAccounts(portfolio=${portfolioId}) — saving ${accounts.length} account(s)`);
   // Logged per account so "why is this still showing?" can be answered from
   // Settings → Logs without guessing at what the brokerage sent.
@@ -205,6 +215,7 @@ export function saveCachedAccounts(portfolioId: number | string, accounts: any[]
     }
   })(accounts);
   emitDataChanged('accounts');
+  return getCachedAccounts(portfolioId);
 }
 
 export function clearAccountCache() {

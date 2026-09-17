@@ -136,8 +136,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
             });
             const fetchedAccounts = Array.isArray(accsResponse.data) ? accsResponse.data : [];
             if (fetchedAccounts.length > 0) {
-              saveCachedAccounts(portfolio.id!, fetchedAccounts);
-              cachedAccounts = getCachedAccounts(portfolio.id!);
+              cachedAccounts = saveCachedAccounts(portfolio.id!, fetchedAccounts);
               activeAccountIds = getActiveAccountIds();
             }
           } catch (err: any) {

@@ -753,6 +753,7 @@
           <button class="underline-tab active" data-tab="portfolios" onclick="App.switchSettingsTab('portfolios', this)">Portfolios</button>
           <button class="underline-tab" data-tab="connections" onclick="App.switchSettingsTab('connections', this)">Brokerage Connections</button>
           <button class="underline-tab" data-tab="keys" onclick="App.switchSettingsTab('keys', this)">Keys &amp; Providers</button>
+          <button class="underline-tab" data-tab="buckets" onclick="App.switchSettingsTab('buckets', this)">Buckets</button>
           <button class="underline-tab" data-tab="features" onclick="App.switchSettingsTab('features', this)">Features</button>
           <button class="underline-tab" data-tab="alerts" onclick="App.switchSettingsTab('alerts', this)">Alerts</button>
           <button class="underline-tab" data-tab="scheduler" onclick="App.switchSettingsTab('scheduler', this)">Scheduler</button>
@@ -834,6 +835,25 @@
             </div>
             <p class="text-muted text-sm mb-3">Logs of the latest background and manual job executions.</p>
             <div id="jobHistoryPanel"><div class="empty-state" style="padding:1rem;">Loading execution history…</div></div>
+          </div>
+        </div>
+
+        <!-- Buy buckets pane -->
+        <div id="settings-buckets-pane" class="pane">
+          <div class="card mb-3">
+            <div class="card-header">
+              <span class="card-title">Buy Buckets</span>
+              <button class="btn btn-primary btn-sm" onclick="App.openBucketModal()">+ New Bucket</button>
+            </div>
+            <p class="text-muted text-sm mb-3">
+              A bucket is a set of stocks bought together for one cash amount, split equally or by weights you set.
+              Running one places a market order per stock, in every account you pick — the cash amount applies to
+              <strong>each</strong> account, so two accounts spend twice the amount. Cash-amount orders are what allow
+              fractional shares at brokers that support them.
+            </p>
+            <div id="bucketList">
+              <div class="empty-state"><p>No buckets yet. Create one to get started.</p></div>
+            </div>
           </div>
         </div>
 
@@ -1391,15 +1411,23 @@
       </div>
 
       <!-- Buy / Sell toggle -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1.25rem;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1rem;">
         <button id="tradeBuyBtn" class="btn btn-primary" onclick="App.setTradeAction('BUY')">Buy</button>
         <button id="tradeSellBtn" class="btn btn-outline" onclick="App.setTradeAction('SELL')">Sell</button>
       </div>
 
+      <!-- Shares vs a cash amount. A cash-amount order is what buys a fraction
+           of a share at brokers that support it, Wealthsimple among them. -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1.25rem;">
+        <button type="button" id="tradeModeUnitsBtn" class="btn btn-primary btn-sm" onclick="App.setTradeMode('units')">Shares</button>
+        <button type="button" id="tradeModeNotionalBtn" class="btn btn-outline btn-sm" onclick="App.setTradeMode('notional')">Cash amount</button>
+      </div>
+
       <form id="tradeForm">
         <div class="form-group" id="tradeNotionalGroup" style="display:none;">
-          <label>Spend (notional)</label>
-          <div id="tradeNotionalDisplay" style="padding:0.5rem 0.75rem;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:0.95rem;font-weight:600;color:var(--text);"></div>
+          <label for="tradeNotional"><span id="tradeNotionalLabel">Amount to spend</span> <span id="tradeNotionalCurrency" class="text-muted"></span></label>
+          <input type="number" id="tradeNotional" placeholder="e.g. 250" min="0.01" step="0.01" oninput="App.updateTradeNotionalHint()">
+          <div id="tradeNotionalHint" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.35rem;line-height:1.4;"></div>
         </div>
         <div class="form-group" id="tradeUnitsGroup">
           <label for="tradeUnits">Quantity (shares)</label>
@@ -1430,6 +1458,80 @@
           <span class="btn-text">Submit Order</span>
         </button>
       </form>
+    </div>
+  </div>
+
+  <!-- Bucket editor: name, cash amount, how to split it, and the symbols -->
+  <div id="bucketModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:600px;">
+      <button class="modal-close" onclick="App.closeBucketModal()">&times;</button>
+      <h2 class="modal-title" id="bucketModalTitle">New Bucket</h2>
+
+      <div class="form-group">
+        <label for="bucketName">Name</label>
+        <input type="text" id="bucketName" placeholder="e.g. Core 5" maxlength="60">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+        <div class="form-group">
+          <label for="bucketCashValue">Cash amount per run</label>
+          <input type="number" id="bucketCashValue" placeholder="e.g. 250" min="0.01" step="0.01" oninput="App.renderBucketItems()">
+        </div>
+        <div class="form-group">
+          <label for="bucketSplitMode">Split</label>
+          <select id="bucketSplitMode" onchange="App.setBucketSplitMode(this.value)"
+                  style="width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.5rem 0.75rem;font-size:0.9rem;">
+            <option value="equal">Equally between stocks</option>
+            <option value="weighted">By weights I set</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="bucketSymbolSearch">Add a stock</label>
+        <input type="text" id="bucketSymbolSearch" placeholder="Search ticker or company name" autocomplete="off">
+        <div id="bucketSearchResults" class="bucket-search-results"></div>
+      </div>
+
+      <div class="form-group">
+        <label>Stocks in this bucket <span id="bucketItemCount" class="text-muted"></span></label>
+        <div id="bucketItems"></div>
+        <div id="bucketWeightTotal" class="text-muted text-sm" style="margin-top:0.4rem;"></div>
+      </div>
+
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1.25rem;">
+        <button class="btn btn-outline" onclick="App.closeBucketModal()">Cancel</button>
+        <button class="btn btn-primary" id="saveBucketBtn" onclick="App.saveBucket()">
+          <span class="loader"></span><span class="btn-text">Save bucket</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Running a bucket: pick accounts, review every order, then confirm once -->
+  <div id="bucketRunModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:640px;">
+      <button class="modal-close" onclick="App.closeBucketRunModal()">&times;</button>
+      <h2 class="modal-title" id="bucketRunTitle">Run Bucket</h2>
+
+      <div class="form-group">
+        <label for="bucketRunCash">Cash amount <span class="text-muted">(per account)</span></label>
+        <input type="number" id="bucketRunCash" min="0.01" step="0.01" oninput="App.refreshBucketPreview()">
+      </div>
+
+      <div class="form-group">
+        <label>Accounts <span class="text-muted">— each one spends the full amount</span></label>
+        <div id="bucketRunAccounts" class="bucket-account-picker"></div>
+      </div>
+
+      <div id="bucketRunPreview"></div>
+
+      <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:1.25rem;">
+        <button class="btn btn-outline" onclick="App.closeBucketRunModal()">Cancel</button>
+        <button class="btn btn-primary" id="placeBucketBtn" onclick="App.placeBucketOrders()" disabled>
+          <span class="loader"></span><span class="btn-text">Place orders</span>
+        </button>
+      </div>
     </div>
   </div>
 

@@ -334,6 +334,31 @@ const migrations: Array<{ name: string; sql: string }> = [
       lastUsedAt DATETIME
     )
   ` },
+  // Buy buckets: a named set of symbols bought together for one cash amount,
+  // split equally or by per-symbol weights. The account is not stored — it is
+  // chosen at the moment the bucket is run.
+  { name: 'buy_buckets.create', sql: `
+    CREATE TABLE IF NOT EXISTS buy_buckets (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      name      TEXT NOT NULL,
+      cashValue REAL NOT NULL,                    -- total to spend across the bucket, per run
+      splitMode TEXT NOT NULL DEFAULT 'equal',    -- 'equal' | 'weighted'
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { name: 'buy_bucket_items.create', sql: `
+    CREATE TABLE IF NOT EXISTS buy_bucket_items (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      bucketId INTEGER NOT NULL REFERENCES buy_buckets(id) ON DELETE CASCADE,
+      symbol   TEXT NOT NULL,
+      name     TEXT,                              -- company name at the time it was added, for display
+      weight   REAL,                              -- percent; used only when splitMode = 'weighted'
+      position INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(bucketId, symbol)
+    )
+  ` },
+  { name: 'buy_bucket_items.idx_bucketId', sql: `CREATE INDEX IF NOT EXISTS idx_buy_bucket_items_bucketId ON buy_bucket_items(bucketId)` },
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

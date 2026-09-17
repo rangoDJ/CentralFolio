@@ -10,6 +10,7 @@ import manualAssetRoutes from "./manualAssetRoutes.js";
 import manualTransactionRoutes from "./manualTransactionRoutes.js";
 import alertRoutes from "./alertRoutes.js";
 import apiTokenRoutes from "./apiTokenRoutes.js";
+import bucketRoutes from "./bucketRoutes.js";
 import { stockDetailHandler, priceHistoryHandler } from "../controllers/stockController.js";
 
 const router = Router();
@@ -29,6 +30,7 @@ router.use("/user-portfolios", userPortfolioRoutes);
 router.use("/manual-assets", manualAssetRoutes);
 router.use("/manual-transactions", manualTransactionRoutes);
 router.use("/alerts", alertRoutes);
+router.use("/", bucketRoutes);
 router.use("/", watchlistRoutes);
 router.use("/", snapTradeRoutes);
 router.use("/", apiTokenRoutes);

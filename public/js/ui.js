@@ -1587,6 +1587,7 @@ const UI = {
                         <input type="text" id="hbSearch" placeholder="Search holdings…" oninput="UI.hbSearchInput()">
                     </div>
                 </div>
+                <div class="hb-selection-bar" id="hbSelectionBar" style="display:none;"></div>
                 <div class="hb-scroll">
                     <table class="hb-table">
                         <thead><tr id="hbHead"></tr></thead>
@@ -1670,6 +1671,35 @@ const UI = {
         </td>`;
     },
 
+    /** Tick or clear every row currently shown. */
+    toggleAllHoldingSelection(checked) {
+        if (typeof App === 'undefined') return;
+        (this.holdingsVisible || []).forEach(r => {
+            if (checked) App.selectedHoldingSymbols.add(r.symbol);
+            else App.selectedHoldingSymbols.delete(r.symbol);
+        });
+        document.querySelectorAll('#holdings-tables .hb-select').forEach(cb => { cb.checked = checked; });
+        this.updateHoldingSelectionBar(App.selectedHoldingSymbols);
+    },
+
+    /**
+     * The bar offering to turn the ticked rows into a bucket.
+     *
+     * It only exists while something is selected, so the table is unchanged for
+     * anyone not using buckets.
+     */
+    updateHoldingSelectionBar(selected) {
+        const bar = document.getElementById('hbSelectionBar');
+        if (!bar) return;
+        const count = selected ? selected.size : 0;
+        if (count === 0) { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+        bar.style.display = 'flex';
+        bar.innerHTML = `<span>${count} stock${count === 1 ? '' : 's'} selected</span>
+            <span style="flex:1;"></span>
+            <button class="btn btn-outline btn-sm" onclick="App.clearHoldingSelection()">Clear</button>
+            <button class="btn btn-primary btn-sm" onclick="App.createBucketFromHoldings()">Create bucket</button>`;
+    },
+
     renderHoldingsRows() {
         const head = document.getElementById('hbHead');
         const body = document.getElementById('hbBody');
@@ -1681,11 +1711,12 @@ const UI = {
         const q    = (document.getElementById('hbSearch')?.value || '').toLowerCase();
         const cols = this.holdingsColumns(view);
 
-        head.innerHTML = cols.map(c => {
-            const active = sort.key === c.key;
-            const arrow  = active ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '';
-            return `<th class="${c.cls}" onclick="UI.sortHoldings('${c.key}')" style="cursor:pointer;${active ? 'color:var(--primary);' : ''}">${c.label}${arrow}</th>`;
-        }).join('') + '<th class="right" style="width:44px;"></th>';
+        head.innerHTML = '<th style="width:28px;"><input type="checkbox" class="hb-select-all" title="Select all shown" onchange="UI.toggleAllHoldingSelection(this.checked)"></th>'
+            + cols.map(c => {
+                const active = sort.key === c.key;
+                const arrow  = active ? (sort.dir === 'desc' ? ' ↓' : ' ↑') : '';
+                return `<th class="${c.cls}" onclick="UI.sortHoldings('${c.key}')" style="cursor:pointer;${active ? 'color:var(--primary);' : ''}">${c.label}${arrow}</th>`;
+            }).join('') + '<th class="right" style="width:96px;"></th>';
 
         let list = rows.filter(r => !q || r.symbol.toLowerCase().includes(q) || (r.description || '').toLowerCase().includes(q));
         const dir = sort.dir === 'desc' ? -1 : 1;
@@ -1694,8 +1725,15 @@ const UI = {
             : dir * ((a[sort.key] || 0) - (b[sort.key] || 0)));
 
         body.innerHTML = list.length === 0
-            ? `<tr><td colspan="${cols.length + 1}" style="text-align:center;color:var(--text-muted);padding:2rem;">No holdings match your search.</td></tr>`
+            ? `<tr><td colspan="${cols.length + 2}" style="text-align:center;color:var(--text-muted);padding:2rem;">No holdings match your search.</td></tr>`
             : list.map(r => this.renderHoldingRow(r, cols)).join('');
+
+        // The visible rows are what "select all" and "create bucket" act on.
+        this.holdingsVisible = list;
+        if (typeof App !== 'undefined') {
+            App.holdingsRowsForBucket = list;
+            this.updateHoldingSelectionBar(App.selectedHoldingSymbols);
+        }
 
         const totByCur = this.holdingsTotalsByCur || {};
         const sumEl = document.getElementById('hbSummary');
@@ -1726,7 +1764,10 @@ const UI = {
             profitPct: `<td class="right ${r.profitPct >= 0 ? 'pos' : 'neg'}">${this.arrow(r.profitPct)} ${this.pct(Math.abs(r.profitPct))}</td>`,
         };
         const cells = cols.slice(1).map(c => c.key === 'aiRating' ? this.renderRatingBadge(r.symbol) : (cell[c.key] || '<td class="right">—</td>')).join('');
+        const selected = typeof App !== 'undefined' && App.selectedHoldingSymbols && App.selectedHoldingSymbols.has(r.symbol);
         return `<tr>
+            <td><input type="checkbox" class="hb-select" data-symbol="${sanitize(r.symbol)}" ${selected ? 'checked' : ''}
+                       title="Select ${sanitize(r.symbol)} for a bucket"></td>
             <td>
                 <div class="hb-holding stock-link" data-stock="${sanitize(r.symbol)}" title="View ${sanitize(r.symbol)} detail">
                     <div class="hb-avatar">${sanitize(initials)}</div>
@@ -1737,24 +1778,235 @@ const UI = {
                 </div>
             </td>
             ${cells}
-            <td class="right">${this.renderHoldingMenu(r)}</td>
+            <td class="right">${this.renderHoldingActions(r)}</td>
         </tr>`;
     },
 
-    renderHoldingMenu(r) {
+    /**
+     * Buy and Sell sit in the row itself rather than behind a ⋯ menu.
+     *
+     * Trading is either enabled on an account or it isn't, and when it is these
+     * two actions are the whole point of the column — hiding them cost a click
+     * on every order. Where a holding spans several tradable accounts each one
+     * gets its own labelled pair, since the order has to name an account.
+     */
+    renderHoldingActions(r) {
         const tradable = (r.lots || []).filter(l => l.tradingEnabled);
-        const items = tradable.map(l => {
-            const d = `data-account-id="${sanitize(l.accountId)}" data-portfolio-id="${sanitize(l.portfolioId)}" data-account-name="${sanitize(accountLabel(l))}" data-symbol="${sanitize(r.symbol)}" data-symbol-id="${sanitize(l.symbolId || r.symbolId)}" data-description="${sanitize(r.description)}" data-price="${l.price || r.price}"`;
-            const label = tradable.length > 1 ? ` · ${sanitize(accountLabel(l))}` : '';
-            return `<button class="trade-btn-buy" ${d} data-action="BUY">Buy${label}</button>
-                    <button class="trade-btn-sell" ${d} data-action="SELL">Sell${label}</button>`;
+        if (tradable.length === 0) {
+            return `<span class="hb-actions-off" title="Enable trading on the connection to buy or sell.">—</span>`;
+        }
+
+        const many = tradable.length > 1;
+        const rows = tradable.map(l => {
+            const name = accountLabel(l);
+            const d = `data-account-id="${sanitize(l.accountId)}" data-portfolio-id="${sanitize(l.portfolioId)}" data-account-name="${sanitize(name)}" data-symbol="${sanitize(r.symbol)}" data-symbol-id="${sanitize(l.symbolId || r.symbolId)}" data-description="${sanitize(r.description)}" data-price="${l.price || r.price}"`;
+            const acct = many ? `<span class="hb-actions-acct" title="${sanitize(name)}">${sanitize(name)}</span>` : '';
+            return `<div class="hb-actions-row">${acct}
+                <button class="trade-btn-buy" ${d} data-action="BUY" title="Buy ${sanitize(r.symbol)} in ${sanitize(name)}">Buy</button>
+                <button class="trade-btn-sell" ${d} data-action="SELL" title="Sell ${sanitize(r.symbol)} in ${sanitize(name)}">Sell</button>
+            </div>`;
         }).join('');
-        return `<details class="conn-menu hb-menu">
-            <summary class="conn-menu-btn" title="Actions"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></summary>
-            <div class="conn-menu-pop">
-                ${items || '<div class="hb-menu-empty">Enable trading on the connection to buy or sell.</div>'}
-            </div>
-        </details>`;
+        return `<div class="hb-actions">${rows}</div>`;
+    },
+
+    // ── Buy buckets ──────────────────────────────────────────────────────────
+
+    /** The saved buckets, as cards with run/edit/delete. */
+    renderBucketList(buckets) {
+        const el = document.getElementById('bucketList');
+        if (!el) return;
+
+        if (!buckets || buckets.length === 0) {
+            el.innerHTML = '<div class="empty-state"><p>No buckets yet. Create one to get started.</p></div>';
+            return;
+        }
+
+        el.innerHTML = buckets.map(b => {
+            const weighted = b.splitMode === 'weighted';
+            const chips = (b.items || []).map(i => {
+                const share = weighted ? `${Number(i.weight || 0).toFixed(i.weight % 1 ? 2 : 0)}%` : '';
+                return `<span class="bucket-chip">${sanitize(i.symbol)}${share ? ` <span class="bucket-chip-weight">${share}</span>` : ''}</span>`;
+            }).join('');
+            const count = (b.items || []).length;
+            return `<div class="bucket-card">
+                <div class="bucket-card-head">
+                    <div style="min-width:0;">
+                        <div class="bucket-card-name">${sanitize(b.name)}</div>
+                        <div class="bucket-card-meta">
+                            ${this.moneyC(b.cashValue, '')} per account ·
+                            ${count} stock${count === 1 ? '' : 's'} ·
+                            ${weighted ? 'weighted' : 'split equally'}
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:0.4rem;flex-shrink:0;">
+                        <button class="btn btn-primary btn-sm" onclick="App.openBucketRunModal(${b.id})">Run</button>
+                        <button class="btn btn-outline btn-sm" onclick="App.openBucketModal(${b.id})">Edit</button>
+                        <button class="btn btn-outline btn-sm" onclick="App.deleteBucket(${b.id})">Delete</button>
+                    </div>
+                </div>
+                <div class="bucket-chips">${chips}</div>
+            </div>`;
+        }).join('');
+    },
+
+    /** Editable rows for the symbols in the bucket being edited. */
+    renderBucketItemRows(items, splitMode, cashValue) {
+        const el = document.getElementById('bucketItems');
+        if (!el) return;
+
+        if (!items || items.length === 0) {
+            el.innerHTML = '<div class="text-muted text-sm" style="padding:0.5rem 0;">No stocks yet — search above to add some.</div>';
+            return;
+        }
+
+        const weighted = splitMode === 'weighted';
+        const total = items.reduce((sum, i) => sum + (Number(i.weight) || 0), 0);
+        el.innerHTML = items.map((item, idx) => {
+            // Preview each row's share of the money as the user types, so the
+            // split is visible before the bucket is ever run.
+            const share = weighted
+                ? (total > 0 ? ((Number(item.weight) || 0) / total) * 100 : 0)
+                : 100 / items.length;
+            const amount = cashValue > 0 ? Math.floor((cashValue * share) / 100 * 100) / 100 : null;
+            const weightField = weighted
+                ? `<input type="number" class="bucket-weight-input" value="${item.weight != null ? item.weight : ''}"
+                          min="0.01" max="100" step="0.01" aria-label="Weight for ${sanitize(item.symbol)}"
+                          oninput="App.setBucketItemWeight(${idx}, this.value)">
+                   <span class="text-muted" style="font-size:0.78rem;">%</span>`
+                : '';
+            return `<div class="bucket-item-row">
+                <div style="min-width:0;flex:1;">
+                    <div class="bucket-item-symbol">${sanitize(item.symbol)}</div>
+                    ${item.name ? `<div class="bucket-item-name">${sanitize(item.name)}</div>` : ''}
+                </div>
+                ${weightField}
+                <span class="bucket-item-amount">${amount != null ? this.moneyC(amount, '') : '—'}</span>
+                <button class="bucket-item-remove" title="Remove ${sanitize(item.symbol)}"
+                        onclick="App.removeBucketItem(${idx})">&times;</button>
+            </div>`;
+        }).join('');
+    },
+
+    /** Ticker search suggestions in the bucket editor. */
+    renderBucketSearchResults(hits, query) {
+        const el = document.getElementById('bucketSearchResults');
+        if (!el) return;
+
+        if (!query) { el.innerHTML = ''; el.style.display = 'none'; return; }
+        el.style.display = 'block';
+
+        if (!hits || hits.length === 0) {
+            // The ticker may still be valid — Yahoo search misses some listings,
+            // and the bucket accepts a symbol typed in full.
+            el.innerHTML = `<div class="bucket-search-empty">
+                No matches. <button class="btn btn-outline btn-sm" onclick="App.addBucketItemRaw()">Add "${sanitize(query.toUpperCase())}" anyway</button>
+            </div>`;
+            return;
+        }
+
+        el.innerHTML = hits.map(h => `
+            <button class="bucket-search-hit" onclick="App.addBucketItem('${sanitize(h.symbol)}', '${sanitize((h.name || '').replace(/'/g, ''))}')">
+                <span class="bucket-search-symbol">${sanitize(h.symbol)}</span>
+                <span class="bucket-search-name">${sanitize(h.name || '')}</span>
+                <span class="bucket-search-exch">${sanitize(h.exchange || '')}</span>
+            </button>`).join('');
+    },
+
+    /** Trading-enabled accounts to run a bucket into, as checkboxes. */
+    renderBucketRunAccounts(groups, inactiveIds, selectedIds, activePortfolios) {
+        const el = document.getElementById('bucketRunAccounts');
+        if (!el) return;
+
+        const rows = [];
+        (groups || []).forEach(group => {
+            const portfolio = (activePortfolios || []).find(p => p.id === group.portfolioId);
+            if (!portfolio || !portfolio.tradingEnabled) return;
+            (group.accounts || []).forEach(acc => {
+                if (inactiveIds && inactiveIds.has(acc.id)) return;
+                const cash = acc.balance?.cash?.amount ?? acc.cashBalance;
+                rows.push(`<label class="bucket-account-row">
+                    <input type="checkbox" value="${sanitize(acc.id)}" data-portfolio-id="${sanitize(String(group.portfolioId))}"
+                           ${selectedIds && selectedIds.has(acc.id) ? 'checked' : ''}
+                           onchange="App.refreshBucketPreview()">
+                    <span style="min-width:0;flex:1;">
+                        <span class="bucket-account-name">${sanitize(accountLabel(acc))}</span>
+                        <span class="bucket-account-meta">${sanitize(group.portfolioName || '')}${acc.currency ? ' · ' + sanitize(acc.currency) : ''}</span>
+                    </span>
+                    <span class="bucket-account-cash">${cash != null ? this.moneyC(cash, acc.currency || '') : 'cash unknown'}</span>
+                </label>`);
+            });
+        });
+
+        el.innerHTML = rows.length
+            ? rows.join('')
+            : `<div class="text-muted text-sm">No trading-enabled accounts. Turn trading on for a brokerage connection in Settings &rsaquo; Brokerage Connections.</div>`;
+    },
+
+    /** Every order the run would place, grouped by account. */
+    renderBucketPreview(plan) {
+        const el = document.getElementById('bucketRunPreview');
+        if (!el) return;
+
+        if (!plan) { el.innerHTML = ''; return; }
+        if (!plan.accounts || plan.accounts.length === 0) {
+            el.innerHTML = '<div class="text-muted text-sm">Pick at least one account to see the orders.</div>';
+            return;
+        }
+
+        const accountBlocks = plan.accounts.map(acc => {
+            const rows = acc.orders.map(o => `<tr${o.belowMinimum ? ' class="bucket-row-warn"' : ''}>
+                <td>${sanitize(o.symbol)}</td>
+                <td class="right">${this.moneyC(o.amount, '')}</td>
+                <td class="right text-muted">${o.estimatedShares != null ? `≈ ${o.estimatedShares.toLocaleString(undefined, { maximumFractionDigits: 4 })} sh` : '—'}</td>
+                <td class="right">${o.belowMinimum ? `<span class="bucket-warn-tag" title="Below the ${plan.minNotional} minimum most brokers accept">below min</span>` : ''}</td>
+            </tr>`).join('');
+            const cashLine = acc.cash != null
+                ? `${this.moneyC(acc.cash, acc.currency)} cash`
+                : 'cash balance unknown';
+            return `<div class="bucket-preview-account">
+                <div class="bucket-preview-head">
+                    <span class="bucket-preview-name">${sanitize(acc.accountName)}</span>
+                    <span class="bucket-preview-cash${acc.shortfall > 0 ? ' neg' : ''}">${cashLine}</span>
+                </div>
+                <table class="bucket-preview-table"><tbody>${rows}</tbody>
+                  <tfoot><tr>
+                    <td><strong>Total</strong></td>
+                    <td class="right"><strong>${this.moneyC(acc.total, acc.currency)}</strong></td>
+                    <td colspan="2"></td>
+                  </tr></tfoot>
+                </table>
+            </div>`;
+        }).join('');
+
+        const errors = (plan.errors || []).map(e => `<div class="bucket-alert bucket-alert-error">${sanitize(e)}</div>`).join('');
+        const warnings = (plan.warnings || []).map(w => `<div class="bucket-alert bucket-alert-warn">${sanitize(w)}</div>`).join('');
+        // The grand total is the number that actually leaves the accounts, so it
+        // is stated plainly rather than left to be inferred from the per-account
+        // subtotals above.
+        const grand = plan.accounts.length > 1
+            ? `<div class="bucket-grand">
+                 <span>${plan.orderCount} order${plan.orderCount === 1 ? '' : 's'} across ${plan.accounts.length} accounts</span>
+                 <strong>Grand total ${this.moneyC(plan.grandTotal, '')}</strong>
+               </div>`
+            : '';
+
+        el.innerHTML = errors + warnings + accountBlocks + grand;
+    },
+
+    /** Outcome of a run, order by order. */
+    renderBucketResults(result) {
+        const el = document.getElementById('bucketRunPreview');
+        if (!el) return;
+        const rows = (result.results || []).map(r => `<tr>
+            <td>${r.success ? '<span class="pos">\u2713</span>' : '<span class="neg">\u2715</span>'}</td>
+            <td>${sanitize(r.symbol)}</td>
+            <td class="right">${this.moneyC(r.amount, r.currency)}</td>
+            <td class="text-muted">${sanitize(r.accountName)}${r.error ? ' — ' + sanitize(r.error) : ''}</td>
+        </tr>`).join('');
+        el.innerHTML = `<div class="bucket-alert ${result.placed === result.total ? 'bucket-alert-ok' : 'bucket-alert-warn'}">
+            Placed ${result.placed} of ${result.total} order${result.total === 1 ? '' : 's'}.
+        </div>
+        <table class="bucket-preview-table"><tbody>${rows}</tbody></table>`;
     },
 
     // ── Portfolio comparison matrix ─────────────────────────────────────────

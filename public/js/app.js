@@ -26,7 +26,9 @@ const App = {
     currentDividendAccountId: 'all',
     currentTrade: null,
     currentTradeAction: 'BUY',
-    currentTradeNotional: null,
+    currentTradeMode: 'units',
+    currentTradePrice: 0,
+    currentTradeCurrency: '',
 
     // ── Optional features (Settings → Features) ────────────────────────────────
     // Each maps to a main tab. Stored server-side as feature_<key>_enabled and
@@ -194,6 +196,14 @@ const App = {
             logsSearchDebounce = setTimeout(() => this.handleLogsFilterChange(), 200);
         });
 
+        document.getElementById('bucketSymbolSearch')?.addEventListener('input', e => this.handleBucketSearchInput(e.target.value));
+
+        // Holdings row selection, for building a bucket out of what you hold.
+        document.getElementById('holdings-tables').addEventListener('change', e => {
+            const cb = e.target.closest('.hb-select');
+            if (cb) this.toggleHoldingSelection(cb.dataset.symbol, cb.checked);
+        });
+
         // Trade button delegation — data-* attributes prevent inline JS injection
         document.getElementById('holdings-tables').addEventListener('click', e => {
             const btn = e.target.closest('.trade-btn-buy, .trade-btn-sell');
@@ -224,6 +234,8 @@ const App = {
         window.onclick = (e) => {
             if (e.target === UI.portfolioModal) UI.closeModal();
             if (e.target === document.getElementById('tradeModal')) this.closeTradeModal();
+            if (e.target === document.getElementById('bucketModal')) this.closeBucketModal();
+            if (e.target === document.getElementById('bucketRunModal')) this.closeBucketRunModal();
             if (e.target === document.getElementById('userPortfolioModal')) UI.closeUserPortfolioModal();
             if (e.target === document.getElementById('manualAssetModal')) UI.closeManualAssetModal();
             if (e.target === document.getElementById('manualTxnModal')) this.closeManualTxnModal();
@@ -525,7 +537,10 @@ const App = {
         }
         const label = this.accountLabelById(accountId, accountName);
         this.currentTrade = { accountId, portfolioId, symbol, symbolId, accountName: label };
-        this.currentTradeNotional = notional;
+        this.currentTradePrice = Number(price) > 0 ? Number(price) : 0;
+        // The broker charges a cash-amount order in the account's own currency,
+        // so the amount field says which one rather than a bare "$".
+        this.currentTradeCurrency = (UI.accountCurrencyMap ? UI.accountCurrencyMap().get(accountId) : '') || '';
 
         // An order is irreversible, so the popup names the account it will hit —
         // by the user's own name for it where they have set one.
@@ -536,37 +551,84 @@ const App = {
         document.getElementById('tradeCurrentPrice').textContent = price
             ? `$${Number(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
             : '—';
+        document.getElementById('tradeNotionalCurrency').textContent =
+            this.currentTradeCurrency ? `(${this.currentTradeCurrency})` : '';
 
-        const isNotional = notional != null;
-        document.getElementById('tradeNotionalGroup').style.display  = isNotional ? 'block' : 'none';
-        document.getElementById('tradeUnitsGroup').style.display      = isNotional ? 'none'  : 'block';
-        document.getElementById('tradeOrderTypeGroup').style.display  = isNotional ? 'none'  : 'block';
-        document.getElementById('tradeTifGroup').style.display        = isNotional ? 'none'  : 'block';
-        document.getElementById('tradeLimitPriceGroup').style.display = 'none';
-
-        if (isNotional) {
-            const estShares = price > 0
-                ? (notional / price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
-                : '—';
-            document.getElementById('tradeNotionalDisplay').innerHTML =
-                `<div style="font-size:0.95rem;font-weight:600;">$${Number(notional).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>` +
-                `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">≈ ${sanitize(estShares)} shares at market price · Day order</div>`;
-        } else {
-            document.getElementById('tradeUnits').value = prefillUnits !== null ? String(prefillUnits) : '';
-            document.getElementById('tradeOrderType').value = 'Market';
-            document.getElementById('tradeLimitPrice').value = '';
-            document.getElementById('tradeTimeInForce').value = 'Day';
-        }
+        document.getElementById('tradeUnits').value = prefillUnits !== null ? String(prefillUnits) : '';
+        document.getElementById('tradeNotional').value = notional != null ? String(notional) : '';
+        document.getElementById('tradeOrderType').value = 'Market';
+        document.getElementById('tradeLimitPrice').value = '';
+        document.getElementById('tradeTimeInForce').value = 'Day';
 
         this.setTradeAction(action);
+        this.setTradeMode(notional != null ? 'notional' : 'units');
         document.getElementById('tradeModal').classList.add('open');
-        if (!isNotional) setTimeout(() => document.getElementById('tradeUnits').focus(), 100);
     },
 
     closeTradeModal() {
         document.getElementById('tradeModal').classList.remove('open');
         this.currentTrade = null;
-        this.currentTradeNotional = null;
+        this.currentTradePrice = 0;
+        this.currentTradeCurrency = '';
+    },
+
+    /**
+     * Order by share count, or by a cash amount.
+     *
+     * A cash amount is the only way to buy a fraction of a share — Wealthsimple
+     * via SnapTrade takes it as a notional order — and the broker fills it at
+     * whatever the market gives, so order type and time in force do not apply
+     * and are hidden rather than left showing values that would be ignored.
+     */
+    setTradeMode(mode) {
+        const isNotional = mode === 'notional';
+        this.currentTradeMode = isNotional ? 'notional' : 'units';
+
+        document.getElementById('tradeModeUnitsBtn').className    = isNotional ? 'btn btn-outline btn-sm' : 'btn btn-primary btn-sm';
+        document.getElementById('tradeModeNotionalBtn').className = isNotional ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+
+        document.getElementById('tradeNotionalGroup').style.display   = isNotional ? 'block' : 'none';
+        document.getElementById('tradeUnitsGroup').style.display      = isNotional ? 'none'  : 'block';
+        document.getElementById('tradeOrderTypeGroup').style.display  = isNotional ? 'none'  : 'block';
+        document.getElementById('tradeTifGroup').style.display        = isNotional ? 'none'  : 'block';
+
+        const units = document.getElementById('tradeUnits');
+        const cash  = document.getElementById('tradeNotional');
+        units.required = !isNotional;
+        cash.required  = isNotional;
+
+        if (isNotional) {
+            document.getElementById('tradeLimitPriceGroup').style.display = 'none';
+            document.getElementById('tradeLimitPrice').required = false;
+        } else {
+            this.updateTradeOrderType();
+        }
+
+        this.updateTradeNotionalHint();
+        setTimeout(() => (isNotional ? cash : units).focus(), 100);
+    },
+
+    /** Live "≈ N shares" estimate under the cash amount field. */
+    updateTradeNotionalHint() {
+        const hint = document.getElementById('tradeNotionalHint');
+        if (!hint) return;
+
+        const amount = parseFloat(document.getElementById('tradeNotional').value);
+        const price  = this.currentTradePrice;
+        const verb   = this.currentTradeAction === 'SELL' ? 'sold' : 'bought';
+
+        if (!(amount > 0)) {
+            hint.textContent = price > 0
+                ? 'Market order, filled at the price the broker gets. Fractional shares where the broker supports them.'
+                : 'Market order, filled at the price the broker gets. No recent price, so no share estimate.';
+            return;
+        }
+        if (!(price > 0)) {
+            hint.textContent = 'Market order, filled at the price the broker gets. No recent price, so no share estimate.';
+            return;
+        }
+        const shares = (amount / price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+        hint.textContent = `≈ ${shares} shares ${verb} at the last price of $${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · Market, Day order.`;
     },
 
     setTradeAction(action) {
@@ -580,6 +642,9 @@ const App = {
             buyBtn.className  = 'btn btn-outline';
             sellBtn.className = 'btn btn-danger';
         }
+        document.getElementById('tradeNotionalLabel').textContent =
+            action === 'SELL' ? 'Amount to sell' : 'Amount to spend';
+        this.updateTradeNotionalHint();
     },
 
     updateTradeOrderType() {
@@ -593,13 +658,15 @@ const App = {
     async submitTrade() {
         if (!this.currentTrade) return;
 
-        const isNotional = this.currentTradeNotional != null;
+        const isNotional = this.currentTradeMode === 'notional';
         const units      = isNotional ? undefined : parseFloat(document.getElementById('tradeUnits').value);
+        const cashAmount = isNotional ? parseFloat(document.getElementById('tradeNotional').value) : undefined;
         const orderType  = isNotional ? 'Market' : document.getElementById('tradeOrderType').value;
         const limitPrice = orderType === 'Limit' ? parseFloat(document.getElementById('tradeLimitPrice').value) : undefined;
         const timeInForce = isNotional ? 'Day' : document.getElementById('tradeTimeInForce').value;
 
         if (!isNotional && (!units || units <= 0)) { UI.showToast('Enter a valid quantity', 'error'); return; }
+        if (isNotional && (!cashAmount || cashAmount <= 0)) { UI.showToast('Enter a valid cash amount', 'error'); return; }
         if (orderType === 'Limit' && (!limitPrice || limitPrice <= 0)) {
             UI.showToast('Enter a valid limit price', 'error'); return;
         }
@@ -611,13 +678,14 @@ const App = {
         try {
             const { portfolioId, accountId, symbol, accountName } = this.currentTrade;
             const action = this.currentTradeAction;
-            const notional_value = this.currentTradeNotional ?? undefined;
+            const notional_value = cashAmount;
             // Step 1 — stage the order server-side; it is only placed after an
             // explicit confirmation below (token is TTL-bound).
             const staged = await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, notional_value, price: limitPrice, timeInForce });
             const where = accountName ? ` in ${accountName}` : '';
+            const cur = this.currentTradeCurrency ? ` ${this.currentTradeCurrency}` : '';
             const desc = notional_value != null
-                ? `${action} order for $${notional_value} of ${symbol}${where}`
+                ? `${action} market order for $${notional_value}${cur} of ${symbol}${where}`
                 : `${action} order for ${units} × ${symbol}${where}`;
 
             if (!staged.requiresConfirmation || !staged.confirmationToken) {
@@ -642,6 +710,342 @@ const App = {
             btn.classList.remove('loading');
             btn.disabled = false;
         }
+    },
+
+    // ── Buy buckets ──────────────────────────────────────────────────────────
+    //
+    // A bucket is a named set of stocks bought together for one cash amount.
+    // Running one places a market cash-amount order per stock — the kind that
+    // can buy a fraction of a share — in each account picked, and the cash
+    // amount applies per account rather than being divided between them.
+
+    buckets: [],
+    /** The bucket open in the editor. `id` is null for a new one. */
+    bucketDraft: null,
+    bucketRun: null,
+    _bucketSearchTimer: null,
+    _bucketPreviewTimer: null,
+
+    async loadBuckets() {
+        try {
+            this.buckets = await API.getBuckets();
+            UI.renderBucketList(this.buckets);
+        } catch (err) {
+            UI.showToast('Failed to load buckets: ' + err.message, 'error');
+        }
+    },
+
+    openBucketModal(id = null, seedItems = null) {
+        const existing = id != null ? this.buckets.find(b => b.id === id) : null;
+        this.bucketDraft = existing
+            ? {
+                id: existing.id,
+                name: existing.name,
+                cashValue: existing.cashValue,
+                splitMode: existing.splitMode,
+                items: (existing.items || []).map(i => ({ symbol: i.symbol, name: i.name, weight: i.weight })),
+              }
+            : { id: null, name: '', cashValue: '', splitMode: 'equal', items: seedItems || [] };
+
+        document.getElementById('bucketModalTitle').textContent = existing ? 'Edit Bucket' : 'New Bucket';
+        document.getElementById('bucketName').value = this.bucketDraft.name;
+        document.getElementById('bucketCashValue').value = this.bucketDraft.cashValue;
+        document.getElementById('bucketSplitMode').value = this.bucketDraft.splitMode;
+        document.getElementById('bucketSymbolSearch').value = '';
+        UI.renderBucketSearchResults([], '');
+        this.renderBucketItems();
+        document.getElementById('bucketModal').classList.add('open');
+        setTimeout(() => document.getElementById('bucketName').focus(), 100);
+    },
+
+    closeBucketModal() {
+        document.getElementById('bucketModal').classList.remove('open');
+        this.bucketDraft = null;
+    },
+
+    renderBucketItems() {
+        if (!this.bucketDraft) return;
+        const cashValue = parseFloat(document.getElementById('bucketCashValue').value) || 0;
+        this.bucketDraft.cashValue = cashValue;
+        UI.renderBucketItemRows(this.bucketDraft.items, this.bucketDraft.splitMode, cashValue);
+
+        const count = this.bucketDraft.items.length;
+        document.getElementById('bucketItemCount').textContent = count ? `(${count})` : '';
+
+        // A weighted bucket is rejected server-side unless the weights total
+        // 100%, so the running total is shown while it is being edited.
+        const totalEl = document.getElementById('bucketWeightTotal');
+        if (this.bucketDraft.splitMode === 'weighted' && count > 0) {
+            const total = this.bucketDraft.items.reduce((sum, i) => sum + (Number(i.weight) || 0), 0);
+            const off = Math.abs(total - 100) > 0.01;
+            totalEl.innerHTML = `Weights total <strong class="${off ? 'neg' : 'pos'}">${total.toFixed(2)}%</strong>${off ? ' — must be 100% to save' : ''}`;
+        } else {
+            totalEl.textContent = '';
+        }
+    },
+
+    setBucketSplitMode(mode) {
+        if (!this.bucketDraft) return;
+        this.bucketDraft.splitMode = mode === 'weighted' ? 'weighted' : 'equal';
+        if (this.bucketDraft.splitMode === 'weighted') this.evenBucketWeights();
+        this.renderBucketItems();
+    },
+
+    /**
+     * Spread weights evenly, putting the rounding remainder on the first row so
+     * they total exactly 100% — otherwise five stocks would come to 99.95%.
+     */
+    evenBucketWeights() {
+        const items = this.bucketDraft.items;
+        if (items.length === 0) return;
+        const each = Math.floor((100 / items.length) * 100) / 100;
+        items.forEach(i => { i.weight = each; });
+        const remainder = Math.round((100 - each * items.length) * 100) / 100;
+        items[0].weight = Math.round((each + remainder) * 100) / 100;
+    },
+
+    setBucketItemWeight(index, value) {
+        if (!this.bucketDraft || !this.bucketDraft.items[index]) return;
+        const weight = parseFloat(value);
+        this.bucketDraft.items[index].weight = isNaN(weight) ? null : weight;
+        // Only the running total needs refreshing — re-rendering the rows here
+        // would pull focus out of the field being typed into.
+        const total = this.bucketDraft.items.reduce((sum, i) => sum + (Number(i.weight) || 0), 0);
+        const off = Math.abs(total - 100) > 0.01;
+        document.getElementById('bucketWeightTotal').innerHTML =
+            `Weights total <strong class="${off ? 'neg' : 'pos'}">${total.toFixed(2)}%</strong>${off ? ' — must be 100% to save' : ''}`;
+    },
+
+    addBucketItem(symbol, name) {
+        if (!this.bucketDraft) return;
+        const ticker = String(symbol || '').trim().toUpperCase();
+        if (!ticker) return;
+        if (this.bucketDraft.items.some(i => i.symbol === ticker)) {
+            UI.showToast(`${ticker} is already in this bucket`, 'error');
+            return;
+        }
+        this.bucketDraft.items.push({ symbol: ticker, name: name || null, weight: null });
+        if (this.bucketDraft.splitMode === 'weighted') this.evenBucketWeights();
+        document.getElementById('bucketSymbolSearch').value = '';
+        UI.renderBucketSearchResults([], '');
+        this.renderBucketItems();
+    },
+
+    /** Add exactly what was typed, for a listing the search did not return. */
+    addBucketItemRaw() {
+        this.addBucketItem(document.getElementById('bucketSymbolSearch').value, null);
+    },
+
+    removeBucketItem(index) {
+        if (!this.bucketDraft) return;
+        this.bucketDraft.items.splice(index, 1);
+        if (this.bucketDraft.splitMode === 'weighted') this.evenBucketWeights();
+        this.renderBucketItems();
+    },
+
+    handleBucketSearchInput(query) {
+        clearTimeout(this._bucketSearchTimer);
+        const q = String(query || '').trim();
+        if (q.length < 1) { UI.renderBucketSearchResults([], ''); return; }
+        this._bucketSearchTimer = setTimeout(async () => {
+            try {
+                UI.renderBucketSearchResults(await API.searchSymbols(q), q);
+            } catch (err) {
+                UI.renderBucketSearchResults([], q);
+            }
+        }, 250);
+    },
+
+    async saveBucket() {
+        if (!this.bucketDraft) return;
+        const name = document.getElementById('bucketName').value.trim();
+        const cashValue = parseFloat(document.getElementById('bucketCashValue').value);
+
+        if (!name) { UI.showToast('Give the bucket a name', 'error'); return; }
+        if (!cashValue || cashValue <= 0) { UI.showToast('Enter a cash amount', 'error'); return; }
+        if (this.bucketDraft.items.length === 0) { UI.showToast('Add at least one stock', 'error'); return; }
+
+        const btn = document.getElementById('saveBucketBtn');
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            await API.saveBucket({
+                id: this.bucketDraft.id,
+                name,
+                cashValue,
+                splitMode: this.bucketDraft.splitMode,
+                items: this.bucketDraft.items,
+            });
+            this.closeBucketModal();
+            await this.loadBuckets();
+            UI.showToast('Bucket saved');
+        } catch (err) {
+            UI.showToast('Failed to save bucket: ' + err.message, 'error');
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+    },
+
+    async deleteBucket(id) {
+        const bucket = this.buckets.find(b => b.id === id);
+        if (!confirm(`Delete the bucket "${bucket ? bucket.name : id}"? This does not affect any orders already placed.`)) return;
+        try {
+            await API.deleteBucket(id);
+            await this.loadBuckets();
+            UI.showToast('Bucket deleted');
+        } catch (err) {
+            UI.showToast('Failed to delete bucket: ' + err.message, 'error');
+        }
+    },
+
+    // ── Running a bucket ─────────────────────────────────────────────────────
+
+    async openBucketRunModal(id) {
+        const bucket = this.buckets.find(b => b.id === id);
+        if (!bucket) return;
+        this.bucketRun = { bucket, plan: null, token: null, acknowledgedBelowMinimum: false };
+
+        document.getElementById('bucketRunTitle').textContent = `Run "${bucket.name}"`;
+        document.getElementById('bucketRunCash').value = bucket.cashValue;
+        document.getElementById('bucketRunPreview').innerHTML = '';
+        document.getElementById('placeBucketBtn').disabled = true;
+        document.getElementById('bucketRunModal').classList.add('open');
+
+        if (!this.currentGroups || this.currentGroups.length === 0) await this.fetchAccounts();
+        if (!this.activePortfolios || this.activePortfolios.length === 0) {
+            try { this.activePortfolios = await API.getPortfolios(); } catch (_) { /* picker shows the empty note */ }
+        }
+        UI.renderBucketRunAccounts(this.currentGroups, this.inactiveAccountIds, new Set(), this.activePortfolios);
+        this.refreshBucketPreview();
+    },
+
+    closeBucketRunModal() {
+        document.getElementById('bucketRunModal').classList.remove('open');
+        this.bucketRun = null;
+    },
+
+    /** The accounts ticked in the run modal. */
+    selectedBucketAccounts() {
+        return Array.from(document.querySelectorAll('#bucketRunAccounts input[type="checkbox"]:checked'))
+            .map(cb => ({ accountId: cb.value, portfolioId: cb.dataset.portfolioId }));
+    },
+
+    refreshBucketPreview() {
+        clearTimeout(this._bucketPreviewTimer);
+        this._bucketPreviewTimer = setTimeout(() => this._loadBucketPreview(), 200);
+    },
+
+    async _loadBucketPreview() {
+        if (!this.bucketRun) return;
+        const accounts = this.selectedBucketAccounts();
+        const cashValue = parseFloat(document.getElementById('bucketRunCash').value);
+        const btn = document.getElementById('placeBucketBtn');
+
+        // A fresh preview invalidates any staged run — the token belongs to the
+        // plan it was issued for, never to whatever is on screen now.
+        this.bucketRun.token = null;
+
+        if (accounts.length === 0 || !cashValue || cashValue <= 0) {
+            UI.renderBucketPreview(null);
+            document.getElementById('bucketRunPreview').innerHTML =
+                '<div class="text-muted text-sm">Pick at least one account and a cash amount to see the orders.</div>';
+            btn.disabled = true;
+            return;
+        }
+
+        try {
+            const plan = await API.previewBucket(this.bucketRun.bucket.id, accounts, cashValue);
+            this.bucketRun.plan = plan;
+            UI.renderBucketPreview(plan);
+            btn.disabled = (plan.errors || []).length > 0 || plan.orderCount === 0;
+        } catch (err) {
+            document.getElementById('bucketRunPreview').innerHTML =
+                `<div class="bucket-alert bucket-alert-error">${sanitize(err.message)}</div>`;
+            btn.disabled = true;
+        }
+    },
+
+    async placeBucketOrders() {
+        if (!this.bucketRun) return;
+        const accounts = this.selectedBucketAccounts();
+        const cashValue = parseFloat(document.getElementById('bucketRunCash').value);
+        const btn = document.getElementById('placeBucketBtn');
+
+        btn.classList.add('loading');
+        btn.disabled = true;
+        try {
+            let staged;
+            try {
+                staged = await API.runBucket(this.bucketRun.bucket.id, accounts, cashValue, this.bucketRun.acknowledgedBelowMinimum);
+            } catch (err) {
+                // Under-minimum orders are the user's call to make, so ask once
+                // and retry with the acknowledgement rather than refusing.
+                if (err.requiresBelowMinimumAck) {
+                    const ok = confirm(`${err.message}\n\nThose orders will most likely be rejected by the broker. Place them anyway?`);
+                    if (!ok) { UI.showToast('Run cancelled'); return; }
+                    this.bucketRun.acknowledgedBelowMinimum = true;
+                    staged = await API.runBucket(this.bucketRun.bucket.id, accounts, cashValue, true);
+                } else {
+                    throw err;
+                }
+            }
+
+            const plan = staged.plan;
+            const summary = plan.accounts.length > 1
+                ? `${plan.orderCount} market orders across ${plan.accounts.length} accounts, ${plan.grandTotal} in total`
+                : `${plan.orderCount} market orders in ${plan.accounts[0].accountName}, ${plan.grandTotal} in total`;
+            if (!confirm(`Place ${summary}?\n\nThese orders go to the brokerage and cannot be undone here.`)) {
+                UI.showToast('Run cancelled');
+                return;
+            }
+
+            const result = await API.confirmBucketRun(staged.confirmationToken);
+            UI.renderBucketResults(result);
+            // Orders change cash and positions, so the derived caches go stale.
+            this.cachedHoldingsData = null;
+            this.cachedTransactionsData = null;
+            UI.showToast(result.placed === result.total
+                ? `Placed ${result.placed} order${result.total === 1 ? '' : 's'}`
+                : `Placed ${result.placed} of ${result.total} orders`,
+                result.placed === result.total ? undefined : 'error');
+        } catch (err) {
+            UI.showToast('Bucket run failed: ' + err.message, 'error');
+        } finally {
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+    },
+
+    // ── Building a bucket from the holdings table ────────────────────────────
+
+    /** Symbols ticked on the Holdings page. */
+    selectedHoldingSymbols: new Set(),
+
+    toggleHoldingSelection(symbol, checked) {
+        if (checked) this.selectedHoldingSymbols.add(symbol);
+        else this.selectedHoldingSymbols.delete(symbol);
+        UI.updateHoldingSelectionBar(this.selectedHoldingSymbols);
+    },
+
+    clearHoldingSelection() {
+        this.selectedHoldingSymbols.clear();
+        document.querySelectorAll('#holdings-tables .hb-select').forEach(cb => { cb.checked = false; });
+        UI.updateHoldingSelectionBar(this.selectedHoldingSymbols);
+    },
+
+    /** Open the bucket editor seeded with whatever is ticked in the table. */
+    createBucketFromHoldings() {
+        if (this.selectedHoldingSymbols.size === 0) return;
+        const bySymbol = new Map((this.holdingsRowsForBucket || []).map(r => [r.symbol, r.description]));
+        const items = Array.from(this.selectedHoldingSymbols).map(symbol => ({
+            symbol,
+            name: bySymbol.get(symbol) || null,
+            weight: null,
+        }));
+        this.switchMainTab('settings', document.querySelector('.topnav-item[data-tab="settings"]'));
+        this.switchSettingsTab('buckets');
+        this.openBucketModal(null, items);
     },
 
     async toggleAccount(accountId) {
@@ -2972,6 +3376,9 @@ const App = {
         if (activePane) activePane.classList.add('active');
 
         // Load data based on which pane was activated
+        if (paneId === 'buckets') {
+            this.loadBuckets();
+        }
         if (paneId === 'keys') {
             try {
                 this.activePortfolios = await API.getPortfolios();

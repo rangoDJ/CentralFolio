@@ -788,6 +788,89 @@ const API = {
         return true;
     },
 
+    // ── Buy buckets ─────────────────────────────────────────────────────────────
+    async getBuckets() {
+        const res = await this._fetch('/api/buckets');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to load buckets');
+        return data;
+    },
+
+    async saveBucket(bucket) {
+        const isEdit = bucket.id != null;
+        const res = await this._fetch(isEdit ? `/api/buckets/${encodeURIComponent(bucket.id)}` : '/api/buckets', {
+            method: isEdit ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: bucket.name,
+                cashValue: bucket.cashValue,
+                splitMode: bucket.splitMode,
+                items: bucket.items,
+            }),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to save bucket');
+        return data;
+    },
+
+    async deleteBucket(id) {
+        const res = await this._fetch(`/api/buckets/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete bucket');
+        return true;
+    },
+
+    /** What a run would place, with nothing placed. */
+    async previewBucket(id, accounts, cashValue) {
+        const res = await this._fetch(`/api/buckets/${encodeURIComponent(id)}/preview`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accounts, cashValue }),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to preview bucket');
+        return data;
+    },
+
+    /**
+     * Stage a run. Resolves to the confirmation token, or throws — with
+     * `requiresBelowMinimumAck` set when the only objection is that some orders
+     * fall under the broker minimum, which the user may choose to accept.
+     */
+    async runBucket(id, accounts, cashValue, allowBelowMinimum) {
+        const res = await this._fetch(`/api/buckets/${encodeURIComponent(id)}/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ accounts, cashValue, allowBelowMinimum: !!allowBelowMinimum }),
+        });
+        const data = await this._json(res);
+        if (!res.ok) {
+            const err = new Error(data.error || 'Failed to stage bucket run');
+            err.requiresBelowMinimumAck = !!data.requiresBelowMinimumAck;
+            err.plan = data.plan;
+            throw err;
+        }
+        return data;
+    },
+
+    async confirmBucketRun(confirmationToken) {
+        const res = await this._fetch('/api/buckets/run/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmationToken }),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to place bucket orders');
+        return data;
+    },
+
+    async searchSymbols(query) {
+        const res = await this._fetch(`/api/symbols/search?q=${encodeURIComponent(query)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Symbol search failed');
+        return data;
+    },
+
     // ── Notifications ───────────────────────────────────────────────────────────
     async testNotification() {
         const res = await this._fetch('/api/admin/test-notification', { method: 'POST' });

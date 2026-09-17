@@ -199,7 +199,7 @@ const App = {
             const btn = e.target.closest('.trade-btn-buy, .trade-btn-sell');
             if (btn) {
                 const d = btn.dataset;
-                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), d.action);
+                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), d.action, null, null, d.accountName);
                 return;
             }
             const preset = e.target.closest('.trade-btn-preset');
@@ -208,7 +208,7 @@ const App = {
                 const price = parseFloat(d.price);
                 const bucket = parseFloat(d.bucket);
                 if (!price || price <= 0) { UI.showToast('Price unavailable for this holding', 'error'); return; }
-                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, price, 'BUY', null, bucket);
+                this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, price, 'BUY', null, bucket, d.accountName);
             }
         });
 
@@ -218,7 +218,7 @@ const App = {
             const btn = e.target.closest('button.cmp-buy-btn');
             if (!btn) return;
             const d = btn.dataset;
-            this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), 'BUY');
+            this.openTradeModal(d.accountId, d.portfolioId, d.symbol, d.symbolId, d.description, parseFloat(d.price), 'BUY', null, null, d.accountName);
         });
 
         window.onclick = (e) => {
@@ -454,7 +454,7 @@ const App = {
         let currentName = '';
         for (const group of this.currentGroups) {
             const acc = group.accounts.find(a => a.id === accountId);
-            if (acc) { currentName = acc.customName || acc.name || ''; break; }
+            if (acc) { currentName = accountLabel(acc, ''); break; }
         }
         const nameEl = document.getElementById('acc-name-' + accountId);
         if (!nameEl) return;
@@ -486,10 +486,16 @@ const App = {
             await API.renameAccount(accountId, newName);
             for (const group of this.currentGroups) {
                 const acc = group.accounts.find(a => a.id === accountId);
-                if (acc) { acc.customName = newName; break; }
+                // displayName is what every screen reads, so refresh it here
+                // too — leaving only customName updated would keep the stale
+                // server-resolved label until the next accounts fetch.
+                if (acc) { acc.customName = newName; acc.displayName = newName; break; }
             }
+            // Every derived cache carries the account's label, transactions
+            // included — drop them all so the new name shows up on each tab.
             this.cachedHoldingsData = null;
             this.cachedDividendsData = null;
+            this.cachedTransactionsData = null;
             UI.renderAccountSection(this.currentGroups, this.activePortfolioId, this.inactiveAccountIds);
             UI.showToast('Account renamed');
         } catch (err) {
@@ -498,13 +504,32 @@ const App = {
         }
     },
 
-    openTradeModal(accountId, portfolioId, symbol, symbolId, description, price, action = 'BUY', prefillUnits = null, notional = null) {
+    /**
+     * What to call an account, resolved from the live account list so a rename
+     * is reflected immediately. `fallbackName` is the label the clicked control
+     * was rendered with, used when the account list hasn't been fetched on this
+     * page yet.
+     */
+    accountLabelById(accountId, fallbackName) {
+        for (const group of this.currentGroups || []) {
+            const acc = (group.accounts || []).find(a => a.id === accountId);
+            if (acc) return accountLabel(acc);
+        }
+        return accountLabel({ name: fallbackName });
+    },
+
+    openTradeModal(accountId, portfolioId, symbol, symbolId, description, price, action = 'BUY', prefillUnits = null, notional = null, accountName = null) {
         if (!symbolId) {
             UI.showToast('Click "Refresh" on this page first to sync position data before trading', 'error');
             return;
         }
-        this.currentTrade = { accountId, portfolioId, symbol, symbolId };
+        const label = this.accountLabelById(accountId, accountName);
+        this.currentTrade = { accountId, portfolioId, symbol, symbolId, accountName: label };
         this.currentTradeNotional = notional;
+
+        // An order is irreversible, so the popup names the account it will hit —
+        // by the user's own name for it where they have set one.
+        document.getElementById('tradeAccountName').textContent = label;
 
         document.getElementById('tradeSymbolTicker').textContent = symbol;
         document.getElementById('tradeSymbolDesc').textContent = description || '';
@@ -584,15 +609,16 @@ const App = {
         btn.disabled = true;
 
         try {
-            const { portfolioId, accountId, symbol } = this.currentTrade;
+            const { portfolioId, accountId, symbol, accountName } = this.currentTrade;
             const action = this.currentTradeAction;
             const notional_value = this.currentTradeNotional ?? undefined;
             // Step 1 — stage the order server-side; it is only placed after an
             // explicit confirmation below (token is TTL-bound).
             const staged = await API.placeTrade({ portfolioId, accountId, ticker: symbol, action, orderType, units, notional_value, price: limitPrice, timeInForce });
+            const where = accountName ? ` in ${accountName}` : '';
             const desc = notional_value != null
-                ? `${action} order for $${notional_value} of ${symbol}`
-                : `${action} order for ${units} × ${symbol}`;
+                ? `${action} order for $${notional_value} of ${symbol}${where}`
+                : `${action} order for ${units} × ${symbol}${where}`;
 
             if (!staged.requiresConfirmation || !staged.confirmationToken) {
                 this.closeTradeModal();
@@ -984,7 +1010,7 @@ const App = {
                             const data = await API.getHoldings(group.portfolioId, acc.id, forceRefresh);
                             allHoldingsData.push({
                                 portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
-                                accountName: acc.customName || acc.name,
+                                accountName: accountLabel(acc),
                                 accountId: acc.id,
                                 portfolioId: group.portfolioId,
                                 tradingEnabled,
@@ -995,7 +1021,7 @@ const App = {
                             if (err.message !== 'Account is disabled') {
                                 allHoldingsData.push({
                                     portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
-                                    accountName: acc.customName || acc.name,
+                                    accountName: accountLabel(acc),
                                     accountId: acc.id,
                                     error: err.message
                                 });
@@ -1650,7 +1676,7 @@ const App = {
         const fetchOne = async ({ group, acc, tradingEnabled }) => {
             const base = {
                 portfolioName: this.getUserPortfolioNamesForAccount(acc.id),
-                accountName: acc.customName || acc.name,
+                accountName: accountLabel(acc),
                 accountId: acc.id,
             };
             try {
@@ -2364,7 +2390,7 @@ const App = {
         const opts = [];
         (this.currentGroups || []).forEach(g => (g.accounts || []).forEach(a => {
             if (this.inactiveAccountIds && this.inactiveAccountIds.has(a.id)) return;
-            opts.push({ id: a.id, name: a.customName || a.name || 'Account' });
+            opts.push({ id: a.id, name: accountLabel(a) });
         }));
         return opts;
     },
@@ -2854,7 +2880,7 @@ const App = {
             // Per-account cost-per-share lines (the breakdown shown on the cards).
             costLines: (positions?.rows || [])
                 .filter(r => r.avgCost > 0)
-                .map(r => ({ label: r.accountName || 'Account', value: r.avgCost })),
+                .map(r => ({ label: accountLabel(r), value: r.avgCost })),
             trades: this.getSymbolTradesForChart(symbol),
         };
         this.loadPriceHistory(symbol, detailCurrency, extras);
@@ -3407,7 +3433,7 @@ const App = {
             const accountMap = {};
             (accountGroups || []).forEach(g => {
                 (g.accounts || []).forEach(a => {
-                    accountMap[a.id] = a.customName || a.name || a.id;
+                    accountMap[a.id] = accountLabel(a, a.id);
                 });
             });
 

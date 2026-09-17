@@ -1,5 +1,6 @@
 import { getMergedTransactions } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
+import { accountDisplayName, accountClassifyText } from "../utils/accountName.js";
 import { computeRealizedGains } from "./realizedGains.js";
 import { classifyAccount } from "./taxRules.js";
 import { logger } from "../utils/logger.js";
@@ -25,9 +26,9 @@ export function getRealizedGains(allowedIds?: Set<string> | null): RealizedGains
   let totalGain = 0, taxableAccountGain = 0, currency = "CAD";
 
   for (const acct of getScopedAccounts(allowedIds)) {
-    const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
+    const cls = classifyAccount(accountClassifyText(acct));
     const registered = cls === "rrsp" || cls === "tfsa";
-    const label = acct.customName || acct.name || "Account";
+    const label = accountDisplayName(acct);
     if (acct.currency) currency = acct.currency;
 
     const { events, totalGain: acctGain } = computeRealizedGains(getMergedTransactions(acct.id));

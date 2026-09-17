@@ -1,5 +1,6 @@
 import { db } from "../models/database.js";
 import { logger } from "../utils/logger.js";
+import { accountDisplayName } from "../utils/accountName.js";
 import { emitDataChanged } from "../services/eventBus.js";
 
 // ── Prepared statements (compiled once at module load for performance) ─────────
@@ -105,6 +106,8 @@ export function getCachedAccounts(portfolioId: number | string): any[] {
   return rows.map(r => ({
     ...r,
     isActive: r.isActive === 1 || r.isActive === true,
+    // Resolved once here so no caller has to remember the customName-wins rule.
+    displayName: accountDisplayName(r),
     balance: r.balanceTotal != null
       ? { 
           total: { amount: r.balanceTotal, currency: r.currency },

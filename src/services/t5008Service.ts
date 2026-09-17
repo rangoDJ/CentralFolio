@@ -12,6 +12,7 @@
 
 import { getMergedTransactions } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
+import { accountDisplayName, accountClassifyText } from "../utils/accountName.js";
 import { classifyAccount } from "./taxRules.js";
 import { primeFxHistory, fxRateOn, assetCurrency } from "./fxService.js";
 import { computeDispositions, summarizeByYear, poolKey, sideOf, type Disposition, type T5008Result, type T5008Transaction } from "./t5008.js";
@@ -58,8 +59,8 @@ interface AccountTxns {
 function collectAccounts(): AccountTxns[] {
   const accounts = getScopedAccounts(null).map(acct => ({
     accountId: acct.id,
-    label: acct.customName || acct.name || "Account",
-    registered: classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`) !== "taxable",
+    label: accountDisplayName(acct),
+    registered: classifyAccount(accountClassifyText(acct)) !== "taxable",
     txns: getMergedTransactions(acct.id) as T5008Transaction[],
   })).filter(a => a.txns.length > 0);
   const registeredCount = accounts.filter(a => a.registered).length;

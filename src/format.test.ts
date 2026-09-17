@@ -11,7 +11,10 @@ const code = readFileSync(path.join(root, 'public', 'js', 'format.js'), 'utf8');
 const sandbox: any = { module: { exports: {} } };
 vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
-const { sanitize } = sandbox.module.exports as { sanitize: (s: unknown) => string };
+const { sanitize, accountLabel } = sandbox.module.exports as {
+  sanitize: (s: unknown) => string;
+  accountLabel: (a: unknown, fallback?: string) => string;
+};
 
 test('sanitize escapes all HTML-significant characters', () => {
   assert.equal(
@@ -31,4 +34,28 @@ test('sanitize coerces non-strings', () => {
 
 test('sanitize leaves safe text untouched', () => {
   assert.equal(sanitize('VFV.TO Vanguard'), 'VFV.TO Vanguard');
+});
+
+test('accountLabel prefers the server-resolved display name', () => {
+  assert.equal(
+    accountLabel({ displayName: 'Retirement', customName: 'Retirement', name: 'TFSA 1234' }),
+    'Retirement'
+  );
+});
+
+test('accountLabel falls back through customName, accountName, then the broker name', () => {
+  assert.equal(accountLabel({ customName: 'Retirement', name: 'TFSA 1234' }), 'Retirement');
+  assert.equal(accountLabel({ accountName: 'Retirement' }), 'Retirement');
+  assert.equal(accountLabel({ name: 'TFSA 1234' }), 'TFSA 1234');
+});
+
+test('accountLabel ignores blank names', () => {
+  assert.equal(accountLabel({ displayName: '   ', customName: '', name: 'TFSA 1234' }), 'TFSA 1234');
+});
+
+test('accountLabel uses the fallback when nothing is set', () => {
+  assert.equal(accountLabel({}), 'Account');
+  assert.equal(accountLabel(null), 'Account');
+  assert.equal(accountLabel({}, 'Unnamed Account'), 'Unnamed Account');
+  assert.equal(accountLabel({}, ''), '');
 });

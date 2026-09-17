@@ -15,6 +15,7 @@
 
 import { getCachedPositions, getCachedDividendMetadata } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
+import { accountDisplayName, accountClassifyText } from "../utils/accountName.js";
 import { getProfile } from "../repositories/assetProfileRepository.js";
 import { classifyAccount, sourceCountry, withholdingRate } from "./taxRules.js";
 import { logger } from "../utils/logger.js";
@@ -38,8 +39,8 @@ export function getDividendTaxBreakdown(allowedIds?: Set<string> | null): TaxBre
   let totalIncome = 0, totalWithheld = 0, currency = "CAD";
 
   for (const acct of getScopedAccounts(allowedIds)) {
-    const cls = classifyAccount(`${acct.type || ""} ${acct.customName || acct.name || ""}`);
-    const acctLabel = acct.customName || acct.name || "Account";
+    const cls = classifyAccount(accountClassifyText(acct));
+    const acctLabel = accountDisplayName(acct);
 
     for (const pos of getCachedPositions(acct.id)) {
       const symbol = pos.symbol;

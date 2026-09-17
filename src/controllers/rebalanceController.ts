@@ -13,6 +13,7 @@ import { getUserPortfolioById } from "../repositories/userPortfolioRepository.js
 import { computeRebalance, RebalanceTrade } from "../services/rebalanceService.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { accountDisplayName } from "../utils/accountName.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
@@ -127,7 +128,7 @@ export const getRebalanceSuggestions = (req: Request, res: Response) => {
 
         accountsSuggestions.push({
           accountId: account.id,
-          accountName: account.customName || account.name || 'Unnamed Account',
+          accountName: accountDisplayName(account, "Unnamed Account"),
           currency: account.currency || 'USD',
           cash,
           totalValue: result.totalValue,

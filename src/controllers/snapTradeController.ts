@@ -4,6 +4,7 @@ import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
 import { logger } from "../utils/logger.js";
+import { accountDisplayName } from "../utils/accountName.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 
 export const registerUser = async (req: Request, res: Response) => {
@@ -97,7 +98,7 @@ export const getTransactions = async (req: Request, res: Response) => {
 
         for (const account of cachedAccounts) {
           const transactions = getMergedTransactions(account.id);
-          const displayName = account.customName || account.name;
+          const displayName = accountDisplayName(account);
 
           // Build symbol → units map from cached positions so the frontend
           // can infer share count for dividend rows where SnapTrade omits it

@@ -1384,6 +1384,12 @@
         </div>
       </div>
 
+      <!-- Which account the order goes to, by its custom name where one is set -->
+      <div style="display:flex;align-items:baseline;gap:0.5rem;margin:-0.75rem 0 1.25rem;padding:0 0.25rem;">
+        <span style="font-size:0.72rem;color:var(--text-muted);flex-shrink:0;">Account</span>
+        <span style="font-size:0.82rem;font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="tradeAccountName">—</span>
+      </div>
+
       <!-- Buy / Sell toggle -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1.25rem;">
         <button id="tradeBuyBtn" class="btn btn-primary" onclick="App.setTradeAction('BUY')">Buy</button>

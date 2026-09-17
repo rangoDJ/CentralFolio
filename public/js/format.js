@@ -15,6 +15,7 @@
         // Preserve the existing global call sites (`sanitize(...)`).
         root.sanitize = mod.sanitize;
         root.csvCell = mod.csvCell;
+        root.accountLabel = mod.accountLabel;
     }
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
@@ -56,5 +57,23 @@
         return /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(s.trim());
     }
 
-    return { sanitize, csvCell };
+    /**
+     * What an account is called, everywhere.
+     *
+     * A user-set custom name always beats the broker's own label — that is the
+     * point of renaming an account, so the order-entry popup, the holdings
+     * menu, exports and pickers all have to agree. The server stamps
+     * `displayName` onto every account row; the `customName`/`name` fallbacks
+     * cover objects assembled client-side before that field existed.
+     */
+    function accountLabel(account, fallback) {
+        const pick = v => (v == null ? '' : String(v).trim());
+        return pick(account && account.displayName)
+            || pick(account && account.customName)
+            || pick(account && account.accountName)
+            || pick(account && account.name)
+            || (fallback == null ? 'Account' : fallback);
+    }
+
+    return { sanitize, csvCell, accountLabel };
 });

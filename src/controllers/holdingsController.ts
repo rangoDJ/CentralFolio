@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { accountDisplayName } from "../utils/accountName.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { listPortfolios } from "../models/db.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
@@ -70,6 +71,9 @@ export const listAccounts = async (req: Request, res: Response) => {
               ...live,
               isActive: row.isActive === 1 || row.isActive === true,
               customName: row.customName || null,
+              // Same rule as the cached path, so a rename shows up immediately
+              // after a refresh instead of only on the next cache hit.
+              displayName: accountDisplayName({ customName: row.customName, name: live.name ?? row.name }),
               lastPositionsFetch: row.lastPositionsFetch ?? null,
               cachedAt: row.cachedAt ?? null,
               balance: { total: { amount: positionTotal, currency: live.balance?.total?.currency || 'CAD' } },

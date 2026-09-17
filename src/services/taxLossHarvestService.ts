@@ -1,5 +1,6 @@
 import { getCachedPositions, getMergedTransactions } from "../models/db.js";
 import { getScopedAccounts } from "./accountScope.js";
+import { accountDisplayName, accountClassifyText } from "../utils/accountName.js";
 import { classifyAccount } from "./taxRules.js";
 import { getT5008Report } from "./t5008Service.js";
 import { poolKey, sideOf } from "./t5008.js";
@@ -47,8 +48,8 @@ function recentAcquisitions(today: string): RecentAcquisition[] {
   const out: RecentAcquisition[] = [];
 
   for (const acct of getScopedAccounts(null)) {
-    const label = acct.customName || acct.name || "Account";
-    const registered = classifyAccount(acct.type || acct.name || "") !== "taxable";
+    const label = accountDisplayName(acct);
+    const registered = classifyAccount(accountClassifyText(acct)) !== "taxable";
 
     for (const t of getMergedTransactions(acct.id)) {
       if (sideOf(t) !== "buy") continue;
@@ -85,8 +86,8 @@ async function taxableMarketValues(): Promise<Map<string, PooledMarketValue>> {
   const nativeByPool = new Map<string, { native: number; currency: string }>();
 
   for (const acct of getScopedAccounts(null)) {
-    if (classifyAccount(acct.type || acct.name || "") !== "taxable") continue;
-    const label = acct.customName || acct.name || "Account";
+    if (classifyAccount(accountClassifyText(acct)) !== "taxable") continue;
+    const label = accountDisplayName(acct);
 
     for (const pos of getCachedPositions(acct.id)) {
       const symbol = norm(pos.symbol);

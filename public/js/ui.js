@@ -325,7 +325,7 @@ const UI = {
     },
 
     renderConnectionCard(group, acc, inactive, userPortfolios) {
-        const displayName = acc.customName || acc.name || 'Unnamed Account';
+        const displayName = accountLabel(acc, 'Unnamed Account');
         const brokerage   = acc.brokerage?.name || acc.institution_name || 'Wealthsimple Trade';
         const balance     = acc.balance?.total?.amount;
         const lastSync     = this.formatLastSync(acc.lastPositionsFetch || acc.cachedAt);
@@ -1744,8 +1744,8 @@ const UI = {
     renderHoldingMenu(r) {
         const tradable = (r.lots || []).filter(l => l.tradingEnabled);
         const items = tradable.map(l => {
-            const d = `data-account-id="${sanitize(l.accountId)}" data-portfolio-id="${sanitize(l.portfolioId)}" data-symbol="${sanitize(r.symbol)}" data-symbol-id="${sanitize(l.symbolId || r.symbolId)}" data-description="${sanitize(r.description)}" data-price="${l.price || r.price}"`;
-            const label = tradable.length > 1 ? ` · ${sanitize(l.accountName || 'Account')}` : '';
+            const d = `data-account-id="${sanitize(l.accountId)}" data-portfolio-id="${sanitize(l.portfolioId)}" data-account-name="${sanitize(accountLabel(l))}" data-symbol="${sanitize(r.symbol)}" data-symbol-id="${sanitize(l.symbolId || r.symbolId)}" data-description="${sanitize(r.description)}" data-price="${l.price || r.price}"`;
+            const label = tradable.length > 1 ? ` · ${sanitize(accountLabel(l))}` : '';
             return `<button class="trade-btn-buy" ${d} data-action="BUY">Buy${label}</button>
                     <button class="trade-btn-sell" ${d} data-action="SELL">Sell${label}</button>`;
         }).join('');
@@ -2021,12 +2021,13 @@ const UI = {
         }
 
         const attrs = a => `data-account-id="${sanitize(a.accountId)}" data-portfolio-id="${sanitize(a.parentPortfolioId)}" `
+            + `data-account-name="${sanitize(accountLabel(a))}" `
             + `data-symbol="${sanitize(row.symbol)}" data-symbol-id="${sanitize(row.symbolId)}" `
             + `data-description="${sanitize(row.description)}" data-price="${row.price || 0}"`;
 
         const one = accounts.length === 1;
         return `<div class="cmp-buy-group">${accounts.map(a =>
-            `<button class="cmp-buy-btn" ${attrs(a)} title="Buy ${sanitize(row.symbol)} in ${sanitize(a.accountName)}">+ Buy${one ? '' : ' · ' + sanitize(a.accountName)}</button>`
+            `<button class="cmp-buy-btn" ${attrs(a)} title="Buy ${sanitize(row.symbol)} in ${sanitize(accountLabel(a))}">+ Buy${one ? '' : ' · ' + sanitize(accountLabel(a))}</button>`
         ).join('')}</div>`;
     },
 
@@ -2988,7 +2989,7 @@ const UI = {
             tabsHtml += `<button class="pill-tab ${selectedAccountId === 'all' ? 'active' : ''}" onclick="App.switchDividendAccountTab('all')">All Accounts</button>`;
             activeAccounts.forEach(acct => {
                 const isSelected = selectedAccountId === acct.accountId;
-                tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('${acct.accountId}')">${sanitize(acct.accountName || 'Unnamed')}</button>`;
+                tabsHtml += `<button class="pill-tab ${isSelected ? 'active' : ''}" onclick="App.switchDividendAccountTab('${acct.accountId}')">${sanitize(accountLabel(acct, 'Unnamed'))}</button>`;
             });
         }
 
@@ -3114,7 +3115,7 @@ const UI = {
             const annualIncome = (annualPerShare != null && r.units) ? annualPerShare * r.units : null;
             return `<div class="card sd-poscard${isTotal ? ' sd-poscard-total' : ''}">
                 <div class="sd-poshead">
-                    <span class="sd-posacct">${sanitize(r.accountName || 'Account')}</span>
+                    <span class="sd-posacct">${sanitize(accountLabel(r))}</span>
                     <span class="sd-posshares">${(r.units || 0).toLocaleString(undefined, { maximumFractionDigits: 4 })} shares</span>
                 </div>
                 <div class="sd-posvalue">${m(r.value)}</div>
@@ -4066,7 +4067,7 @@ const UI = {
                       <label style="display:flex;align-items:center;gap:0.65rem;cursor:pointer;padding:0.3rem 0.25rem;border-radius:5px;transition:background 0.1s;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                         <input type="checkbox" value="${sanitize(a.id)}" ${selectedIds.has(a.id) ? 'checked' : ''} style="width:15px;height:15px;flex-shrink:0;margin-top:1px;">
                         <div style="min-width:0;">
-                          <div style="font-size:0.875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(a.customName || a.name || a.id)}</div>
+                          <div style="font-size:0.875rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sanitize(accountLabel(a, a.id))}</div>
                           ${a.type ? `<div style="font-size:0.73rem;color:var(--text-secondary);">${sanitize(a.type)}</div>` : ''}
                         </div>
                       </label>`).join('')}
@@ -4211,7 +4212,7 @@ const UI = {
                 <div class="card account-suggestion-card" style="padding: 1.25rem; margin-bottom: 1.25rem;">
                     <div class="account-suggestion-header">
                         <div>
-                            <div class="account-suggestion-title">${sanitize(acc.accountName)}</div>
+                            <div class="account-suggestion-title">${sanitize(accountLabel(acc))}</div>
                             <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Account ID: ${sanitize(acc.accountId)}</div>
                         </div>
                         <div style="text-align:right;">

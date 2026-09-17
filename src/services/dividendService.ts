@@ -1,6 +1,7 @@
 import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getDividendMetadataMaxCachedAt, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { accountDisplayName, accountClassifyText } from "../utils/accountName.js";
 import { sleep } from "../utils/sleep.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { emitDataChanged } from "./eventBus.js";
@@ -647,22 +648,22 @@ export async function getAllDividendsForAllPortfolios(
       logger.info('DividendSvc', `  "${portfolio.name}" — ${activeAccounts.length} active account(s) of ${accounts.length} total (${skipped} inactive, skipped)`);
 
       for (const acc of activeAccounts) {
-        logger.info('DividendSvc', `    Account: "${acc.name ?? acc.id}" (${acc.id})`);
+        logger.info('DividendSvc', `    Account: "${accountDisplayName(acc, acc.id)}" (${acc.id})`);
         try {
           const { dividends, pastDividends } = await getDividendForecastForAccount(portfolio, acc.id, forceRefresh, allowExternalFetch);
           logger.info('DividendSvc', `    → ${dividends.length} projected, ${pastDividends.length} back-projected dividend event(s)`);
           results.push({
             portfolioName: portfolio.name,
-            accountName: acc.customName || acc.name,
+            accountName: accountDisplayName(acc),
             accountId: acc.id,
             dividends,
             pastDividends
           });
         } catch (err: any) {
-          logger.warn('DividendSvc', `    → forecast failed for "${acc.customName || acc.name}": ${err.message}`);
+          logger.warn('DividendSvc', `    → forecast failed for "${accountDisplayName(acc)}": ${err.message}`);
           results.push({
             portfolioName: portfolio.name,
-            accountName: acc.customName || acc.name,
+            accountName: accountDisplayName(acc),
             accountId: acc.id,
             error: err.message,
             dividends: [],

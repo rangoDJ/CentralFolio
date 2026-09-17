@@ -8,6 +8,7 @@ import {
 import { getUserPortfolioById } from "../repositories/userPortfolioRepository.js";
 import { comparePortfolios, resolveCompareRates, ComparePortfolioInput } from "../services/portfolioCompareService.js";
 import { logger } from "../utils/logger.js";
+import { accountDisplayName } from "../utils/accountName.js";
 
 // A comparison table is only readable up to a handful of columns, and each id
 // costs a full account+position walk — cap it rather than let a long query
@@ -74,7 +75,7 @@ export const comparePortfoliosHandler = async (req: Request, res: Response) => {
           const { account, parentId, tradingEnabled } = entry;
           return {
             accountId,
-            accountName: account.customName || account.name || "Unnamed Account",
+            accountName: accountDisplayName(account, "Unnamed Account"),
             parentPortfolioId: parentId,
             tradingEnabled,
             currency: account.currency || "USD",

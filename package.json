@@ -22,7 +22,7 @@
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.2.1",
     "openai": "^6.38.0",
-    "snaptrade-typescript-sdk": "^10.0.18",
+    "snaptrade-typescript-sdk": "^12.2.9",
     "yahoo-finance2": "^4.0.0",
     "zod": "^4.4.3"
   },

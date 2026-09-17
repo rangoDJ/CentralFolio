@@ -1,5 +1,5 @@
 import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios, saveCachedAccounts, getAccountFetchTimestamps } from "../models/db.js";
-import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
+import { getSnapTradeClientForPortfolio, fetchAccountPositions } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
 
@@ -65,15 +65,11 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
         logger.info('Holdings', `Refreshing positions for account ${account.id}...`);
         const prevSymbols = new Set(getCachedPositions(account.id).map((p: any) => p.symbol).filter(Boolean));
 
-        const response = await client.accountInformation.getUserAccountPositions({
-          userId: portfolio.userId,
-          userSecret: portfolio.userSecret!,
-          accountId: account.id,
-        });
+        const positions = await fetchAccountPositions(portfolio, account.id);
 
-        saveCachedPositions(account.id, response.data);
+        saveCachedPositions(account.id, positions);
 
-        const freshSymbols = (Array.isArray(response.data) ? response.data : [])
+        const freshSymbols = positions
           .map((p: any) => p.instrument?.symbol || p.instrument?.raw_symbol || p.symbol?.symbol || p.symbol)
           .filter(Boolean);
         const brandNew = freshSymbols.filter((s: string) => !prevSymbols.has(s)).length;

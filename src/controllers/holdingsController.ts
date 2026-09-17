@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts } from "../models/db.js";
-import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
+import { getSnapTradeClientForPortfolio, fetchAccountPositions } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { accountDisplayName } from "../utils/accountName.js";
 import { isHiddenAtBroker } from "../repositories/accountRepository.js";
@@ -154,17 +154,11 @@ export const getHoldings = async (req: Request, res: Response) => {
     }
 
     logger.info('SnapTrade', `getHoldings — force refresh for account ${accountId}...`);
-    const client = getSnapTradeClientForPortfolio(portfolio);
-    const response = await client.accountInformation.getUserAccountPositions({
-      userId: portfolio.userId,
-      userSecret: portfolio.userSecret,
-      accountId: String(accountId),
-    });
+    const positions = await fetchAccountPositions(portfolio, String(accountId));
 
-    const posCount = Array.isArray(response.data) ? response.data.length : 0;
-    logger.info('SnapTrade', `getHoldings — received ${posCount} position(s) for account ${accountId}`);
-    saveCachedPositions(String(accountId), response.data);
-    res.json(response.data);
+    logger.info('SnapTrade', `getHoldings — received ${positions.length} position(s) for account ${accountId}`);
+    saveCachedPositions(String(accountId), positions);
+    res.json(positions);
   } catch (err: any) {
     const { log, client, status } = snapTradeError(err, "Failed to fetch holdings");
     logger.error('SnapTrade', `getHoldings failed for account ${accountId}: ${log}`);

@@ -1,8 +1,15 @@
-import { Snaptrade } from "snaptrade-typescript-sdk";
+import { Snaptrade, SnaptradeAuth, type CommercialApiKeyAuth } from "snaptrade-typescript-sdk";
 import { listPortfolios, getPortfolio, Portfolio } from "../models/db.js";
 import { logger } from "../utils/logger.js";
 
-const clientCache = new Map<string, Snaptrade>();
+/**
+ * CentralFolio authenticates with a clientId + consumerKey pair, which SDK v12
+ * calls "commercial API key" mode. The mode is part of the client's type, so it
+ * is named once here and flows everywhere the client is passed.
+ */
+export type SnapTradeClient = Snaptrade<CommercialApiKeyAuth>;
+
+const clientCache = new Map<string, SnapTradeClient>();
 
 export function clearSnapTradeClientCache() {
   clientCache.clear();
@@ -48,8 +55,12 @@ export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | numbe
   if (!clientCache.has(cacheKey)) {
     logger.debug('SnapTrade', `Building new client instance for portfolio "${portfolio.name}" (userId: ${portfolio.userId})`);
     clientCache.set(cacheKey, new Snaptrade({
-      clientId: portfolio.clientId,
-      consumerKey: portfolio.consumerKey,
+      // v12 moved the credentials behind an explicit auth mode; they used to sit
+      // at the top level of the config object.
+      auth: SnaptradeAuth.commercialApiKey({
+        clientId: portfolio.clientId,
+        consumerKey: portfolio.consumerKey,
+      }),
       baseOptions: {
         timeout: 15000,
       },
@@ -127,4 +138,26 @@ export async function deleteUserFromPortfolios(userId: string) {
     throw lastError;
   }
   return { success: deleted };
+}
+
+/**
+ * Positions held in one account.
+ *
+ * SDK v12 removed `getUserAccountPositions`, which returned the positions
+ * array directly. Its replacement, `getUserHoldings`, returns the whole
+ * holdings payload with the positions nested inside and nullable. Unwrapping
+ * it here keeps that detail in one place, and keeps every caller's contract —
+ * an array of positions — unchanged.
+ */
+export async function fetchAccountPositions(
+  portfolio: Portfolio,
+  accountId: string,
+): Promise<any[]> {
+  const client = getSnapTradeClientForPortfolio(portfolio);
+  const response = await client.accountInformation.getUserHoldings({
+    userId: portfolio.userId,
+    userSecret: portfolio.userSecret!,
+    accountId: String(accountId),
+  });
+  return response.data?.positions ?? [];
 }

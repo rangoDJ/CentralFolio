@@ -1,5 +1,5 @@
 import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getDividendMetadataMaxCachedAt, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache, getAccountFetchTimestamps } from "../models/db.js";
-import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
+import { getSnapTradeClientForPortfolio, fetchAccountPositions } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { accountDisplayName, accountClassifyText } from "../utils/accountName.js";
 import { sleep } from "../utils/sleep.js";
@@ -472,15 +472,8 @@ export async function getDividendForecastForAccount(
       }));
     } else {
       logger.info('SnapTrade', `getDividendForecastForAccount — fetching fresh positions for account ${accountId}...`);
-      const client = getSnapTradeClientForPortfolio(portfolio);
-      const positionsResponse = await client.accountInformation.getUserAccountPositions({
-        userId: portfolio.userId,
-        userSecret: portfolio.userSecret!,
-        accountId: accountId,
-      });
-      positions = positionsResponse.data;
-      const posCount = Array.isArray(positions) ? positions.length : 0;
-      logger.info('SnapTrade', `getDividendForecastForAccount — received ${posCount} position(s), saving to cache`);
+      positions = await fetchAccountPositions(portfolio, accountId);
+      logger.info('SnapTrade', `getDividendForecastForAccount — received ${positions.length} position(s), saving to cache`);
       saveCachedPositions(accountId, positions);
     }
 

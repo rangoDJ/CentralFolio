@@ -875,6 +875,23 @@ const API = {
         return data;
     },
 
+    /** Re-attempt only the orders that failed, by the token the run returned. */
+    async retryBucketRun(retryToken) {
+        const res = await this._fetch('/api/buckets/run/retry', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ retryToken }),
+        });
+        const data = await this._json(res);
+        if (!res.ok) {
+            const err = new Error(data.error || 'Failed to retry orders');
+            err.balanceCheckFailed = !!data.balanceCheckFailed;
+            err.insufficientCash = !!data.insufficientCash;
+            throw err;
+        }
+        return data;
+    },
+
     async searchSymbols(query) {
         const res = await this._fetch(`/api/symbols/search?q=${encodeURIComponent(query)}`);
         const data = await this._json(res);

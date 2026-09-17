@@ -82,3 +82,8 @@ export type BucketRunBody = z.infer<typeof bucketRunSchema>;
 export const bucketConfirmSchema = z.object({
   confirmationToken: z.string().min(8, "is required"),
 });
+
+/** Body for POST /api/buckets/run/retry — the token a completed run handed back. */
+export const bucketRetrySchema = z.object({
+  retryToken: z.string().min(8, "is required"),
+});

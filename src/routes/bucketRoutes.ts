@@ -7,10 +7,11 @@ import {
   previewBucketHandler,
   stageBucketRunHandler,
   confirmBucketRunHandler,
+  retryBucketRunHandler,
 } from "../controllers/bucketController.js";
 import { searchSymbolsHandler } from "../controllers/symbolSearchController.js";
 import { validateBody } from "../middleware/validate.js";
-import { bucketSchema, bucketRunSchema, bucketConfirmSchema } from "../schemas/bucketSchema.js";
+import { bucketSchema, bucketRunSchema, bucketConfirmSchema, bucketRetrySchema } from "../schemas/bucketSchema.js";
 
 const router = Router();
 
@@ -26,5 +27,7 @@ router.delete("/buckets/:id", deleteBucketHandler);
 router.post("/buckets/:id/preview", validateBody(bucketRunSchema), previewBucketHandler);
 router.post("/buckets/:id/run", validateBody(bucketRunSchema), stageBucketRunHandler);
 router.post("/buckets/run/confirm", validateBody(bucketConfirmSchema), confirmBucketRunHandler);
+// Re-attempt only the orders that failed, referenced by the token the run returned.
+router.post("/buckets/run/retry", validateBody(bucketRetrySchema), retryBucketRunHandler);
 
 export default router;

@@ -428,11 +428,13 @@ const App = {
         try {
             this.currentGroups = await API.getAccounts(forceRefresh);
 
-            // Build inactiveAccountIds from the DB-backed isActive field on each account
+            // An account is excluded either because you switched it off here, or
+            // because the brokerage reports it as closed, archived or otherwise
+            // not open — hiding it at SnapTrade should hide it here too.
             this.inactiveAccountIds = new Set();
             for (const group of this.currentGroups) {
                 for (const acc of (group.accounts || [])) {
-                    if (!acc.isActive) {
+                    if (!acc.isActive || acc.hiddenAtBroker) {
                         this.inactiveAccountIds.add(acc.id);
                     }
                 }
@@ -1030,6 +1032,7 @@ const App = {
             }
 
             const result = await API.confirmBucketRun(staged.confirmationToken);
+            this.bucketRun.retryToken = result.retryToken || null;
             UI.renderBucketResults(result);
             // Orders change cash and positions, so the derived caches go stale.
             this.cachedHoldingsData = null;
@@ -1043,6 +1046,38 @@ const App = {
         } finally {
             btn.classList.remove('loading');
             btn.disabled = false;
+        }
+    },
+
+    /**
+     * Re-attempt just the orders that failed.
+     *
+     * The server holds what failed; this only sends the token, so a retry can
+     * never place something other than the orders that did not go through.
+     */
+    async retryBucketOrders() {
+        if (!this.bucketRun || !this.bucketRun.retryToken) return;
+        const btn = document.getElementById('retryBucketBtn');
+        if (btn) { btn.classList.add('loading'); btn.disabled = true; }
+
+        try {
+            const result = await API.retryBucketRun(this.bucketRun.retryToken);
+            // A retry that partly fails hands back a fresh token; one that fully
+            // succeeds hands back none, and the button goes away with it.
+            this.bucketRun.retryToken = result.retryToken || null;
+            UI.renderBucketResults(result);
+            this.cachedHoldingsData = null;
+            this.cachedTransactionsData = null;
+            UI.showToast(result.placed === result.total
+                ? `Retried — ${result.placed} order${result.total === 1 ? '' : 's'} placed`
+                : `Retried — ${result.placed} of ${result.total} placed`,
+                result.placed === result.total ? undefined : 'error');
+        } catch (err) {
+            // The token survives these, so the button stays usable.
+            UI.showToast((err.balanceCheckFailed || err.insufficientCash)
+                ? err.message
+                : 'Retry failed: ' + err.message, 'error');
+            if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
         }
     },
 

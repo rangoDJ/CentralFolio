@@ -368,6 +368,12 @@ const migrations: Array<{ name: string; sql: string }> = [
   // buy_bucket_items.bucketId and silently empty every bucket. The pragma is
   // set inside this statement batch, which runs outside a transaction, so it
   // takes effect (a pragma inside one is ignored).
+  // What the brokerage says about the account, kept so the app can stop showing
+  // accounts the user has closed, archived or hidden at SnapTrade. Nullable
+  // throughout: many brokerages report no status at all, and a missing status
+  // must never be read as "hide this".
+  { name: 'accounts.status',          sql: `ALTER TABLE accounts ADD COLUMN status TEXT` },
+  { name: 'accounts.accountCategory', sql: `ALTER TABLE accounts ADD COLUMN accountCategory TEXT` },
   { name: 'buy_buckets.drop_cashValue', sql: `
     PRAGMA foreign_keys=off;
     CREATE TABLE IF NOT EXISTS buy_buckets_new (

@@ -326,6 +326,11 @@ const UI = {
 
     renderConnectionCard(group, acc, inactive, userPortfolios) {
         const displayName = accountLabel(acc, 'Unnamed Account');
+        // An account hidden at SnapTrade is excluded everywhere else, so it is
+        // labelled here rather than silently vanishing with no explanation.
+        const brokerHiddenTag = acc.hiddenAtBroker
+            ? ` <span class="conn-hidden-tag" title="SnapTrade reports this account as ${sanitize(acc.status || 'not open')}, so it is excluded from holdings, dividends and tax. Unhide it at your brokerage or in SnapTrade to bring it back.">hidden at brokerage${acc.status ? ` · ${sanitize(acc.status)}` : ''}</span>`
+            : '';
         const brokerage   = acc.brokerage?.name || acc.institution_name || 'Wealthsimple Trade';
         const balance     = acc.balance?.total?.amount;
         const lastSync     = this.formatLastSync(acc.lastPositionsFetch || acc.cachedAt);
@@ -354,7 +359,7 @@ const UI = {
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
                         </div>
                         <div class="conn-box-text" id="acc-name-${acc.id}">
-                            <div class="conn-box-title">${sanitize(displayName)}</div>
+                            <div class="conn-box-title">${sanitize(displayName)}${brokerHiddenTag}</div>
                             <div class="conn-box-sub">${sanitize(brokerage)} (Sync via SnapTrade)</div>
                         </div>
                     </div>
@@ -1995,20 +2000,35 @@ const UI = {
         el.innerHTML = errors + warnings + accountBlocks + grand + balanceNote;
     },
 
-    /** Outcome of a run, order by order. */
+    /** Outcome of a run, order by order, with a way to retry what failed. */
     renderBucketResults(result) {
         const el = document.getElementById('bucketRunPreview');
         if (!el) return;
+
         const rows = (result.results || []).map(r => `<tr>
             <td>${r.success ? '<span class="pos">\u2713</span>' : '<span class="neg">\u2715</span>'}</td>
             <td>${sanitize(r.symbol)}</td>
             <td class="right">${this.moneyC(r.amount, r.currency)}</td>
             <td class="text-muted">${sanitize(r.accountName)}${r.error ? ' — ' + sanitize(r.error) : ''}</td>
         </tr>`).join('');
-        el.innerHTML = `<div class="bucket-alert ${result.placed === result.total ? 'bucket-alert-ok' : 'bucket-alert-warn'}">
-            Placed ${result.placed} of ${result.total} order${result.total === 1 ? '' : 's'}.
+
+        const allPlaced = result.placed === result.total;
+        const failedCount = result.total - result.placed;
+        // Offered only when the server kept something to retry — the token is
+        // what makes a retry possible, not the page's own list of failures.
+        const retry = result.retryToken
+            ? `<div class="bucket-retry-bar">
+                 <span>${failedCount} order${failedCount === 1 ? '' : 's'} did not go through.</span>
+                 <button class="btn btn-primary btn-sm" id="retryBucketBtn" onclick="App.retryBucketOrders()">
+                   <span class="loader"></span><span class="btn-text">Retry ${failedCount === 1 ? 'it' : 'them'}</span>
+                 </button>
+               </div>`
+            : '';
+
+        el.innerHTML = `<div class="bucket-alert ${allPlaced ? 'bucket-alert-ok' : 'bucket-alert-warn'}">
+            ${result.retried ? 'Retry: p' : 'P'}laced ${result.placed} of ${result.total} order${result.total === 1 ? '' : 's'}.
         </div>
-        <table class="bucket-preview-table"><tbody>${rows}</tbody></table>`;
+        <table class="bucket-preview-table"><tbody>${rows}</tbody></table>${retry}`;
     },
 
     // ── Portfolio comparison matrix ─────────────────────────────────────────

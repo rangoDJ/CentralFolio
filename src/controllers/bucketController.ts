@@ -7,6 +7,7 @@ import { getPortfolio, accountBelongsToPortfolio } from "../models/db.js";
 import { placeBrokerageOrder } from "../services/orderPlacement.js";
 import { planBucketRun, type BucketPlan } from "../services/bucketService.js";
 import { refreshAccountBalances } from "../services/accountBalanceService.js";
+import { checkOrderCash } from "../services/cashCheck.js";
 import { ensureProfile } from "../services/assetProfileService.js";
 import { syncSymbol } from "../services/priceHistoryService.js";
 import { logger } from "../utils/logger.js";
@@ -179,6 +180,110 @@ export const stageBucketRunHandler = async (req: Request, res: Response) => {
   res.json({ success: true, requiresConfirmation: true, confirmationToken, plan });
 };
 
+/** One order, flattened out of a plan so a retry can carry just the failures. */
+interface Placement {
+  portfolioId: string;
+  accountId: string;
+  accountName: string;
+  currency: string;
+  symbol: string;
+  amount: number;
+}
+
+export interface OrderResult extends Omit<Placement, "portfolioId"> {
+  success: boolean;
+  error?: string;
+}
+
+function toPlacements(plan: BucketPlan): Placement[] {
+  return plan.accounts.flatMap(account =>
+    account.orders.map(order => ({
+      portfolioId: account.portfolioId,
+      accountId: account.accountId,
+      accountName: account.accountName,
+      currency: account.currency,
+      symbol: order.symbol,
+      amount: order.amount,
+    })));
+}
+
+/**
+ * Place a list of orders, reporting each one.
+ *
+ * A rejection never aborts the loop: the user asked for the whole bucket to be
+ * attempted and to be told exactly which ones failed. Retrying reuses this, so
+ * a retried order goes out through the same path as the original.
+ */
+async function placeOrders(placements: Placement[]): Promise<OrderResult[]> {
+  const results: OrderResult[] = [];
+
+  for (const p of placements) {
+    const { portfolioId, ...row } = p;
+    const fail = (error: string) => results.push({ ...row, success: false, error });
+
+    const portfolio = getPortfolio(portfolioId);
+    if (!portfolio || !portfolio.userSecret) { fail("Connection not found or not registered"); continue; }
+    if (!portfolio.tradingEnabled) { fail("Trading is not enabled for this connection"); continue; }
+    if (!accountBelongsToPortfolio(p.accountId, portfolioId)) {
+      fail("Account does not belong to this connection"); continue;
+    }
+
+    try {
+      // A cash-amount order is what lets the broker fill a fraction of a share,
+      // which is the whole point of splitting a fixed sum many ways.
+      await placeBrokerageOrder(portfolio, {
+        accountId: p.accountId,
+        symbol: p.symbol,
+        action: "BUY",
+        orderType: "Market",
+        notionalValue: p.amount,
+      });
+      logger.info("Buckets", `Placed BUY ${p.amount} ${p.currency} of ${p.symbol} in ${p.accountId}`);
+      results.push({ ...row, success: true });
+    } catch (err: any) {
+      const { log, client: clientMessage } = snapTradeError(err, "Order rejected");
+      logger.warn("Buckets", `Order failed — ${p.symbol} in ${p.accountId}: ${log}`);
+      fail(clientMessage);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Failed orders from a completed run, held server-side so a retry references
+ * them by token.
+ *
+ * The page never sends back symbols and amounts of its own — same rule as
+ * staging. A retry can only re-attempt what actually failed.
+ */
+const retryableRuns = new Map<string, { bucketName: string; placements: Placement[]; expiresAt: number }>();
+const RETRY_TTL_MS = 15 * 60_000;
+
+function pruneRetryableRuns(now: number) {
+  for (const [token, run] of retryableRuns) {
+    if (now > run.expiresAt) retryableRuns.delete(token);
+  }
+}
+
+/**
+ * Record whatever failed and hand back a token for retrying it.
+ *
+ * Returns undefined when everything succeeded, so the page only offers a retry
+ * when there is something to retry.
+ */
+function offerRetry(bucketName: string, placements: Placement[], results: OrderResult[]): string | undefined {
+  const failedKeys = new Set(results.filter(r => !r.success).map(r => `${r.accountId}::${r.symbol}`));
+  if (failedKeys.size === 0) return undefined;
+
+  const failed = placements.filter(p => failedKeys.has(`${p.accountId}::${p.symbol}`));
+  const token = randomUUID();
+  const now = Date.now();
+  pruneRetryableRuns(now);
+  retryableRuns.set(token, { bucketName, placements: failed, expiresAt: now + RETRY_TTL_MS });
+  return token;
+}
+
 /**
  * Step 2 — place every order in the staged plan.
  *
@@ -198,58 +303,79 @@ export const confirmBucketRunHandler = async (req: Request, res: Response) => {
   pendingRuns.delete(confirmationToken);   // single-use
   const { plan } = pending;
 
-  const results: Array<{
-    accountId: string; accountName: string; symbol: string;
-    amount: number; currency: string; success: boolean; error?: string;
-  }> = [];
-
-  for (const account of plan.accounts) {
-    const portfolio = getPortfolio(account.portfolioId);
-    const baseFailure = (message: string) => {
-      for (const order of account.orders) {
-        results.push({
-          accountId: account.accountId, accountName: account.accountName,
-          symbol: order.symbol, amount: order.amount, currency: account.currency,
-          success: false, error: message,
-        });
-      }
-    };
-
-    if (!portfolio || !portfolio.userSecret) { baseFailure("Connection not found or not registered"); continue; }
-    if (!portfolio.tradingEnabled) { baseFailure("Trading is not enabled for this connection"); continue; }
-    if (!accountBelongsToPortfolio(account.accountId, account.portfolioId)) {
-      baseFailure("Account does not belong to this connection"); continue;
-    }
-
-    for (const order of account.orders) {
-      try {
-        // A cash-amount order is what lets the broker fill a fraction of a
-        // share, which is the whole point of splitting a fixed sum many ways.
-        await placeBrokerageOrder(portfolio, {
-          accountId: account.accountId,
-          symbol: order.symbol,
-          action: "BUY",
-          orderType: "Market",
-          notionalValue: order.amount,
-        });
-        logger.info("Buckets", `Placed BUY ${order.amount} ${account.currency} of ${order.symbol} in ${account.accountId}`);
-        results.push({
-          accountId: account.accountId, accountName: account.accountName,
-          symbol: order.symbol, amount: order.amount, currency: account.currency, success: true,
-        });
-      } catch (err: any) {
-        const { log, client: clientMessage } = snapTradeError(err, "Order rejected");
-        logger.warn("Buckets", `Order failed — ${order.symbol} in ${account.accountId}: ${log}`);
-        results.push({
-          accountId: account.accountId, accountName: account.accountName,
-          symbol: order.symbol, amount: order.amount, currency: account.currency,
-          success: false, error: clientMessage,
-        });
-      }
-    }
-  }
+  const results = await placeOrders(toPlacements(plan));
 
   const placed = results.filter(r => r.success).length;
   logger.info("Buckets", `Run of "${plan.name}" complete — ${placed}/${results.length} order(s) placed`);
-  res.json({ success: placed > 0, placed, total: results.length, results });
+  res.json({
+    success: placed > 0,
+    placed,
+    total: results.length,
+    results,
+    retryToken: offerRetry(plan.name, toPlacements(plan), results),
+  });
+};
+
+/**
+ * Re-attempt the orders that failed, and only those.
+ *
+ * The balance check runs again first: an earlier order in the same run may have
+ * consumed the cash, and a retry is as live as the original.
+ */
+export const retryBucketRunHandler = async (req: Request, res: Response) => {
+  const { retryToken } = req.body as { retryToken: string };
+  const now = Date.now();
+  pruneRetryableRuns(now);
+
+  const pending = retryToken ? retryableRuns.get(retryToken) : undefined;
+  if (!pending || now > pending.expiresAt) {
+    return res.status(400).json({ error: "Nothing left to retry — the token is missing, expired, or already used." });
+  }
+  retryableRuns.delete(retryToken);   // single-use, like the run token
+  const { bucketName, placements } = pending;
+
+  const balances = await refreshAccountBalances(placements.map(p => p.portfolioId));
+  if (balances.failures.length > 0) {
+    // Put the token back: the orders are still outstanding and the user should
+    // be able to try again once the brokerage is reachable.
+    retryableRuns.set(retryToken, { bucketName, placements, expiresAt: now + RETRY_TTL_MS });
+    return res.status(502).json({
+      error: "Could not verify cash balances with the brokerage, so nothing was retried. " +
+             balances.failures.map(f => f.error).join("; "),
+      balanceCheckFailed: true,
+    });
+  }
+
+  // Each account's remaining orders must still fit the cash it has now.
+  const needByAccount = new Map<string, number>();
+  for (const p of placements) {
+    needByAccount.set(p.accountId, (needByAccount.get(p.accountId) ?? 0) + p.amount);
+  }
+  const short: string[] = [];
+  for (const [accountId, needed] of needByAccount) {
+    const first = placements.find(p => p.accountId === accountId)!;
+    const check = checkOrderCash({
+      portfolioId: first.portfolioId, accountId, symbol: first.symbol,
+      action: "BUY", orderType: "Market", notionalValue: needed,
+    });
+    if (!check.sufficient && check.message) short.push(check.message);
+  }
+  if (short.length > 0) {
+    retryableRuns.set(retryToken, { bucketName, placements, expiresAt: now + RETRY_TTL_MS });
+    return res.status(400).json({ error: short.join(" "), insufficientCash: true });
+  }
+
+  logger.info("Buckets", `Retrying ${placements.length} failed order(s) from "${bucketName}"`);
+  const results = await placeOrders(placements);
+  const placed = results.filter(r => r.success).length;
+  logger.info("Buckets", `Retry of "${bucketName}" complete — ${placed}/${results.length} order(s) placed`);
+
+  res.json({
+    success: placed > 0,
+    placed,
+    total: results.length,
+    results,
+    retried: true,
+    retryToken: offerRetry(bucketName, placements, results),
+  });
 };

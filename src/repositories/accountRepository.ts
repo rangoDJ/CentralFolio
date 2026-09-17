@@ -9,8 +9,11 @@ const stmtGetAccounts = db.prepare(
   "SELECT * FROM accounts WHERE portfolioId = ?"
 );
 
+// `isActive` is the user's own switch in Settings; `status` is the brokerage's.
+// An account needs to pass both. The NULL check matters: plenty of brokerages
+// report no status, and treating that as hidden would empty the whole app.
 const stmtGetActiveAccountIds = db.prepare(
-  "SELECT id FROM accounts WHERE isActive = 1"
+  "SELECT id FROM accounts WHERE isActive = 1 AND (status IS NULL OR status = 'open')"
 );
 
 const stmtSetAccountActive = db.prepare(
@@ -48,8 +51,8 @@ const stmtDeleteAccounts = db.prepare(
 // Upsert rather than delete+reinsert: deleting an account row cascades to its
 // positions (ON DELETE CASCADE), which would wipe cached holdings on every refresh.
 const stmtUpsertAccount = db.prepare(`
-  INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cashBalance, cachedAt)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  INSERT INTO accounts (id, portfolioId, name, number, type, currency, isActive, balanceTotal, customName, cashBalance, status, accountCategory, cachedAt)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
   ON CONFLICT(id) DO UPDATE SET
     portfolioId  = excluded.portfolioId,
     name         = excluded.name,
@@ -60,6 +63,8 @@ const stmtUpsertAccount = db.prepare(`
     balanceTotal = excluded.balanceTotal,
     customName   = excluded.customName,
     cashBalance  = excluded.cashBalance,
+    status          = excluded.status,
+    accountCategory = excluded.accountCategory,
     cachedAt     = CURRENT_TIMESTAMP
 `);
 
@@ -100,6 +105,17 @@ const stmtInsertPosition = db.prepare(`
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
 
+/**
+ * Whether SnapTrade reports this account as no longer open.
+ *
+ * Only an explicit non-open status counts. A missing status means the brokerage
+ * did not say, which is not the same as saying it is hidden.
+ */
+export function isHiddenAtBroker(status: unknown): boolean {
+  const value = String(status ?? "").trim().toLowerCase();
+  return value !== "" && value !== "open";
+}
+
 export function getCachedAccounts(portfolioId: number | string): any[] {
   const rows = stmtGetAccounts.all(portfolioId) as any[];
   logger.debug('DB', `getCachedAccounts(portfolio=${portfolioId}) → ${rows.length} row(s)`);
@@ -108,6 +124,8 @@ export function getCachedAccounts(portfolioId: number | string): any[] {
     isActive: r.isActive === 1 || r.isActive === true,
     // Resolved once here so no caller has to remember the customName-wins rule.
     displayName: accountDisplayName(r),
+    // True only when the brokerage positively says the account is not open.
+    hiddenAtBroker: isHiddenAtBroker(r.status),
     balance: r.balanceTotal != null
       ? { 
           total: { amount: r.balanceTotal, currency: r.currency },
@@ -154,6 +172,11 @@ export function setAccountCustomName(accountId: string, customName: string | nul
 
 export function saveCachedAccounts(portfolioId: number | string, accounts: any[]) {
   logger.info('DB', `saveCachedAccounts(portfolio=${portfolioId}) — saving ${accounts.length} account(s)`);
+  // Logged per account so "why is this still showing?" can be answered from
+  // Settings → Logs without guessing at what the brokerage sent.
+  for (const acc of accounts) {
+    logger.info('DB', `  account ${acc.id} "${acc.name ?? ''}" — status=${acc.status ?? 'none reported'} category=${acc.account_category ?? 'none'}`);
+  }
 
   const existing = stmtGetAccountsMeta.all(portfolioId) as any[];
   const activeMap    = new Map<string, number>(existing.map(r => [r.id, r.isActive]));
@@ -173,7 +196,11 @@ export function saveCachedAccounts(portfolioId: number | string, accounts: any[]
         activeMap.has(acc.id) ? activeMap.get(acc.id) : 1,
         acc.balance?.total?.amount ?? null,
         customNameMap.get(acc.id) ?? null,
-        acc.balance?.cash?.amount ?? null
+        acc.balance?.cash?.amount ?? null,
+        // SnapTrade's own view of the account: 'open', 'closed', 'archived',
+        // 'unavailable', or absent when the brokerage does not report one.
+        acc.status ?? null,
+        acc.account_category ?? null
       );
     }
   })(accounts);

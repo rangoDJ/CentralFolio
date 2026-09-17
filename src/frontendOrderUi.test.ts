@@ -297,6 +297,53 @@ test('a run reports each order, including the ones that failed', () => {
   assert.match(out, /symbol not tradable/);
 });
 
+test('a partly failed run offers to retry only what failed', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderBucketResults({
+    placed: 1, total: 3, retryToken: 'tok-abc',
+    results: [
+      { accountName: 'Retirement', symbol: 'AAPL', amount: 50, currency: 'CAD', success: true },
+      { accountName: 'Retirement', symbol: 'MSFT', amount: 50, currency: 'CAD', success: false, error: 'not tradable' },
+      { accountName: 'Retirement', symbol: 'BN.TO', amount: 50, currency: 'CAD', success: false, error: 'not tradable' },
+    ],
+  });
+  const out = byId('bucketRunPreview').innerHTML;
+  assert.match(out, /2 orders did not go through/);
+  assert.match(out, /retryBucketOrders/);
+});
+
+test('a fully successful run offers no retry', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderBucketResults({
+    placed: 1, total: 1,
+    results: [{ accountName: 'Retirement', symbol: 'AAPL', amount: 50, currency: 'CAD', success: true }],
+  });
+  assert.ok(!/retryBucketOrders/.test(byId('bucketRunPreview').innerHTML));
+});
+
+test('the retry button follows the server token, not the page\'s own tally', () => {
+  // Without a token the server has nothing held to retry, so offering the
+  // button would produce a request that can only fail.
+  const { UI, byId } = loadFrontend();
+  UI.renderBucketResults({
+    placed: 0, total: 1, retryToken: undefined,
+    results: [{ accountName: 'Retirement', symbol: 'AAPL', amount: 50, currency: 'CAD', success: false, error: 'expired' }],
+  });
+  assert.ok(!/retryBucketOrders/.test(byId('bucketRunPreview').innerHTML));
+});
+
+test('a retry result is labelled as a retry', () => {
+  const { UI, byId } = loadFrontend();
+  UI.renderBucketResults({
+    placed: 2, total: 2, retried: true,
+    results: [
+      { accountName: 'Retirement', symbol: 'MSFT', amount: 50, currency: 'CAD', success: true },
+      { accountName: 'Retirement', symbol: 'BN.TO', amount: 50, currency: 'CAD', success: true },
+    ],
+  });
+  assert.match(byId('bucketRunPreview').innerHTML, /Retry: placed 2 of 2/);
+});
+
 test('the holdings selection bar appears only when something is selected', () => {
   const { UI, App, byId } = loadFrontend();
   App.selectedHoldingSymbols = new Set(['AAPL', 'MSFT']);

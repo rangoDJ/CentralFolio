@@ -3,6 +3,7 @@ import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedPos
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { accountDisplayName } from "../utils/accountName.js";
+import { isHiddenAtBroker } from "../repositories/accountRepository.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { listPortfolios } from "../models/db.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
@@ -74,6 +75,11 @@ export const listAccounts = async (req: Request, res: Response) => {
               // Same rule as the cached path, so a rename shows up immediately
               // after a refresh instead of only on the next cache hit.
               displayName: accountDisplayName({ customName: row.customName, name: live.name ?? row.name }),
+              // Straight from the brokerage on this refresh, so an account
+              // hidden at SnapTrade disappears here on the next sync.
+              status: live.status ?? row.status ?? null,
+              accountCategory: live.account_category ?? row.accountCategory ?? null,
+              hiddenAtBroker: isHiddenAtBroker(live.status ?? row.status),
               lastPositionsFetch: row.lastPositionsFetch ?? null,
               cachedAt: row.cachedAt ?? null,
               balance: { total: { amount: positionTotal, currency: live.balance?.total?.currency || 'CAD' } },

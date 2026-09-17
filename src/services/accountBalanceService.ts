@@ -1,6 +1,7 @@
 import { listPortfolios, saveCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 
 /**
@@ -26,7 +27,7 @@ export async function refreshAccountBalances(portfolioIds: string[]): Promise<Ba
     .filter(p => wanted.has(String(p.id)))
     .map(async portfolio => {
       const id = String(portfolio.id);
-      if (!portfolio.userSecret) {
+      if (!isPortfolioConnected(portfolio)) {
         result.failures.push({ portfolioId: id, error: "Connection is not registered" });
         return;
       }

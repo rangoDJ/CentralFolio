@@ -372,6 +372,11 @@ const migrations: Array<{ name: string; sql: string }> = [
   // accounts the user has closed, archived or hidden at SnapTrade. Nullable
   // throughout: many brokerages report no status at all, and a missing status
   // must never be read as "hide this".
+  // SnapTrade issues two kinds of key. A commercial key registers a user and
+  // carries a userSecret on every call; a personal key is provisioned with its
+  // own user at signup, has no userSecret, and must not register one. Existing
+  // installs are commercial, which is all this app supported until now.
+  { name: 'portfolios.keyType',       sql: `ALTER TABLE portfolios ADD COLUMN keyType TEXT NOT NULL DEFAULT 'commercial'` },
   { name: 'accounts.status',          sql: `ALTER TABLE accounts ADD COLUMN status TEXT` },
   { name: 'accounts.accountCategory', sql: `ALTER TABLE accounts ADD COLUMN accountCategory TEXT` },
   { name: 'buy_buckets.drop_cashValue', sql: `

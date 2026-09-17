@@ -11,6 +11,7 @@ import { checkOrderCash } from "../services/cashCheck.js";
 import { ensureProfile } from "../services/assetProfileService.js";
 import { syncSymbol } from "../services/priceHistoryService.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 import type { BucketInput, SplitMode } from "../repositories/bucketRepository.js";
 
@@ -226,7 +227,7 @@ async function placeOrders(placements: Placement[]): Promise<OrderResult[]> {
     const fail = (error: string) => results.push({ ...row, success: false, error });
 
     const portfolio = getPortfolio(portfolioId);
-    if (!portfolio || !portfolio.userSecret) { fail("Connection not found or not registered"); continue; }
+    if (!isPortfolioConnected(portfolio)) { fail("Connection not found or not usable"); continue; }
     if (!portfolio.tradingEnabled) { fail("Trading is not enabled for this connection"); continue; }
     if (!accountBelongsToPortfolio(p.accountId, portfolioId)) {
       fail("Account does not belong to this connection"); continue;

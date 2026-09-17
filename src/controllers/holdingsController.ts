@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { getPortfolio, accountBelongsToPortfolio, getAccountActive, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts } from "../models/db.js";
 import { getSnapTradeClientForPortfolio, fetchAccountPositions } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { accountDisplayName } from "../utils/accountName.js";
 import { isHiddenAtBroker } from "../repositories/accountRepository.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
@@ -17,7 +18,7 @@ export const listAccounts = async (req: Request, res: Response) => {
     logger.info('SnapTrade', `listAccounts — processing ${portfolios.length} portfolio(s)`);
     const results = await Promise.all(
       portfolios.map(async (portfolio) => {
-        if (!portfolio.userSecret) {
+        if (!isPortfolioConnected(portfolio)) {
           logger.warn('SnapTrade', `  "${portfolio.name}" — not registered (no userSecret), skipping`);
           return {
             portfolioId: portfolio.id,
@@ -122,7 +123,7 @@ export const getHoldings = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       logger.warn('SnapTrade', `getHoldings — portfolio id=${portfolioId} not found or not registered`);
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }

@@ -6,6 +6,7 @@ import { placeBrokerageOrder } from "../services/orderPlacement.js";
 import { refreshAccountBalances } from "../services/accountBalanceService.js";
 import { checkOrderCash } from "../services/cashCheck.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 import { safeRedirect } from "../utils/safeRedirect.js";
 import type { TradeOrder } from "../schemas/tradeSchema.js";
@@ -32,7 +33,7 @@ export const getTradeLoginLink = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
 
@@ -83,7 +84,7 @@ export const placeTrade = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       logger.warn('SnapTrade', `placeTrade — portfolio id=${portfolioId} not found or not registered`);
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
@@ -160,7 +161,7 @@ export const confirmTrade = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
     if (!portfolio.tradingEnabled) {

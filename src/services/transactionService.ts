@@ -1,6 +1,7 @@
 import { getCachedAccounts, getCachedTransactions, saveCachedTransactions, getActiveAccountIds, listPortfolios, saveCachedAccounts, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { sleep } from "../utils/sleep.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
 import { randomUUID } from "crypto";
@@ -118,7 +119,7 @@ export async function refreshAllTransactions(forceRefresh: boolean = false, inte
     let activeAccountIds = getActiveAccountIds();
 
     for (const portfolio of portfolios) {
-      if (!portfolio.userSecret) {
+      if (!isPortfolioConnected(portfolio)) {
         logger.debug('Transactions', `Skipping portfolio "${portfolio.name}" — not registered`);
         continue;
       }

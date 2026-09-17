@@ -1,6 +1,7 @@
 import { getCachedAccounts, getCachedPositions, saveCachedPositions, getActiveAccountIds, listPortfolios, saveCachedAccounts, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio, fetchAccountPositions } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { mapWithConcurrency } from "../utils/concurrency.js";
 
 // Max account position fetches in flight at once, to stay within SnapTrade rate limits.
@@ -14,7 +15,7 @@ export async function refreshAllHoldings(intervalMs: number, forceRefresh: boole
   let processed = 0, skipped = 0, skippedInactive = 0, errors = 0, newHoldings = 0;
 
   for (const portfolio of portfolios) {
-    if (!portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       logger.debug('Holdings', `Skipping portfolio "${portfolio.name}" — not registered`);
       continue;
     }

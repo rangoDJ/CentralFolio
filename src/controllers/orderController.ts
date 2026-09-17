@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { getOrders, cancelOrder } from "../services/orderHistoryService.js";
 import { getPortfolio, accountBelongsToPortfolio } from "../models/db.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 
 interface ValidatedCancelBody {
@@ -38,7 +39,7 @@ export const cancelOrderHandler = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       return res.status(400).json({ error: "Connection not found or not registered" });
     }
     if (!portfolio.tradingEnabled) {

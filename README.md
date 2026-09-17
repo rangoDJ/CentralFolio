@@ -41,7 +41,16 @@ The database is persisted to `./data` on the host (`DATA_DIR=/data` inside the c
 
 On first visit you'll be prompted to set a password; all later logins use it.
 
-Everything else is done from the web UI: add your SnapTrade API credentials and register under **Settings → Keys & Providers**, then link and manage brokerage accounts under **Settings → Brokerage Connections**.
+Everything else is done from the web UI: add your SnapTrade API credentials under **Settings → Keys & Providers**, then link and manage brokerage accounts under **Settings → Brokerage Connections**.
+
+### SnapTrade key types
+
+SnapTrade issues two kinds of key, and the connection form asks which you have:
+
+- **Personal** — the key represents you. Its SnapTrade user is created at signup, so there is no registration step and no user secret to store; the key identifies you on every call. This is the usual choice for a self-hosted install.
+- **Commercial** — for an app serving other people. A SnapTrade user is registered for the connection and its secret is stored, which is why this type also asks for a user identifier.
+
+Everything works the same either way, trading included. Picking the wrong type makes calls fail, so if registration reports that `registerUser is not available for personal keys`, switch that connection to Personal.
 
 ## Configuration
 

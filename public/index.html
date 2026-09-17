@@ -1159,6 +1159,15 @@
           <input type="text" id="portName" placeholder="e.g. Personal Retirement" required>
         </div>
         <div class="form-group">
+          <label for="keyType">SnapTrade key type</label>
+          <select id="keyType" onchange="UI.updateKeyTypeHint()"
+                  style="width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:0.5rem 0.75rem;font-size:0.9rem;">
+            <option value="commercial">Commercial — registers a SnapTrade user</option>
+            <option value="personal">Personal — key represents you, no registration</option>
+          </select>
+          <div id="keyTypeHint" class="text-muted text-sm" style="margin-top:0.35rem;line-height:1.45;"></div>
+        </div>
+        <div class="form-group">
           <label for="clientId">Client ID</label>
           <input type="text" id="clientId" placeholder="SnapTrade Client ID" required>
         </div>
@@ -1166,11 +1175,11 @@
           <label for="consumerKey">Consumer Key</label>
           <input type="password" id="consumerKey" placeholder="SnapTrade Consumer Key" required>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="userIdGroup">
           <label for="userId">User Identifier</label>
           <input type="text" id="userId" placeholder="Unique User ID (e.g. email)" required>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="userSecretGroup">
           <label for="userSecret">User Secret <span class="text-muted">(optional)</span></label>
           <input type="password" id="userSecret" placeholder="Existing SnapTrade User Secret">
         </div>

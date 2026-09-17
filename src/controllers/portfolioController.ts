@@ -5,11 +5,22 @@ import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { evictSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { keyTypeOf, isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 
 // Strip server-side secrets before sending portfolios to the client, but expose a
 // `registered` boolean so the UI can tell connected portfolios apart without the secret.
-function sanitizePortfolio({ consumerKey: _ck, userSecret, ...safe }: Portfolio) {
-  return { ...safe, registered: !!userSecret };
+function sanitizePortfolio(portfolio: Portfolio) {
+  // `registered` is what the UI reads to decide whether a connection is usable
+  // — whether to offer "Connect Brokerage" or "Register with SnapTrade", and
+  // whether trading can be turned on. A personal key is usable from the moment
+  // its credentials are saved, having no registration step to complete, so this
+  // asks whether the connection works rather than whether a secret was stored.
+  //
+  // Computed from the whole portfolio before anything is stripped: the check
+  // needs consumerKey, which is exactly what must not be sent to the client.
+  const registered = isPortfolioConnected(portfolio);
+  const { consumerKey: _ck, userSecret: _us, ...safe } = portfolio;
+  return { ...safe, registered };
 }
 
 export const getPortfolios = (req: Request, res: Response) => {
@@ -53,13 +64,25 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
   const name = trimmed(req.body.name);
   const clientId = trimmed(req.body.clientId);
   const consumerKey = trimmed(req.body.consumerKey);
-  const userId = trimmed(req.body.userId);
+  const submittedUserId = trimmed(req.body.userId);
+  const keyType = keyTypeOf({ keyType: trimmed(req.body.keyType) });
+  const personal = keyType === "personal";
   const action = id ? `UPDATE id=${id}` : 'CREATE';
-  logger.info('Portfolio', `POST /api/portfolios — ${action} name="${name}"`);
+  logger.info('Portfolio', `POST /api/portfolios — ${action} name="${name}" keyType=${keyType}`);
+
+  // A personal key has no SnapTrade user to name — the key itself identifies
+  // the user, and userId is never sent on the wire in that mode. The column is
+  // NOT NULL, so a stable placeholder stands in rather than a required field
+  // the user has no value for.
+  const userId = personal ? (submittedUserId || "personal-key") : submittedUserId;
 
   if (!name || !clientId || !userId) {
     logger.warn('Portfolio', 'createOrUpdatePortfolio — missing required fields');
-    return res.status(400).json({ error: "Missing required fields: name, clientId, consumerKey, userId" });
+    return res.status(400).json({
+      error: personal
+        ? "Missing required fields: name, clientId, consumerKey"
+        : "Missing required fields: name, clientId, consumerKey, userId",
+    });
   }
 
   // A non-numeric id (e.g. a typo'd URL param echoed back) must not silently
@@ -86,7 +109,11 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
   const effectiveConsumerKey = consumerKey || existing?.consumerKey || '';
   if (!effectiveConsumerKey) {
     logger.warn('Portfolio', 'createOrUpdatePortfolio — missing required fields');
-    return res.status(400).json({ error: "Missing required fields: name, clientId, consumerKey, userId" });
+    return res.status(400).json({
+      error: personal
+        ? "Missing required fields: name, clientId, consumerKey"
+        : "Missing required fields: name, clientId, consumerKey, userId",
+    });
   }
 
   const portfolio: Portfolio = {
@@ -95,6 +122,7 @@ export const createOrUpdatePortfolio = (req: Request, res: Response) => {
     clientId,
     consumerKey: effectiveConsumerKey,
     userId,
+    keyType,
   };
 
   try {

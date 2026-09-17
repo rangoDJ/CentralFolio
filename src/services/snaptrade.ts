@@ -1,11 +1,17 @@
 import { Snaptrade, SnaptradeAuth, type CommercialApiKeyAuth } from "snaptrade-typescript-sdk";
+import { isPersonalKey, keyTypeOf } from "../utils/snapTradeKeyType.js";
 import { listPortfolios, getPortfolio, Portfolio } from "../models/db.js";
 import { logger, redactUrl } from "../utils/logger.js";
 
 /**
- * CentralFolio authenticates with a clientId + consumerKey pair, which SDK v12
- * calls "commercial API key" mode. The mode is part of the client's type, so it
- * is named once here and flows everywhere the client is passed.
+ * The client type this app passes around.
+ *
+ * SDK v12 makes the auth mode part of the client's type, but both modes expose
+ * the same operations and differ only in whether `userId`/`userSecret` are
+ * accepted. The SDK drops those from the wire in personal mode even when they
+ * are supplied, so every call site can pass them unconditionally and a single
+ * type serves both. Naming it as the commercial type keeps request bodies —
+ * order forms especially — fully type-checked at every call site.
  */
 export type SnapTradeClient = Snaptrade<CommercialApiKeyAuth>;
 
@@ -26,8 +32,19 @@ export function clearSnapTradeClientCache() {
  * could not reach the client that was actually making the request.
  */
 export function evictSnapTradeClientForPortfolio(id: number | string) {
-  if (clientCache.delete(String(id))) {
-    logger.debug('SnapTrade', `evictSnapTradeClientForPortfolio(${id}) — cached client dropped`);
+  // The cache key carries the key type, and the caller does not know which mode
+  // the cached client was built in — that may be the very thing being changed.
+  // So drop every entry for this portfolio, whichever mode it was cached under.
+  const suffix = `:${String(id)}`;
+  let dropped = 0;
+  for (const key of clientCache.keys()) {
+    if (key.endsWith(suffix)) {
+      clientCache.delete(key);
+      dropped++;
+    }
+  }
+  if (dropped > 0) {
+    logger.debug('SnapTrade', `evictSnapTradeClientForPortfolio(${id}) — ${dropped} cached client(s) dropped`);
   }
 }
 
@@ -99,20 +116,26 @@ export function getSnapTradeClientForPortfolio(portfolioOrId?: Portfolio | numbe
     throw new Error("SnapTrade credentials not configured for this portfolio.");
   }
 
-  const cacheKey = portfolio.id ? String(portfolio.id) : `${portfolio.clientId}:${portfolio.consumerKey}`;
+  // Keyed by mode as well as identity: switching a connection from commercial
+  // to personal must not reuse a client signing requests the old way.
+  const cacheKey = `${keyTypeOf(portfolio)}:` +
+    (portfolio.id ? String(portfolio.id) : `${portfolio.clientId}:${portfolio.consumerKey}`);
   if (!clientCache.has(cacheKey)) {
-    logger.debug('SnapTrade', `Building new client instance for portfolio "${portfolio.name}" (userId: ${portfolio.userId})`);
+    logger.debug('SnapTrade', `Building new ${keyTypeOf(portfolio)} client for portfolio "${portfolio.name}" (userId: ${portfolio.userId})`);
+    // The auth mode has to match the kind of key: a personal key signs its
+    // requests differently and resolves the user from the key itself, so
+    // building it as commercial makes every call fail authentication.
+    const credentials = { clientId: portfolio.clientId, consumerKey: portfolio.consumerKey };
+    const auth = isPersonalKey(portfolio)
+      ? SnaptradeAuth.personalApiKey(credentials)
+      : SnaptradeAuth.commercialApiKey(credentials);
+
     const client = new Snaptrade({
-      // v12 moved the credentials behind an explicit auth mode; they used to sit
-      // at the top level of the config object.
-      auth: SnaptradeAuth.commercialApiKey({
-        clientId: portfolio.clientId,
-        consumerKey: portfolio.consumerKey,
-      }),
+      auth,
       baseOptions: {
         timeout: 15000,
       },
-    });
+    }) as SnapTradeClient;
     attachRequestLogging(client);
     clientCache.set(cacheKey, client);
   } else {
@@ -137,6 +160,13 @@ export async function listAllUsersAcrossPortfolios() {
       continue;
     }
     seenPairs.add(pairKey);
+
+    // Listing and deleting SnapTrade users are commercial-only operations; a
+    // personal key has exactly one user, itself, and no API to manage it.
+    if (isPersonalKey(p)) {
+      logger.debug('SnapTrade', `Skipping "${p.name}" — personal keys have no user list`);
+      continue;
+    }
 
     try {
       logger.info('SnapTrade', `Listing users for portfolio "${p.name}"...`);
@@ -168,6 +198,11 @@ export async function deleteUserFromPortfolios(userId: string) {
     const pairKey = `${p.clientId}:${p.consumerKey}`;
     if (seenPairs.has(pairKey)) continue;
     seenPairs.add(pairKey);
+
+    if (isPersonalKey(p)) {
+      logger.debug('SnapTrade', `Skipping "${p.name}" — a personal key's user cannot be deleted through the API`);
+      continue;
+    }
 
     try {
       logger.info('SnapTrade', `Deleting user "${userId}" from portfolio "${p.name}"...`);

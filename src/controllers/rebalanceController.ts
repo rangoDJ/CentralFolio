@@ -14,6 +14,7 @@ import { placeBrokerageOrder } from "../services/orderPlacement.js";
 import { computeRebalance, RebalanceTrade } from "../services/rebalanceService.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { accountDisplayName } from "../utils/accountName.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 
@@ -118,7 +119,7 @@ export const getRebalanceSuggestions = (req: Request, res: Response) => {
 
     // Find accounts and compute rebalance per account
     for (const parent of parentPortfolios) {
-      if (!parent.userSecret) continue;
+      if (!isPortfolioConnected(parent)) continue;
       const cachedAccounts = getCachedAccounts(parent.id!);
       for (const account of cachedAccounts) {
         if (!activeAccountIds.has(account.id) || !account.isActive) continue;

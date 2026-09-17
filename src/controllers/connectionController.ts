@@ -3,6 +3,7 @@ import { getPortfolio } from "../models/db.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { onBrokerageReconnected } from "../services/cacheService.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 import { safeRedirect } from "../utils/safeRedirect.js";
 
@@ -17,7 +18,7 @@ export const getLoginLink = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       logger.warn('SnapTrade', `getLoginLink — portfolio id=${portfolioId} not found or not registered`);
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
@@ -53,7 +54,7 @@ export const getConnectionStatus = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }
 

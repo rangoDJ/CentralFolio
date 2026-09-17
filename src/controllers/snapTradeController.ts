@@ -4,6 +4,7 @@ import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { getDividendForecastForAccount } from "../services/dividendService.js";
 import { refreshAllTransactions } from "../services/transactionService.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected, isPersonalKey } from "../utils/snapTradeKeyType.js";
 import { accountDisplayName } from "../utils/accountName.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 
@@ -21,6 +22,15 @@ export const registerUser = async (req: Request, res: Response) => {
     if (!portfolio) {
       logger.warn('SnapTrade', `registerUser — portfolio id=${portfolioId} not found`);
       return res.status(404).json({ error: "Portfolio not found" });
+    }
+
+    // A personal key is provisioned with its own user at signup, so there is
+    // nothing to register — SnapTrade answers "registerUser is not available
+    // for personal keys" if asked. The connection is ready as soon as its
+    // credentials are stored.
+    if (isPersonalKey(portfolio)) {
+      logger.info('SnapTrade', `registerUser — "${portfolio.name}" uses a personal key; no registration needed`);
+      return res.json({ success: true, personalKey: true, registrationRequired: false });
     }
 
     if (portfolio.userSecret) {
@@ -49,6 +59,17 @@ export const registerUser = async (req: Request, res: Response) => {
       return res.json({ success: true, userSecret: portfolio.userSecret, cached: true });
     }
 
+    // The key is personal but this connection is set up as commercial. Say so
+    // in terms of the setting to change, rather than relaying SnapTrade's text.
+    if (/not available for personal keys|provisioned with their user/i.test(log)) {
+      logger.warn('SnapTrade', `registerUser — "${portfolio?.name}" holds a personal key but is configured as commercial`);
+      return res.status(400).json({
+        error: "This looks like a Personal SnapTrade key. Set this connection's key type to Personal " +
+               "under Settings › Keys & Providers — personal keys need no registration.",
+        wrongKeyType: "personal",
+      });
+    }
+
     res.status(status).json({ error: client });
   }
 };
@@ -63,7 +84,7 @@ export const getTransactions = async (req: Request, res: Response) => {
       const portfolios = listPortfolios();
       let totalCachedCount = 0;
       for (const portfolio of portfolios) {
-        if (portfolio.userSecret) {
+        if (isPortfolioConnected(portfolio)) {
           const cachedAccounts = getCachedAccounts(portfolio.id!);
           for (const account of cachedAccounts) {
             // Broker rows only — a manual backfill row must not be mistaken
@@ -88,8 +109,8 @@ export const getTransactions = async (req: Request, res: Response) => {
     const results = [];
 
     for (const portfolio of portfolios) {
-      if (!portfolio.userSecret) {
-        logger.debug('SnapTrade', `  "${portfolio.name}" — not registered, skipping`);
+      if (!isPortfolioConnected(portfolio)) {
+        logger.debug('SnapTrade', `  "${portfolio.name}" — not connected, skipping`);
         continue;
       }
 
@@ -143,7 +164,7 @@ export const getDividendForecast = async (req: Request, res: Response) => {
 
   try {
     const portfolio = getPortfolio(String(portfolioId));
-    if (!portfolio || !portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       logger.warn('SnapTrade', `getDividendForecast — portfolio id=${portfolioId} not found or not registered`);
       return res.status(400).json({ error: "Portfolio not found or not registered" });
     }

@@ -1,5 +1,6 @@
 import { db } from "../models/database.js";
 import { logger } from "../utils/logger.js";
+import { keyTypeOf } from "../utils/snapTradeKeyType.js";
 
 export interface Portfolio {
   id?: number;
@@ -9,6 +10,11 @@ export interface Portfolio {
   userId: string;
   userSecret?: string;
   tradingEnabled?: boolean | number;
+  /**
+   * 'commercial' (the default) or 'personal'. A personal key has no
+   * userSecret and must never be registered — see utils/snapTradeKeyType.
+   */
+  keyType?: string;
 }
 
 // ── Prepared statements (compiled once at module load for performance) ─────────
@@ -23,13 +29,13 @@ const stmtGetPortfolio = db.prepare(
 
 const stmtUpdatePortfolio = db.prepare(`
   UPDATE portfolios
-  SET name = ?, clientId = ?, consumerKey = ?, userId = ?, userSecret = ?
+  SET name = ?, clientId = ?, consumerKey = ?, userId = ?, userSecret = ?, keyType = ?
   WHERE id = ?
 `);
 
 const stmtInsertPortfolio = db.prepare(`
-  INSERT INTO portfolios (name, clientId, consumerKey, userId, userSecret)
-  VALUES (?, ?, ?, ?, ?)
+  INSERT INTO portfolios (name, clientId, consumerKey, userId, userSecret, keyType)
+  VALUES (?, ?, ?, ?, ?, ?)
 `);
 
 const stmtDeletePortfolio = db.prepare(
@@ -64,6 +70,7 @@ export function savePortfolio(portfolio: Portfolio): number {
       portfolio.consumerKey,
       portfolio.userId,
       portfolio.userSecret || existing?.userSecret || null,
+      keyTypeOf(portfolio),
       portfolio.id
     );
     return portfolio.id;
@@ -75,7 +82,8 @@ export function savePortfolio(portfolio: Portfolio): number {
     portfolio.clientId,
     portfolio.consumerKey,
     portfolio.userId,
-    portfolio.userSecret || null
+    portfolio.userSecret || null,
+    keyTypeOf(portfolio)
   );
   const newId = result.lastInsertRowid as number;
   logger.info('DB', `New portfolio inserted with id=${newId}`);

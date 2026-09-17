@@ -280,13 +280,17 @@ const App = {
         saveBtn.classList.add('loading');
         saveBtn.disabled = true;
 
+        const keyType = document.getElementById('keyType').value;
         const data = {
             id: document.getElementById('portId').value,
             name: document.getElementById('portName').value,
             clientId: document.getElementById('clientId').value,
             consumerKey: document.getElementById('consumerKey').value,
-            userId: document.getElementById('userId').value,
-            userSecret: document.getElementById('userSecret').value
+            keyType,
+            // A personal key has no user of its own to name and no secret to
+            // store, so anything left in those fields is not sent.
+            userId: keyType === 'personal' ? '' : document.getElementById('userId').value,
+            userSecret: keyType === 'personal' ? '' : document.getElementById('userSecret').value
         };
 
         try {

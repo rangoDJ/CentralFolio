@@ -194,6 +194,7 @@ const UI = {
             consumerKeyEl.required = false;
             consumerKeyEl.placeholder = 'Key saved — enter a new one to replace it';
             document.getElementById('userSecret').value   = portfolio.userSecret || '';
+            document.getElementById('keyType').value      = portfolio.keyType || 'commercial';
         } else {
             this.modalTitle.textContent = 'Add Portfolio';
             this.portfolioForm.reset();
@@ -203,8 +204,36 @@ const UI = {
             const consumerKeyEl = document.getElementById('consumerKey');
             consumerKeyEl.required = true;
             consumerKeyEl.placeholder = 'SnapTrade Consumer Key';
+            document.getElementById('keyType').value = 'commercial';
         }
+        this.updateKeyTypeHint();
         this.portfolioModal.classList.add('open');
+    },
+
+    /**
+     * Show only the fields the chosen key type actually uses.
+     *
+     * A personal key is provisioned with its own user at signup: there is no
+     * registration step and no user secret, and SnapTrade refuses a request to
+     * create one. Leaving those fields on screen invites filling in values that
+     * are then ignored.
+     */
+    updateKeyTypeHint() {
+        const personal = document.getElementById('keyType')?.value === 'personal';
+        const hint = document.getElementById('keyTypeHint');
+        const userIdGroup = document.getElementById('userIdGroup');
+        const userSecretGroup = document.getElementById('userSecretGroup');
+        const userIdInput = document.getElementById('userId');
+
+        if (hint) {
+            hint.textContent = personal
+                ? 'Your key represents you. No user is registered and there is no user secret — connections, holdings and trading all work as normal.'
+                : 'A SnapTrade user is registered for this connection and its secret is stored.';
+        }
+        if (userSecretGroup) userSecretGroup.style.display = personal ? 'none' : 'block';
+        if (userIdGroup) userIdGroup.style.display = personal ? 'none' : 'block';
+        // A hidden field cannot be required, or the form silently refuses to submit.
+        if (userIdInput) userIdInput.required = !personal;
     },
 
     closeModal() {
@@ -231,7 +260,9 @@ const UI = {
                                 : '<span class="status-badge status-inactive" style="font-size:0.65rem;padding:0.15rem 0.55rem;">Not registered</span>'}
                             <span id="conn-badge-${p.id}" style="font-size:0.65rem;padding:0.15rem 0.55rem;margin-left:0.25rem;"></span>
                         </div>
-                        <div class="portfolio-item-meta">userId: ${sanitize(p.userId)}</div>
+                        <div class="portfolio-item-meta">${p.keyType === 'personal'
+                            ? 'Personal key'
+                            : `Commercial key · userId: ${sanitize(p.userId)}`}</div>
                     </div>
                     <div class="portfolio-item-actions">
                         <button class="btn btn-outline btn-sm" onclick="App.editPortfolio(${p.id})">Edit</button>

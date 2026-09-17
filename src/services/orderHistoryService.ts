@@ -3,6 +3,7 @@ import { getSnapTradeClientForPortfolio } from "./snaptrade.js";
 import { accountDisplayName } from "../utils/accountName.js";
 import { listPortfolios } from "../models/db.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { snapTradeError } from "../utils/snapTradeError.js";
 import type { Portfolio } from "../models/db.js";
 
@@ -129,7 +130,7 @@ export async function getOrders(opts: { state?: "all" | "open" | "executed"; day
 
   for (const account of getScopedAccounts(null)) {
     const portfolio = portfolios.get(String(account.portfolioId));
-    if (!portfolio || !portfolio.userSecret) continue;
+    if (!isPortfolioConnected(portfolio)) continue;
 
     try {
       const client = getSnapTradeClientForPortfolio(portfolio as Portfolio);

@@ -1,6 +1,7 @@
 import { Portfolio, listPortfolios, getCachedPositions, saveCachedPositions, getCachedAccounts, saveCachedAccounts, getCachedDividendMetadata, saveCachedDividendMetadata, getDividendMetadataMaxCachedAt, getSetting, setSetting, getActiveAccountIds, clearDividendMetadataCache, getAccountFetchTimestamps } from "../models/db.js";
 import { getSnapTradeClientForPortfolio, fetchAccountPositions } from "./snaptrade.js";
 import { logger } from "../utils/logger.js";
+import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 import { accountDisplayName, accountClassifyText } from "../utils/accountName.js";
 import { sleep } from "../utils/sleep.js";
 import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
@@ -452,7 +453,7 @@ export async function getDividendForecastForAccount(
   forceRefresh: boolean = false,
   allowExternalFetch: boolean = true
 ): Promise<{ dividends: DividendEvent[]; pastDividends: DividendEvent[] }> {
-  if (!portfolio.userSecret) throw new Error(`Portfolio "${portfolio.name}" is not registered with SnapTrade`);
+  if (!isPortfolioConnected(portfolio)) throw new Error(`Portfolio "${portfolio.name}" is not connected to SnapTrade`);
   logger.info('Forecast', `getDividendForecastForAccount — portfolio="${portfolio.name}" account=${accountId} forceRefresh=${forceRefresh} allowExternalFetch=${allowExternalFetch}`);
 
   try {
@@ -608,7 +609,7 @@ export async function getAllDividendsForAllPortfolios(
   }
 
   for (const portfolio of portfolios) {
-    if (!portfolio.userSecret) {
+    if (!isPortfolioConnected(portfolio)) {
       logger.warn('DividendSvc', `  "${portfolio.name}" — not registered (no userSecret), skipping`);
       continue;
     }

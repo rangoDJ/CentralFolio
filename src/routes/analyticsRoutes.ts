@@ -60,7 +60,8 @@ router.post("/backtest", backtestHandler);
 router.post("/backtest/save", saveBacktestPortfolioHandler);
 
 // Annual Recap Story (Snowball Analytics /recap25)
-router.get("/recap/:year?", annualRecapHandler);
+router.get("/recap", annualRecapHandler);
+router.get("/recap/:year", annualRecapHandler);
 
 // Bonds Screener (Snowball Analytics /bonds-screener)
 router.get("/bonds-screener", bondsScreenerHandler);

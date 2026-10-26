@@ -12,7 +12,13 @@ import alertRoutes from "./alertRoutes.js";
 import apiTokenRoutes from "./apiTokenRoutes.js";
 import bucketRoutes from "./bucketRoutes.js";
 import orderRoutes from "./orderRoutes.js";
-import { stockDetailHandler, priceHistoryHandler } from "../controllers/stockController.js";
+import goalRoutes from "./goalRoutes.js";
+import {
+  stockDetailHandler,
+  priceHistoryHandler,
+  stockAiInsightHandler,
+  stockAiInsightRefreshHandler,
+} from "../controllers/stockController.js";
 
 const router = Router();
 
@@ -21,6 +27,10 @@ router.get("/stock/:symbol", stockDetailHandler);
 
 // Daily price history (Yahoo-sourced, cached in SQLite).
 router.get("/stock/:symbol/history", priceHistoryHandler);
+
+// AI Company & Earnings Insights
+router.get("/stock/:symbol/ai-insight", stockAiInsightHandler);
+router.post("/stock/:symbol/ai-insight/refresh", stockAiInsightRefreshHandler);
 
 // Sub-routes
 router.use("/portfolios", portfolioRoutes);
@@ -31,6 +41,7 @@ router.use("/user-portfolios", userPortfolioRoutes);
 router.use("/manual-assets", manualAssetRoutes);
 router.use("/manual-transactions", manualTransactionRoutes);
 router.use("/alerts", alertRoutes);
+router.use("/goals", goalRoutes);
 router.use("/", bucketRoutes);
 router.use("/", orderRoutes);
 router.use("/", watchlistRoutes);

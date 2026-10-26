@@ -11,7 +11,7 @@ import {
 } from "../models/db.js";
 import { getUserPortfolioById } from "../repositories/userPortfolioRepository.js";
 import { placeBrokerageOrder } from "../services/orderPlacement.js";
-import { computeRebalance, RebalanceTrade } from "../services/rebalanceService.js";
+import { computeRebalance, calculateSmartDeposit, RebalanceTrade } from "../services/rebalanceService.js";
 import { getSnapTradeClientForPortfolio } from "../services/snaptrade.js";
 import { logger } from "../utils/logger.js";
 import { isPortfolioConnected } from "../utils/snapTradeKeyType.js";
@@ -149,6 +149,64 @@ export const getRebalanceSuggestions = (req: Request, res: Response) => {
   } catch (err: any) {
     logger.error('Rebalance', `getRebalanceSuggestions failed for portfolio id=${portfolioId}: ${err.message}`);
     res.status(500).json({ error: 'Failed to compute rebalance suggestions' });
+  }
+};
+
+export const getSmartDepositSuggestions = (req: Request, res: Response) => {
+  const portfolioId = parseInt(req.params.id as string, 10);
+  if (isNaN(portfolioId)) return res.status(400).json({ error: 'Invalid portfolio id' });
+
+  const rawAmount = req.method === 'POST' ? req.body.depositAmount : req.query.depositAmount;
+  const depositAmount = parseFloat(rawAmount);
+  if (isNaN(depositAmount) || depositAmount <= 0) {
+    return res.status(400).json({ error: 'depositAmount must be a positive number' });
+  }
+
+  try {
+    const portfolio = getUserPortfolioById(portfolioId);
+    if (!portfolio) return res.status(404).json({ error: 'User Portfolio not found' });
+
+    const targets = getPortfolioTargets(portfolioId);
+    if (targets.length === 0) {
+      return res.json({
+        portfolioName: portfolio.name,
+        targetsConfigured: false,
+        result: null,
+      });
+    }
+
+    const accountIds = portfolio.accountIds || [];
+    const activeAccountIds = new Set(accountIds);
+    const parentPortfolios = listPortfolios();
+    const allPositions: { symbol: string; marketValue: number; price?: number }[] = [];
+
+    for (const parent of parentPortfolios) {
+      if (!parent.userSecret) continue;
+      const cachedAccounts = getCachedAccounts(parent.id!);
+      for (const account of cachedAccounts) {
+        if (!activeAccountIds.has(account.id) || !account.isActive) continue;
+        const positions = getCachedPositions(account.id);
+        for (const p of positions) {
+          if (!p.symbol) continue;
+          allPositions.push({
+            symbol: p.symbol,
+            marketValue: p.marketValue ?? (p.units ?? 0) * (p.price ?? 0),
+            price: p.price ?? undefined,
+          });
+        }
+      }
+    }
+
+    const result = calculateSmartDeposit(allPositions, depositAmount, targets);
+
+    res.json({
+      portfolioName: portfolio.name,
+      targetsConfigured: true,
+      result,
+    });
+  } catch (err: any) {
+    logger.error('Rebalance', `getSmartDepositSuggestions failed for portfolio id=${portfolioId}: ${err.message}`);
+    res.status(500).json({ error: 'Failed to compute smart deposit suggestions' });
   }
 };
 

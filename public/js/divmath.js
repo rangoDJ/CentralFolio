@@ -283,6 +283,22 @@
         // Growth streak: up to +25 (1 pt/yr).
         if (streak > 0) { const pts = Math.min(streak, 25); score += pts; factors.push(`${streak}-year growth streak`); }
 
+        // Consecutive payment streak (paying without interruption).
+        const payStreak = Math.max(0, asset.divStreak || 0);
+        if (payStreak > streak && payStreak > 5) {
+            score += Math.min(10, Math.floor(payStreak / 2));
+            factors.push(`${payStreak}-year payout record`);
+        }
+
+        // Payout ratio health (from Snowball fundamentals).
+        const pr = asset.payoutRatio;
+        if (pr != null && pr > 0) {
+            if (pr > 100)      { score -= 25; factors.push(`High payout ratio (${pr.toFixed(0)}% > earnings)`); }
+            else if (pr > 80)  { score -= 10; factors.push(`Stretched payout ratio (${pr.toFixed(0)}%)`); }
+            else if (pr <= 60) { score += 10; factors.push(`Conservative payout ratio (${pr.toFixed(0)}%)`); }
+            else               { score += 5;  factors.push(`Sustainable payout ratio (${pr.toFixed(0)}%)`); }
+        }
+
         // 5-year dividend growth.
         if (g5 != null) {
             if (g5 < 0)       { score -= 25; factors.push('Dividend was cut in last 5y'); }

@@ -9,13 +9,12 @@ user-credentials.json
 *.db
 *.db-shm
 *.db-wal
+snaptrade.db
 
 # Scratch / inspection dirs
 tmp_*/
+scratch/
 
-# Database backups / salvaged copies (same secrets as the live DB)
+# Database backups / salvaged copies
 backup_db_*/
 *.db.CORRUPT
-
-# Scratch launch configs created while testing
-.claude/launch.json.bak

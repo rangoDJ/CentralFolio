@@ -94,6 +94,41 @@ test("a single year of history cannot show a cut", () => {
   assert.equal(a.length, 0);
 });
 
+// ── dividend_hike ────────────────────────────────────────────────────────────
+
+test("dividend hike fires when the last complete year paid more than the one before", () => {
+  const a = evaluateAlerts(inputs({
+    dividendHistory: new Map([["ENB.TO", [{ year: 2024, total: 3.00 }, { year: 2025, total: 3.45 }]]]),
+  }), only("dividend_hike"), new Set());
+
+  assert.equal(a.length, 1);
+  assert.equal(a[0].ruleType, "dividend_hike");
+  assert.equal(a[0].symbol, "ENB.TO");
+  assert.match(a[0].title, /ENB\.TO raised its dividend \+15\.0%/);
+  assert.match(a[0].body, /2025 paid \$3\.45\/share vs \$3\.00 in 2024/);
+  assert.equal(a[0].dedupeKey, "dividend_hike:ENB.TO:2025");
+});
+
+test("a cut or flat year does not alert as a hike", () => {
+  const cut = evaluateAlerts(inputs({
+    dividendHistory: new Map([["ENB.TO", [{ year: 2024, total: 3.55 }, { year: 2025, total: 2.80 }]]]),
+  }), only("dividend_hike"), new Set());
+  assert.equal(cut.length, 0);
+
+  const flat = evaluateAlerts(inputs({
+    dividendHistory: new Map([["ENB.TO", [{ year: 2024, total: 3.00 }, { year: 2025, total: 3.00 }]]]),
+  }), only("dividend_hike"), new Set());
+  assert.equal(flat.length, 0);
+});
+
+test("a trivial hike below the configured minHikePct floor is ignored", () => {
+  const rules: AlertRule[] = [{ type: "dividend_hike", enabled: true, config: { minHikePct: 5 } }];
+  const a = evaluateAlerts(inputs({
+    dividendHistory: new Map([["ENB.TO", [{ year: 2024, total: 3.00 }, { year: 2025, total: 3.05 }]]]),
+  }), rules, new Set());
+  assert.equal(a.length, 0);
+});
+
 // ── ex_dividend_soon ────────────────────────────────────────────────────────
 
 test("an ex-date inside the window fires, one outside does not", () => {

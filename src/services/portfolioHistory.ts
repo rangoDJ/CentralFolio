@@ -36,6 +36,7 @@ export interface PortfolioHistoryPoint {
   value: number;        // market value of holdings
   invested: number;     // cumulative net contributions (cost basis in market)
   benchmark?: number;   // simulated value if contributions tracked the benchmark
+  twrPct?: number;      // cumulative time-weighted return in percent
   /** True when `value` came from a recorded snapshot rather than reconstruction. */
   snapshot?: boolean;
 }
@@ -61,6 +62,12 @@ export interface PortfolioHistoryResult {
      * Unlike totalReturnPct this accounts for the timing of every contribution.
      */
     moneyWeightedReturnPct: number | null;
+    /**
+     * Cumulative Time-Weighted Return (TWR) in percent, isolating investment
+     * performance from deposit/withdrawal cash flow timing.
+     */
+    timeWeightedReturnPct: number | null;
+    annualizedTwrPct: number | null;
     benchmarkEndValue: number | null;
     benchmarkReturnPct: number | null;
     /** How many points took their value from a recorded snapshot. */
@@ -158,6 +165,7 @@ export function reconstructPortfolioHistory(
       summary: {
         startDate: null, endDate: null, endValue: 0, netInvested: 0,
         totalReturn: 0, totalReturnPct: 0, moneyWeightedReturnPct: null,
+        timeWeightedReturnPct: null, annualizedTwrPct: null,
         benchmarkEndValue: null, benchmarkReturnPct: null, snapshotPoints: 0,
       },
     };
@@ -191,12 +199,14 @@ export function reconstructPortfolioHistory(
   // netted so a buy-and-sell pair on one date doesn't become two flows.
   const contributions: { date: string; amount: number }[] = [];
   let snapshotPoints = 0;
+  let cumTwr = 1.0;
+  let prevVal = 0;
 
   for (let day = startDate; day <= endDate; day = addDay(day)) {
     // Apply the day's trades first, so the close-of-day valuation includes them.
     const todays = tradesByDay.get(day);
+    let dayContribution = 0;
     if (todays) {
-      let dayContribution = 0;
       for (const t of todays) {
         const sym = norm(t.symbol);
         shares.set(sym, (shares.get(sym) ?? 0) + shareDelta(t));
@@ -221,9 +231,23 @@ export function reconstructPortfolioHistory(
     }
 
     const recorded = snapshotsByDate?.get(day);
+    const finalVal = recorded != null ? round2(recorded) : round2(value);
+
+    // Time-weighted return subperiod rate of return
+    if (prevVal > 0) {
+      const denom = prevVal + (dayContribution > 0 ? dayContribution : 0);
+      const r = denom > 0 ? (finalVal - dayContribution - prevVal) / denom : 0;
+      cumTwr *= (1 + r);
+    } else if (finalVal > 0 && dayContribution > 0) {
+      const r = (finalVal - dayContribution) / dayContribution;
+      cumTwr *= (1 + r);
+    }
+    prevVal = finalVal;
+
+    const twrPct = round2((cumTwr - 1) * 100);
     const point: PortfolioHistoryPoint = recorded != null
-      ? { date: day, value: round2(recorded), invested: round2(netInvested), snapshot: true }
-      : { date: day, value: round2(value), invested: round2(netInvested) };
+      ? { date: day, value: finalVal, invested: round2(netInvested), twrPct, snapshot: true }
+      : { date: day, value: finalVal, invested: round2(netInvested), twrPct };
     if (recorded != null) snapshotPoints++;
     if (benchLookup) {
       const bp = benchLookup(day);
@@ -240,6 +264,15 @@ export function reconstructPortfolioHistory(
   // today's market value as if the portfolio were liquidated.
   const mwr = xirr(buildPortfolioFlows(contributions, endValue, endDate));
 
+  const twrPct = points.length ? round2((cumTwr - 1) * 100) : null;
+  let annualizedTwrPct: number | null = null;
+  if (points.length >= 2 && startDate && endDate && cumTwr > 0) {
+    const days = (new Date(endDate + "T00:00:00Z").getTime() - new Date(startDate + "T00:00:00Z").getTime()) / (1000 * 86400);
+    if (days >= 365) {
+      annualizedTwrPct = round2((Math.pow(cumTwr, 365.25 / days) - 1) * 100);
+    }
+  }
+
   return {
     points,
     contributions,
@@ -251,6 +284,8 @@ export function reconstructPortfolioHistory(
       totalReturn: round2(totalReturn),
       totalReturnPct: netInvested > 0 ? round2((totalReturn / netInvested) * 100) : 0,
       moneyWeightedReturnPct: mwr != null ? round2(mwr * 100) : null,
+      timeWeightedReturnPct: twrPct,
+      annualizedTwrPct,
       benchmarkEndValue: benchmarkEndValue != null ? round2(benchmarkEndValue) : null,
       benchmarkReturnPct: benchmarkEndValue != null && netInvested > 0
         ? round2(((benchmarkEndValue - netInvested) / netInvested) * 100)

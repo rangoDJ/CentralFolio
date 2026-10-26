@@ -8,6 +8,8 @@ import { SNAPTRADE_CACHE_TTL_MS } from "../utils/constants.js";
 import { emitDataChanged } from "./eventBus.js";
 import { assetCurrency, toBaseCurrency } from "./fxService.js";
 import { projectDistributions, payLagDays } from "./dividendSchedule.js";
+import { getDividendHistory } from "../repositories/dividendHistoryRepository.js";
+import { syncSymbol } from "./priceHistoryService.js";
 import { z } from "zod";
 
 const BASE_CURRENCY = "CAD";
@@ -229,6 +231,16 @@ export async function lookupDividendWithAI(symbol: string): Promise<any> {
 }
 
 // ── Stock detail (Snowball-style asset page) ────────────────────────────────
+export interface DividendPayoutRecord {
+  declarationDate: string | null;
+  exDate: string;
+  payDate: string | null;
+  amount: number;
+  period: string;
+  changePct: number | null;
+  status: 'paid' | 'declared' | 'estimated';
+}
+
 export interface StockDetail {
   symbol: string;
   name: string;
@@ -244,10 +256,27 @@ export interface StockDetail {
   nextDividendDate: string | null;
   frequency: number | null;
   growthStreak: number | null;
+  divStreak: number | null;
+  growth1Y: number | null;
+  growth3Y: number | null;
   growth5Y: number | null;
+  payoutRatio: number | null;
+  pe: number | null;
+  forwardPE: number | null;
+  eps: number | null;
+  forwardEPS: number | null;
+  beta: number | null;
+  revenueGrowthYoY: number | null;
+  netIncomeGrowthYoY: number | null;
+  cashFlowGrowthYoY: number | null;
+  nextEarningsDate: string | null;
+  isin: string | null;
+  country: string | null;
+  industry: string | null;
   sector: string | null;
   logoURL: string | null;
   description: string | null;
+  payoutHistory?: DividendPayoutRecord[];
 }
 
 const STOCK_DETAIL_TTL_MS = 15 * 60 * 1000;       // cache successful lookups 15 min
@@ -276,7 +305,23 @@ function mapAssetToStockDetail(symbol: string, asset: any): StockDetail {
     nextDividendDate: dateOnly(asset.nextDividendDate),
     frequency: asset.divFrequency ?? null,
     growthStreak: asset.divGrowthStreak ?? asset.divStreak ?? null,
+    divStreak: asset.divStreak ?? null,
+    growth1Y: asset.divGrowth1Y ?? null,
+    growth3Y: asset.divGrowth3Y ?? null,
     growth5Y: asset.divGrowth5Y ?? null,
+    payoutRatio: asset.payoutRatio ?? null,
+    pe: asset.pe ?? null,
+    forwardPE: asset.forwardPE ?? null,
+    eps: asset.eps ?? null,
+    forwardEPS: asset.forwardEPS ?? null,
+    beta: asset.beta ?? null,
+    revenueGrowthYoY: asset.revenueGrowthYoY ?? null,
+    netIncomeGrowthYoY: asset.netIncomeGrowthYoY ?? null,
+    cashFlowGrowthYoY: asset.cashFlowGrowthYoY ?? null,
+    nextEarningsDate: dateOnly(asset.nextEarningsReportReportingDate || asset.nextEarningsReportDate),
+    isin: asset.isin ?? null,
+    country: asset.countryISO ?? null,
+    industry: asset.industry ?? null,
     sector: asset.sector ?? null,
     logoURL: asset.primaryLogoURL || asset.logoURL || null,
     description: asset.companyDescription || null,
@@ -313,6 +358,69 @@ export async function getStockDetail(symbol: string): Promise<StockDetail | null
 
     const asset = await fetchSnowballAsset(key, false);
     const detail = asset ? mapAssetToStockDetail(key, asset) : null;
+
+    if (detail) {
+      // Build historical payouts table (matching Snowball Analytics layout)
+      let rawHistory = getDividendHistory(key);
+      if (rawHistory.length === 0) {
+        try {
+          await syncSymbol(key);
+          rawHistory = getDividendHistory(key);
+        } catch (err: any) {
+          logger.debug('StockDetail', `syncSymbol for ${key} historical divs: ${err.message}`);
+        }
+      }
+
+      const freqName = (f: number | null) => ({ 1: 'Annual', 2: 'Semi-Annual', 4: 'Quarterly', 6: 'Bi-Monthly', 12: 'Monthly' })[f ?? 4] || 'Quarterly';
+      const periodName = freqName(detail.frequency);
+
+      const payoutHistory: DividendPayoutRecord[] = [];
+      const sorted = [...rawHistory].sort((a, b) => a.exDate.localeCompare(b.exDate));
+
+      for (let i = 0; i < sorted.length; i++) {
+        const cur = sorted[i];
+        const prev = i > 0 ? sorted[i - 1] : null;
+        let changePct: number | null = null;
+        if (prev && prev.amount > 0) {
+          changePct = Math.round(((cur.amount - prev.amount) / prev.amount) * 10000) / 100;
+        }
+        payoutHistory.push({
+          declarationDate: null,
+          exDate: cur.exDate,
+          payDate: null,
+          amount: cur.amount,
+          period: periodName,
+          changePct,
+          status: 'paid',
+        });
+      }
+
+      if (detail.exDividendDate) {
+        const todayIso = new Date().toISOString().slice(0, 10);
+        if (detail.exDividendDate >= todayIso) {
+          const lastPaid = sorted.length > 0 ? sorted[sorted.length - 1].amount : null;
+          const upcomingAmount = (detail.annualPayout && detail.frequency)
+            ? Math.round((detail.annualPayout / detail.frequency) * 10000) / 10000
+            : (lastPaid ?? 0);
+          let changePct: number | null = null;
+          if (lastPaid && lastPaid > 0 && upcomingAmount > 0) {
+            changePct = Math.round(((upcomingAmount - lastPaid) / lastPaid) * 10000) / 100;
+          }
+          payoutHistory.push({
+            declarationDate: null,
+            exDate: detail.exDividendDate,
+            payDate: detail.nextDividendDate,
+            amount: upcomingAmount,
+            period: periodName,
+            changePct,
+            status: 'declared',
+          });
+        }
+      }
+
+      detail.payoutHistory = payoutHistory.reverse();
+    }
+
     stockDetailCache.set(key, { data: detail, ts: Date.now() });
     return detail;
   })();

@@ -191,6 +191,20 @@ const API = {
         return data;
     },
 
+    async getStockAiInsight(symbol, refresh = false) {
+        const res = await this._fetch(`/api/stock/${encodeURIComponent(symbol)}/ai-insight${refresh ? '?refresh=true' : ''}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || `Failed to load AI insight for ${symbol}`);
+        return data;
+    },
+
+    async refreshStockAiInsight(symbol) {
+        const res = await this._fetch(`/api/stock/${encodeURIComponent(symbol)}/ai-insight/refresh`, { method: 'POST' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || `Failed to refresh AI insight for ${symbol}`);
+        return data;
+    },
+
     async getStockPriceHistory(symbol, range = 'max') {
         const res = await this._fetch(`/api/stock/${encodeURIComponent(symbol)}/history?range=${encodeURIComponent(range)}`);
         const data = await this._json(res);
@@ -924,6 +938,80 @@ const API = {
         const res = await this._fetch('/api/admin/test-notification', { method: 'POST' });
         const data = await this._json(res);
         if (!res.ok) throw new Error(data.error || 'Failed to send test notification');
+        return data;
+    },
+
+    // ── Snowball Features: Health Score, Goals, Smart Deposit ─────────────────────
+    async getHealthScore(benchmark = 'SPY', accountIds = null) {
+        let url = `/api/analytics/health-score?benchmark=${encodeURIComponent(benchmark)}`;
+        if (accountIds && accountIds.length) url += `&accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch health score');
+        return data;
+    },
+
+    async getGoals(accountIds = null) {
+        let url = '/api/goals';
+        if (accountIds && accountIds.length) url += `?accountIds=${encodeURIComponent(accountIds.join(','))}`;
+        const res = await this._fetch(url);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch goals');
+        return data;
+    },
+
+    async saveGoal(goal) {
+        const res = await this._fetch('/api/goals', {
+            method: 'POST',
+            body: JSON.stringify(goal),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to save goal');
+        return data;
+    },
+
+    async updateGoal(id, goal) {
+        const res = await this._fetch(`/api/goals/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(goal),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to update goal');
+        return data;
+    },
+
+    async deleteGoal(id) {
+        const res = await this._fetch(`/api/goals/${id}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete goal');
+        return data;
+    },
+
+    async getSmartDeposit(portfolioId, depositAmount) {
+        const res = await this._fetch(`/api/user-portfolios/${portfolioId}/rebalance/smart-deposit`, {
+            method: 'POST',
+            body: JSON.stringify({ depositAmount }),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to calculate smart deposit');
+        return data;
+    },
+
+    async getClosedPositions(accountIds = '', partial = false) {
+        const query = new URLSearchParams();
+        if (accountIds) query.set('accountIds', accountIds);
+        if (partial) query.set('partial', 'true');
+        const res = await this._fetch(`/api/analytics/closed-positions?${query.toString()}`);
+        return this._json(res);
+    },
+
+    async runFireRunway(payload = {}) {
+        const res = await this._fetch('/api/analytics/fire-runway', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to simulate FIRE runway');
         return data;
     },
 

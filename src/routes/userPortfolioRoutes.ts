@@ -10,6 +10,7 @@ import {
   getTargets,
   updateTargets,
   getRebalanceSuggestions,
+  getSmartDepositSuggestions,
   executeRebalance,
   confirmRebalance,
 } from "../controllers/rebalanceController.js";
@@ -31,6 +32,8 @@ router.put("/:id/accounts", setPortfolioAccountsHandler);
 router.get("/:id/targets", getTargets);
 router.put("/:id/targets", updateTargets);
 router.get("/:id/rebalance", getRebalanceSuggestions);
+router.get("/:id/rebalance/smart-deposit", getSmartDepositSuggestions);
+router.post("/:id/rebalance/smart-deposit", getSmartDepositSuggestions);
 router.post("/:id/rebalance/execute", executeRebalance);
 router.post("/:id/rebalance/confirm", validateBody(confirmOrderSchema), confirmRebalance);
 

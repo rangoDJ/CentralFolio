@@ -106,6 +106,16 @@ export {
   getJobRuns,
 } from "../repositories/jobRepository.js";
 
+export type { Goal, GoalInput } from "../repositories/goalRepository.js";
+export {
+  listGoals,
+  getGoal,
+  createGoal,
+  updateGoal,
+  deleteGoal,
+  seedDefaultGoalsIfEmpty,
+} from "../repositories/goalRepository.js";
+
 export type { ApiTokenMeta } from "../repositories/apiTokenRepository.js";
 export {
   createApiToken,

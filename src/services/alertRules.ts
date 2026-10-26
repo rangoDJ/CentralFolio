@@ -14,6 +14,7 @@ export type AlertSeverity = "info" | "warning" | "critical";
 
 export type AlertRuleType =
   | "dividend_cut"
+  | "dividend_hike"
   | "ex_dividend_soon"
   | "allocation_drift"
   | "rating_downgrade"
@@ -21,6 +22,7 @@ export type AlertRuleType =
 
 export const ALERT_RULE_TYPES: AlertRuleType[] = [
   "dividend_cut",
+  "dividend_hike",
   "ex_dividend_soon",
   "allocation_drift",
   "rating_downgrade",
@@ -30,6 +32,7 @@ export const ALERT_RULE_TYPES: AlertRuleType[] = [
 /** Defaults used when a rule has never been configured. */
 export const DEFAULT_RULE_CONFIG: Record<AlertRuleType, Record<string, number>> = {
   dividend_cut: { minDropPct: 1 },
+  dividend_hike: { minHikePct: 1 },
   ex_dividend_soon: { days: 7 },
   allocation_drift: { thresholdPct: 5 },
   rating_downgrade: { minChange: 1 },
@@ -120,14 +123,43 @@ function dividendCuts(inputs: AlertInputs, config: Record<string, number>): Aler
 
     out.push({
       ruleType: "dividend_cut",
-      // Keyed by the year of the cut, so it alerts once and again only if a
-      // later year cuts too.
       dedupeKey: `dividend_cut:${symbol}:${latest.year}`,
       severity: dropPct >= 20 ? "critical" : "warning",
       symbol,
       title: `${symbol} cut its dividend`,
       body: `${latest.year} paid ${money(latest.total)}/share vs ${money(prior.total)} in ${prior.year} `
         + `— down ${pct(dropPct)}. Worth checking whether the income thesis still holds.`,
+    });
+  }
+  return out;
+}
+
+/**
+ * A dividend hike / increase: the last complete year paid more than the year before it.
+ */
+function dividendHikes(inputs: AlertInputs, config: Record<string, number>): Alert[] {
+  const minHikePct = config.minHikePct ?? 1;
+  const out: Alert[] = [];
+
+  for (const [symbol, totals] of inputs.dividendHistory) {
+    if (!inputs.heldSymbols.has(symbol)) continue;
+    if (totals.length < 2) continue;
+
+    const latest = totals[totals.length - 1];
+    const prior = totals[totals.length - 2];
+    if (prior.total <= 0 || latest.total <= prior.total) continue;
+
+    const hikePct = ((latest.total - prior.total) / prior.total) * 100;
+    if (hikePct < minHikePct) continue;
+
+    out.push({
+      ruleType: "dividend_hike",
+      dedupeKey: `dividend_hike:${symbol}:${latest.year}`,
+      severity: "info",
+      symbol,
+      title: `${symbol} raised its dividend +${pct(hikePct)}`,
+      body: `${latest.year} paid ${money(latest.total)}/share vs ${money(prior.total)} in ${prior.year} `
+        + `— up ${pct(hikePct)}! Compound income growth on track.`,
     });
   }
   return out;
@@ -203,10 +235,10 @@ function ratingDowngrades(inputs: AlertInputs, config: Record<string, number>): 
     out.push({
       ruleType: "rating_downgrade",
       dedupeKey: `rating_downgrade:${r.symbol}:${previous}->${r.score}`,
-      severity: r.score >= 5 ? "critical" : "warning",
+      severity: r.score === 5 ? "critical" : "warning",
       symbol: r.symbol,
-      title: `${r.symbol} downgraded to ${r.label}`,
-      body: `The AI rating moved ${previous} → ${r.score} (${r.label}).`
+      title: `${r.symbol} rating downgraded to ${r.label}`,
+      body: `Dropped from score ${previous} → ${r.score} (1=Strong Buy, 5=Risky).`
         + (r.summary ? ` ${r.summary}` : ""),
     });
   }
@@ -226,10 +258,6 @@ function watchlistTargets(inputs: AlertInputs, _config: Record<string, number>):
     if (inputs.previouslyMetWatchlist.has(match.symbol)) continue;
     out.push({
       ruleType: "watchlist_target",
-      // Dated, not a fixed "entered": `previouslyMetWatchlist` already stops
-      // this repeating while the symbol stays in range, and a fixed key would
-      // make the 180-day dedupe window permanently swallow a genuine re-entry
-      // months later.
       dedupeKey: `watchlist_target:${match.symbol}:${inputs.today}`,
       severity: "info",
       symbol: match.symbol,
@@ -242,6 +270,7 @@ function watchlistTargets(inputs: AlertInputs, _config: Record<string, number>):
 
 const EVALUATORS: Record<AlertRuleType, (i: AlertInputs, c: Record<string, number>) => Alert[]> = {
   dividend_cut: dividendCuts,
+  dividend_hike: dividendHikes,
   ex_dividend_soon: exDividendsSoon,
   allocation_drift: allocationDrift,
   rating_downgrade: ratingDowngrades,
@@ -250,10 +279,6 @@ const EVALUATORS: Record<AlertRuleType, (i: AlertInputs, c: Record<string, numbe
 
 /**
  * Evaluate every enabled rule and return the alerts that should fire now.
- *
- * `alreadyFired` holds the dedupe keys of alerts previously delivered; anything
- * matching is dropped. Without it a "dividend cut" would re-notify on every run
- * for as long as the cut remains true, which trains you to ignore the channel.
  */
 export function evaluateAlerts(
   inputs: AlertInputs,

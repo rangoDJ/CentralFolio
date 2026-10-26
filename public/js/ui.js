@@ -1405,7 +1405,7 @@ const UI = {
             chip(`Beta vs ${sanitize(risk.benchmark || 'SPY')}`, num(risk.beta), 'Sensitivity to benchmark moves (1 = moves with the market)');
     },
 
-    renderPortfolioPerformance(result, rangeKey, benchOn, cur) {
+    renderPortfolioPerformance(result, rangeKey, benchOn, cur, metric = 'value') {
         const canvas = document.getElementById('perfChart');
         const empty = document.getElementById('perfEmpty');
         const pillsEl = document.getElementById('perfRangePills');
@@ -1428,50 +1428,77 @@ const UI = {
 
         const pts = this._filterPerfPoints(allPoints, rangeKey);
         const labels = pts.map(p => p.date);
-        const valueData = pts.map(p => p.value);
-        const investedData = pts.map(p => p.invested);
-        const benchData = pts.map(p => p.benchmark);
+        const isTwr = metric === 'twr';
 
-        // Summary reflects the visible window.
-        const first = pts[0], last = pts[pts.length - 1];
-        const gain = last.value - first.value;
-        const gainCls = gain >= 0 ? 'pos' : 'neg';
-        if (summaryEl) {
+        const theme = this.getChartTheme();
+        const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#00d09c';
+
+        let datasets = [];
+        let fmt = v => this.moneyC(v, cur);
+
+        if (isTwr) {
+            const twrData = pts.map(p => p.twrPct ?? 0);
+            const b0 = pts[0]?.benchmark || 0;
+            const benchPctData = pts.map(p => b0 > 0 ? ((p.benchmark - b0) / b0) * 100 : 0);
+            fmt = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+
+            const lastTwr = pts[pts.length - 1]?.twrPct ?? 0;
+            const lastBench = benchPctData[benchPctData.length - 1] ?? 0;
+            const rc = lastTwr >= 0 ? 'pos' : 'neg';
+
+            if (summaryEl) {
+                summaryEl.innerHTML = `<span class="perf-val ${rc}">${lastTwr >= 0 ? '+' : ''}${lastTwr.toFixed(2)}%</span>
+                    <span class="text-muted">Time-Weighted Return</span>
+                    ${benchOn ? `<span class="text-muted">vs Benchmark ${lastBench >= 0 ? '+' : ''}${lastBench.toFixed(2)}%</span>` : ''}`;
+            }
+
+            datasets.push({
+                label: 'Portfolio (TWR %)', data: twrData, borderColor: primary, backgroundColor: 'rgba(0,208,156,0.12)',
+                borderWidth: 2, fill: true, tension: 0.15, pointRadius: 0, pointHoverRadius: 4, order: 1,
+            });
+            if (benchOn) {
+                datasets.push({
+                    label: 'Benchmark Return (%)', data: benchPctData, borderColor: '#f5a623',
+                    borderWidth: 1.5, fill: false, tension: 0.15, pointRadius: 0, pointHoverRadius: 3, order: 2,
+                });
+            }
+        } else {
+            const valueData = pts.map(p => p.value);
+            const investedData = pts.map(p => p.invested);
+            const benchData = pts.map(p => p.benchmark);
+
+            const last = pts[pts.length - 1];
             const invested = last.invested;
             const ret = last.value - invested;
             const retPct = invested > 0 ? (ret / invested) * 100 : 0;
             const rc = ret >= 0 ? 'pos' : 'neg';
-            // Say when part of the curve is anchored to recorded values rather
-            // than inferred from the transaction ledger — otherwise the
-            // difference in trustworthiness is invisible.
             const snapPoints = result.summary?.snapshotPoints || 0;
             const snapNote = snapPoints > 0
-                ? `<span class="text-muted" title="These days come from recorded end-of-day values rather than replaying transactions against price history, so they hold even where the ledger is incomplete.">· ${snapPoints} day${snapPoints === 1 ? '' : 's'} from snapshots</span>`
+                ? `<span class="text-muted" title="These days come from recorded end-of-day values rather than replaying transactions against price history.">· ${snapPoints} day${snapPoints === 1 ? '' : 's'} from snapshots</span>`
                 : '';
-            summaryEl.innerHTML = `<span class="perf-val">${this.moneyC(last.value, cur)}</span>
-                <span class="${rc}">${ret >= 0 ? '+' : '-'}${this.moneyC(Math.abs(ret), cur)} (${this.arrow(ret)} ${this.pct(Math.abs(retPct))})</span>
-                <span class="text-muted">vs ${this.moneyC(invested, cur)} invested</span>${snapNote}`;
-        }
 
-        const theme = this.getChartTheme();
-        const primary = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#00d09c';
-        const fmt = v => this.moneyC(v, cur);
+            if (summaryEl) {
+                summaryEl.innerHTML = `<span class="perf-val">${this.moneyC(last.value, cur)}</span>
+                    <span class="${rc}">${ret >= 0 ? '+' : '-'}${this.moneyC(Math.abs(ret), cur)} (${this.arrow(ret)} ${this.pct(Math.abs(retPct))})</span>
+                    <span class="text-muted">vs ${this.moneyC(invested, cur)} invested</span>${snapNote}`;
+            }
 
-        const datasets = [
-            {
-                label: 'Value', data: valueData, borderColor: primary, backgroundColor: 'rgba(0,208,156,0.12)',
-                borderWidth: 2, fill: true, tension: 0.15, pointRadius: 0, pointHoverRadius: 4, order: 1,
-            },
-            {
-                label: 'Invested', data: investedData, borderColor: theme.textColor, borderWidth: 1.5,
-                borderDash: [5, 4], fill: false, tension: 0, pointRadius: 0, pointHoverRadius: 3, order: 2,
-            },
-        ];
-        if (benchOn) {
-            datasets.push({
-                label: (result.summary && 'Benchmark') || 'Benchmark', data: benchData, borderColor: '#f5a623',
-                borderWidth: 1.5, fill: false, tension: 0.15, pointRadius: 0, pointHoverRadius: 3, order: 3,
-            });
+            datasets.push(
+                {
+                    label: 'Value', data: valueData, borderColor: primary, backgroundColor: 'rgba(0,208,156,0.12)',
+                    borderWidth: 2, fill: true, tension: 0.15, pointRadius: 0, pointHoverRadius: 4, order: 1,
+                },
+                {
+                    label: 'Invested', data: investedData, borderColor: theme.textColor, borderWidth: 1.5,
+                    borderDash: [5, 4], fill: false, tension: 0, pointRadius: 0, pointHoverRadius: 3, order: 2,
+                }
+            );
+            if (benchOn) {
+                datasets.push({
+                    label: 'Benchmark', data: benchData, borderColor: '#f5a623',
+                    borderWidth: 1.5, fill: false, tension: 0.15, pointRadius: 0, pointHoverRadius: 3, order: 3,
+                });
+            }
         }
 
         // Fewer x-ticks on long ranges.
@@ -1581,6 +1608,7 @@ const UI = {
             }
         }));
 
+        const totValueAll = Array.from(bySymbol.values()).reduce((sum, r) => sum + r.value, 0);
         const rows = Array.from(bySymbol.values()).map(r => {
             const profit    = r.value - r.cost;
             const profitPct = r.cost > 0 ? (profit / r.cost) * 100 : 0;
@@ -1589,7 +1617,14 @@ const UI = {
             const annualDiv = annualPerShare * r.shares;
             const yieldCur  = r.price > 0   ? (annualPerShare / r.price) * 100   : 0;
             const yieldCost = avgCost > 0   ? (annualPerShare / avgCost) * 100   : 0;
-            return { ...r, profit, profitPct, avgCost, annualPerShare, annualDiv, yieldCur, yieldCost };
+            const weight    = totValueAll > 0 ? (r.value / totValueAll) * 100 : 0;
+            const streak    = (typeof App !== 'undefined' && App.watchlistSymbols && App.watchlistSymbols.get(r.symbol)?.growthStreak) || 0;
+            const safety    = (typeof DivMath !== 'undefined' && DivMath.dividendSafety) ? DivMath.dividendSafety({
+                annualPayout: annualDiv,
+                dividendYield: yieldCur,
+                growthStreak: streak
+            }) : null;
+            return { ...r, profit, profitPct, avgCost, annualPerShare, annualDiv, yieldCur, yieldCost, weight, streak, safety };
         });
 
         this.holdingsRows = rows;
@@ -1615,7 +1650,7 @@ const UI = {
                 ${errNote}
                 <div class="hb-toolbar">
                     <div class="hb-views">
-                        ${[['holdings','My holdings'],['dividends','Dividends'],['returns','Returns']].map(([k,label]) =>
+                        ${[['holdings','My holdings'],['dividends','Dividends & YOC'],['returns','Returns'],['fundamentals','Fundamentals & Safety']].map(([k,label]) =>
                             `<button class="hb-view ${this.holdingsView===k?'active':''}" onclick="UI.setHoldingsView('${k}')">${label}</button>`).join('')}
                     </div>
                     <div class="hb-search">
@@ -1644,9 +1679,10 @@ const UI = {
     setHoldingsView(view) {
         this.holdingsView = view;
         document.querySelectorAll('.hb-view').forEach(b => b.classList.toggle('active', b.getAttribute('onclick').includes(`'${view}'`)));
-        if (view === 'dividends')    this.holdingsSort = { key: 'yieldCur',  dir: 'desc' };
-        else if (view === 'returns') this.holdingsSort = { key: 'profitPct', dir: 'desc' };
-        else                         this.holdingsSort = { key: 'value',     dir: 'desc' };
+        if (view === 'dividends')         this.holdingsSort = { key: 'yieldCur',  dir: 'desc' };
+        else if (view === 'returns')      this.holdingsSort = { key: 'profitPct', dir: 'desc' };
+        else if (view === 'fundamentals') this.holdingsSort = { key: 'value',     dir: 'desc' };
+        else                              this.holdingsSort = { key: 'value',     dir: 'desc' };
         this.renderHoldingsRows();
     },
 
@@ -1661,10 +1697,18 @@ const UI = {
     holdingsColumns(view) {
         const cols = [{ key: 'symbol', label: 'Holding', cls: 'left' }, { key: 'shares', label: 'Shares', cls: 'right' }];
         if (view === 'dividends') {
-            cols.push({ key: 'annualDiv', label: 'Annual income', cls: 'right' },
-                      { key: 'yieldCur',  label: 'Yield',         cls: 'right' },
+            cols.push({ key: 'price',     label: 'Price',         cls: 'right' },
+                      { key: 'annualDiv', label: 'Annual income', cls: 'right' },
+                      { key: 'yieldCur',  label: 'Div yield',     cls: 'right' },
                       { key: 'yieldCost', label: 'Yield on cost', cls: 'right' },
+                      { key: 'safety',    label: 'Div safety',    cls: 'right' },
+                      { key: 'value',     label: 'Current value', cls: 'right' });
+        } else if (view === 'fundamentals') {
+            cols.push({ key: 'price',     label: 'Price',         cls: 'right' },
                       { key: 'value',     label: 'Current value', cls: 'right' },
+                      { key: 'weight',    label: 'Weight',        cls: 'right' },
+                      { key: 'streak',    label: 'Growth streak', cls: 'right' },
+                      { key: 'safety',    label: 'Div safety',    cls: 'right' },
                       { key: 'aiRating',  label: 'AI rating',     cls: 'right' });
         } else if (view === 'returns') {
             cols.push({ key: 'cost',      label: 'Cost basis',    cls: 'right' },
@@ -1673,12 +1717,12 @@ const UI = {
                       { key: 'profitPct', label: 'Return %',      cls: 'right' },
                       { key: 'aiRating',  label: 'AI rating',     cls: 'right' });
         } else {
-            cols.push({ key: 'cost',      label: 'Cost basis',    cls: 'right' },
+            cols.push({ key: 'price',     label: 'Price',         cls: 'right' },
+                      { key: 'cost',      label: 'Cost basis',    cls: 'right' },
                       { key: 'value',     label: 'Current value', cls: 'right' },
-                      { key: 'annualDiv', label: 'Dividends',     cls: 'right' },
-                      { key: 'yieldCur',  label: 'Div yield',     cls: 'right' },
+                      { key: 'weight',    label: 'Weight',        cls: 'right' },
                       { key: 'profit',    label: 'Total profit',  cls: 'right' },
-                      { key: 'aiRating',  label: 'AI rating',     cls: 'right' });
+                      { key: 'yieldCost', label: 'Yield on cost', cls: 'right' });
         }
         return cols;
     },
@@ -1791,8 +1835,18 @@ const UI = {
         const m = n => this.moneyC(n, r.currency);
         const cell = {
             shares:    `<td class="right">${r.shares.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>`,
+            price:     `<td class="right">${m(r.price)}</td>`,
             cost:      `<td class="right">${m(r.cost)}<div class="hb-sub">${m(r.avgCost)}</div></td>`,
             value:     `<td class="right">${m(r.value)}<div class="hb-sub">${m(r.price)}</div></td>`,
+            weight:    `<td class="right">${r.weight != null ? r.weight.toFixed(1) + '%' : '—'}</td>`,
+            streak:    `<td class="right">${r.streak > 0 ? `<span class="badge" style="background:rgba(16,185,129,0.15);color:var(--primary);padding:2px 6px;border-radius:4px;font-size:0.75rem;">${r.streak}y</span>` : '<span class="text-muted">—</span>'}</td>`,
+            safety:    (() => {
+                const s = r.safety;
+                if (!s) return '<td class="right"><span class="text-muted">—</span></td>';
+                const color = s.score >= 80 ? '#10b981' : s.score >= 60 ? '#f59e0b' : '#ef4444';
+                const bg = s.score >= 80 ? 'rgba(16,185,129,0.15)' : s.score >= 60 ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)';
+                return `<td class="right"><span class="badge" style="background:${bg};color:${color};padding:2px 7px;border-radius:4px;font-weight:600;font-size:0.75rem;" title="${sanitize((s.factors || []).join(' · '))}">${s.grade} (${s.score})</span></td>`;
+            })(),
             annualDiv: `<td class="right">${r.annualDiv > 0 ? m(r.annualDiv) : '—'}<div class="hb-sub">${r.annualPerShare > 0 ? m(r.annualPerShare) : ''}</div></td>`,
             yieldCur:  `<td class="right">${r.yieldCur  > 0 ? this.pct(r.yieldCur)  : '—'}</td>`,
             yieldCost: `<td class="right">${r.yieldCost > 0 ? this.pct(r.yieldCost) : '—'}</td>`,
@@ -2474,6 +2528,11 @@ const UI = {
     // ── Alerts ───────────────────────────────────────────────────────────────
 
     _alertRuleMeta: {
+        dividend_hike: {
+            label: 'Dividend raise',
+            blurb: 'A holding increased its annual payout compared to the previous year.',
+            fields: { minHikePct: { label: 'Ignore hikes under', suffix: '%', step: '0.5' } },
+        },
         dividend_cut: {
             label: 'Dividend cut',
             blurb: 'A holding paid less last complete year than the year before.',
@@ -2563,6 +2622,60 @@ const UI = {
                     ${paused}
                     <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem;">${fields}</div>
                 </div>
+            </div>`;
+        }).join('');
+    },
+
+    renderAlertsFeedModal(alerts, unacknowledged) {
+        const badge = document.getElementById('alerts-unread-badge');
+        if (badge) {
+            if (unacknowledged > 0) {
+                badge.textContent = unacknowledged > 99 ? '99+' : unacknowledged;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        const body = document.getElementById('alertsModalBody');
+        if (!body) return;
+
+        if (!alerts || alerts.length === 0) {
+            body.innerHTML = `<div class="empty-state" style="padding:2.5rem 1rem;text-align:center;">
+                <div style="font-size:2.2rem;margin-bottom:0.5rem;">🎉</div>
+                <div style="font-weight:600;font-size:1rem;margin-bottom:0.25rem;">All systems healthy</div>
+                <div class="text-muted text-sm">No dividend cuts, allocation drifts, or critical portfolio events detected.</div>
+            </div>`;
+            return;
+        }
+
+        body.innerHTML = alerts.map(a => {
+            const unread = !a.acknowledgedAt;
+            const when = this.txDate(a.firedAt);
+            const symBadge = a.symbol 
+                ? `<button class="btn btn-outline btn-sm" style="padding:0.15rem 0.45rem;font-size:0.75rem;font-weight:700;" onclick="App.closeAlertsModal(); App.openStockDetail('${sanitize(a.symbol)}');">${sanitize(a.symbol)}</button>`
+                : '';
+            const typeLabel = this.alertRuleLabel(a.ruleType);
+            const isCut = a.ruleType === 'dividend_cut';
+            const isHike = a.ruleType === 'dividend_hike';
+            const rulePill = isHike
+                ? '<span class="divcal-status-pill pill-received" style="font-size:0.7rem;">Raise</span>'
+                : (isCut ? '<span class="divcal-status-pill pill-canceled" style="font-size:0.7rem;">Cut</span>' : `<span class="text-muted text-sm" style="font-size:0.75rem;">${sanitize(typeLabel)}</span>`);
+
+            return `<div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.75rem 0.5rem;border-bottom:1px solid var(--border);${unread ? 'background:rgba(59,130,246,0.03);border-radius:6px;' : 'opacity:0.65;'}">
+                <span style="color:${this._severityColor(a.severity)};font-size:1.1rem;line-height:1.2;">•</span>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                        <span style="font-weight:${unread ? '700' : '500'};font-size:0.9rem;">${sanitize(a.title)}</span>
+                        ${rulePill}
+                        ${symBadge}
+                    </div>
+                    <div class="text-muted" style="font-size:0.82rem;line-height:1.4;margin-top:0.2rem;">${sanitize(a.body)}</div>
+                    <div class="text-muted" style="font-size:0.72rem;margin-top:0.25rem;">
+                        ${sanitize(when)}${a.delivered ? ' · sent to webhook' : ''}
+                    </div>
+                </div>
+                ${unread ? `<button class="btn btn-outline btn-sm" style="padding:0.15rem 0.45rem;font-size:0.72rem;" onclick="App.acknowledgeAlert(${a.id})">Mark read</button>` : ''}
             </div>`;
         }).join('');
     },
@@ -3453,10 +3566,11 @@ const UI = {
         return DivMath.tagDividendStatus(events, txData, this._DIV_TYPES);
     },
 
-    // Small 3-state legend shown above the forecast list and the calendar.
+    // Small legend shown above the forecast list and the calendar.
     dividendLegendHtml() {
         return `<div class="divlegend">
-            <span class="divlegend-item"><span class="divlegend-dot div-expected"></span>Expected</span>
+            <span class="divlegend-item"><span class="divlegend-dot div-confirmed"></span>Confirmed</span>
+            <span class="divlegend-item"><span class="divlegend-dot div-estimated"></span>Estimated</span>
             <span class="divlegend-item"><span class="divlegend-dot div-received"></span>Received</span>
             <span class="divlegend-item"><span class="divlegend-dot div-overdue"></span>Overdue</span>
         </div>`;
@@ -3509,7 +3623,8 @@ const UI = {
             <div class="sd-head-right">${priceBlock}${yieldBlock}</div>
         </div>`;
 
-        // ── Dividends panel ──
+        // ── Dividends & Fundamentals panel (Snowball Analytics layout) ──
+        let fundamentalsPanel = '';
         let divPanel;
         if (state === 'error' || (state === 'ready' && !asset)) {
             divPanel = `<div class="card sd-card"><div class="card-title mb-2">Dividends</div><p class="text-muted text-sm">Details unavailable from Snowball Analytics for this symbol.</p></div>`;
@@ -3528,7 +3643,7 @@ const UI = {
                 ? row('Dividend safety', `<span class="div-grade div-grade-${safety.grade}" title="${sanitize(safety.factors.join(' · '))}">${safety.grade}</span> <span class="text-muted text-sm">(${safety.score}/100)</span>`)
                 : '';
             divPanel = `<div class="card sd-card">
-                <div class="card-title mb-2">Dividends</div>
+                <div class="card-title mb-2">Dividends & Payouts</div>
                 ${safetyRow}
                 ${row('Dividend yield', asset.dividendYield != null ? this.pct(asset.dividendYield) : '—')}
                 ${yocRow}
@@ -3537,8 +3652,27 @@ const UI = {
                 ${row('Next ex-div date', this._fmtDate(asset.exDividendDate))}
                 ${row('Next pay date', this._fmtDate(asset.nextDividendDate))}
                 ${row('Dividend growth streak', asset.growthStreak != null ? `${asset.growthStreak} y` : '—')}
+                ${asset.divStreak != null && asset.divStreak !== asset.growthStreak ? row('Dividend paying streak', `${asset.divStreak} y`) : ''}
+                ${asset.growth1Y != null ? row('1Y dividend growth', this.pct(asset.growth1Y)) : ''}
+                ${asset.growth3Y != null ? row('3Y dividend growth', this.pct(asset.growth3Y)) : ''}
                 ${row('5Y dividend growth', asset.growth5Y != null ? this.pct(asset.growth5Y) : '—')}
             </div>`;
+
+            if (asset.pe != null || asset.eps != null || asset.payoutRatio != null || asset.revenueGrowthYoY != null || asset.beta != null) {
+                fundamentalsPanel = `<div class="card sd-card">
+                    <div class="card-title mb-2">Valuation & Growth</div>
+                    ${asset.pe != null ? row('P/E (TTM)', asset.pe.toFixed(2)) : ''}
+                    ${asset.forwardPE != null ? row('Forward P/E', asset.forwardPE.toFixed(2)) : ''}
+                    ${asset.eps != null ? row('EPS', '$' + asset.eps.toFixed(2)) : ''}
+                    ${asset.forwardEPS != null ? row('Forward EPS', '$' + asset.forwardEPS.toFixed(2)) : ''}
+                    ${asset.payoutRatio != null ? row('Payout ratio', this.pct(asset.payoutRatio)) : ''}
+                    ${asset.beta != null ? row('Beta (Volatility)', asset.beta.toFixed(3)) : ''}
+                    ${asset.revenueGrowthYoY != null ? row('Revenue YoY', `<span class="${asset.revenueGrowthYoY >= 0 ? 'pos' : 'neg'}">${asset.revenueGrowthYoY >= 0 ? '+' : ''}${this.pct(asset.revenueGrowthYoY)}</span>`) : ''}
+                    ${asset.netIncomeGrowthYoY != null ? row('Net Income YoY', `<span class="${asset.netIncomeGrowthYoY >= 0 ? 'pos' : 'neg'}">${asset.netIncomeGrowthYoY >= 0 ? '+' : ''}${this.pct(asset.netIncomeGrowthYoY)}</span>`) : ''}
+                    ${asset.nextEarningsDate ? row('Next earnings date', this._fmtDate(asset.nextEarningsDate)) : ''}
+                    ${asset.sector ? row('Sector', sanitize(asset.sector)) : ''}
+                </div>`;
+            }
         } else {
             divPanel = `<div class="card sd-card"><div class="card-title mb-2">Dividends</div><p class="text-muted text-sm"><span class="loader" style="display:inline-block;width:14px;height:14px;border-top-color:var(--primary);"></span> Loading…</p></div>`;
         }
@@ -3587,7 +3721,64 @@ const UI = {
             </p></div>
         </div>`;
 
-        host.innerHTML = `${header}${chartCard}<div class="sd-body">${divPanel}</div>${posSection}`;
+        let payoutHistorySection = '';
+        const historyRows = asset?.payoutHistory || [];
+        if (historyRows.length > 0) {
+            payoutHistorySection = `<div class="card sd-card" style="margin-top:1.25rem;">
+                <div class="card-title mb-2" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>Payout History</span>
+                    <span class="text-muted text-sm">${historyRows.length} distribution(s) recorded</span>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="table" style="font-size:0.82rem;margin:0;width:100%;">
+                        <thead>
+                            <tr style="border-bottom:1px solid var(--border);">
+                                <th style="padding:0.45rem 0.6rem;text-align:left;">State</th>
+                                <th style="padding:0.45rem 0.6rem;text-align:left;">Ex-Div Date</th>
+                                <th style="padding:0.45rem 0.6rem;text-align:left;">Pay Date</th>
+                                <th style="padding:0.45rem 0.6rem;text-align:right;">Amount / Share</th>
+                                <th style="padding:0.45rem 0.6rem;text-align:center;">Period</th>
+                                <th style="padding:0.45rem 0.6rem;text-align:right;">Change</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${historyRows.map(r => {
+                                const isDeclared = r.status === 'declared';
+                                const stateBadge = isDeclared
+                                    ? `<span class="divcal-status-pill pill-conf">Declared</span>`
+                                    : `<span class="divcal-status-pill pill-received">Paid</span>`;
+                                const changeLabel = r.changePct != null
+                                    ? (r.changePct > 0 
+                                        ? `<span class="pos">+${r.changePct.toFixed(2)}% ▲</span>` 
+                                        : (r.changePct < 0 
+                                            ? `<span class="neg">${r.changePct.toFixed(2)}% ▼</span>` 
+                                            : `<span class="text-muted">0.00%</span>`))
+                                    : `<span class="text-muted">—</span>`;
+                                return `<tr style="border-bottom:1px solid var(--border);">
+                                    <td style="padding:0.5rem 0.6rem;">${stateBadge}</td>
+                                    <td style="padding:0.5rem 0.6rem;">${this._fmtDate(r.exDate)}</td>
+                                    <td style="padding:0.5rem 0.6rem;">${this._fmtDate(r.payDate)}</td>
+                                    <td style="padding:0.5rem 0.6rem;text-align:right;font-weight:600;">$${r.amount.toFixed(4)}</td>
+                                    <td style="padding:0.5rem 0.6rem;text-align:center;color:var(--text-muted);">${sanitize(r.period)}</td>
+                                    <td style="padding:0.5rem 0.6rem;text-align:right;font-weight:600;">${changeLabel}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        }
+
+        const aiSection = `<div id="sd-ai-insight" class="card sd-card" style="margin-top:1.25rem;">
+            <div class="card-title mb-2" style="display:flex;align-items:center;gap:0.5rem;">
+                <span>🤖 AI Company & Earnings Insights</span>
+            </div>
+            <div style="padding:1.5rem;text-align:center;">
+                <span class="loader" style="display:inline-block;width:18px;height:18px;border-top-color:var(--primary);margin-bottom:0.5rem;"></span>
+                <div class="text-muted text-sm">Loading AI insights…</div>
+            </div>
+        </div>`;
+        host.innerHTML = `${header}${chartCard}<div class="sd-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;">${fundamentalsPanel}${divPanel}</div>${posSection}${aiSection}${payoutHistorySection}`;
     },
 
     // Ranges offered by the chart's pill selector. 'all' uses every stored candle.
@@ -4008,9 +4199,12 @@ const UI = {
             mData.events.forEach(e => {
                 const d = new Date(e.date);
                 const status = e._status || 'expected';
+                const isEstimated = e.estimated === true || e.isEstimated === true;
+                const statusLabel = status === 'received' ? 'Received' : (status === 'overdue' ? 'Overdue' : (isEstimated ? 'Estimated' : 'Confirmed'));
+                const statusClass = status === 'received' ? 'pill-received' : (status === 'overdue' ? 'pill-overdue' : (isEstimated ? 'pill-est' : 'pill-conf'));
                 const tip = status === 'received'
                     ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}`
-                    : status === 'overdue' ? 'Projected — no matching transaction yet' : 'Expected';
+                    : status === 'overdue' ? 'Projected — no matching transaction yet' : (isEstimated ? 'Estimated from payment schedule' : 'Confirmed payout announcement');
                 html += `
                     <div class="dividend-event-row div-${status}" title="${sanitize(tip)}">
                         <div class="dividend-event-date">
@@ -4018,9 +4212,10 @@ const UI = {
                             <div class="dividend-event-date-day">${d.getUTCDate()}</div>
                         </div>
                         <div class="dividend-event-info">
-                            <div>
+                            <div style="display:flex;align-items:center;gap:0.45rem;">
                                 <span class="dividend-event-symbol stock-link" data-stock="${sanitize(e.symbol)}">${sanitize(e.symbol)}</span>
                                 <span class="dividend-event-name">${sanitize(e.name)}</span>
+                                <span class="divcal-status-pill ${statusClass}">${statusLabel}</span>
                             </div>
                             <div class="dividend-event-meta">${(e.units || 0).toLocaleString()} shares &middot; $${(e.amountPerShare || 0).toFixed(4)}/share</div>
                         </div>
@@ -4304,16 +4499,23 @@ const UI = {
                 const y = yieldFor(e);
                 const badge = (e.symbol || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 4);
                 const status = e._status || 'expected';
+                const isEstimated = e.estimated === true || e.isEstimated === true;
+                const statusLabel = status === 'received' ? '✓' : (status === 'overdue' ? '!' : (isEstimated ? 'Est' : 'Conf'));
+                const statusClass = status === 'received' ? 'pill-received' : (status === 'overdue' ? 'pill-overdue' : (isEstimated ? 'pill-est' : 'pill-conf'));
                 // Cards are placed on the pay date; name the ex-date too, since
                 // that is the one you have to hold before.
                 const exNote = e.exDate ? ` · ex ${e.exDate}` : '';
                 const tip = status === 'received'
                     ? `Received${e._recvDate ? ' ' + e._recvDate : ''}${e._recvAmount ? ' · $' + e._recvAmount.toFixed(2) : ''}${exNote}`
                     : status === 'overdue'
-                        ? `${e.estimated ? 'Estimated from the payment schedule' : 'Projected'} — no matching transaction yet${exNote}`
-                        : `${e.name || e.symbol}${exNote}`;
-                return `<div class="divcal-event div-${status} stock-link" data-stock="${sanitize(e.symbol)}" title="${sanitize(tip)}">
-                    <div class="divcal-event-top"><span class="divcal-event-badge">${sanitize(badge)}</span><span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong> ${sanitize((e.name || '').slice(0, 20))}</span></div>
+                        ? `${isEstimated ? 'Estimated from the payment schedule' : 'Projected'} — no matching transaction yet${exNote}`
+                        : `${isEstimated ? 'Estimated' : 'Confirmed'} · ${e.name || e.symbol}${exNote}`;
+                return `<div class="divcal-event div-${status} ${isEstimated ? 'is-estimated' : 'is-confirmed'} stock-link" data-stock="${sanitize(e.symbol)}" title="${sanitize(tip)}">
+                    <div class="divcal-event-top">
+                        <span class="divcal-event-badge">${sanitize(badge)}</span>
+                        <span class="divcal-event-name"><strong>${sanitize(e.symbol)}</strong></span>
+                        <span class="divcal-status-pill ${statusClass}">${statusLabel}</span>
+                    </div>
                     <div class="divcal-event-bot"><span class="divcal-event-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span>${y != null ? `<span class="divcal-event-yield">${y.toFixed(2)}%</span>` : ''}</div>
                 </div>`;
             }).join('');
@@ -4397,7 +4599,18 @@ const UI = {
             const totLabel = this._formatTotals(this._totalsByCurrency(evs), '+');
             return `<div class="divcal-listday">
                 <div class="divcal-listday-head"><span>${sanitize(k)}</span><span class="pos">${totLabel}</span></div>
-                ${evs.map(e => { const status = e._status || 'expected'; return `<div class="divcal-listrow div-${status}"><span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span><span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span><span class="divcal-listrow-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span></div>`; }).join('')}
+                ${evs.map(e => {
+                    const status = e._status || 'expected';
+                    const isEstimated = e.estimated === true || e.isEstimated === true;
+                    const statusLabel = status === 'received' ? 'Received' : (status === 'overdue' ? 'Overdue' : (isEstimated ? 'Estimated' : 'Confirmed'));
+                    const statusClass = status === 'received' ? 'pill-received' : (status === 'overdue' ? 'pill-overdue' : (isEstimated ? 'pill-est' : 'pill-conf'));
+                    return `<div class="divcal-listrow div-${status}">
+                        <span class="divcal-event-badge">${sanitize((e.symbol || '?').slice(0, 4))}</span>
+                        <span class="divcal-listrow-name"><strong>${sanitize(e.symbol)}</strong> · ${sanitize(e.name || '')}</span>
+                        <span class="divcal-status-pill ${statusClass}">${statusLabel}</span>
+                        <span class="divcal-listrow-amt">${status === 'received' ? '✓ ' : ''}${this.moneyC(e.amount, curOf(e))}</span>
+                    </div>`;
+                }).join('')}
             </div>`;
         }).join('') + '</div>';
     },
@@ -4789,4 +5002,519 @@ const UI = {
             allCb.indeterminate = (checkedCount > 0 && checkedCount < cbs.length);
         }
     },
+
+    // ── Snowball Portfolio Health Score UI ───────────────────────────────────
+    _healthReport: null,
+
+    renderHealthScoreTile(report) {
+        this._healthReport = report;
+        const valEl = document.getElementById('healthScoreValue');
+        const badgeEl = document.getElementById('healthGradeBadge');
+        const subEl = document.getElementById('healthScoreSub');
+        if (!valEl || !report) return;
+
+        valEl.textContent = `${report.overallScore} / 100`;
+        if (badgeEl) {
+            badgeEl.textContent = report.letterGrade || '--';
+            const colors = {
+                'A+': { bg: '#10b981', text: '#042f2e' },
+                'A':  { bg: '#10b981', text: '#042f2e' },
+                'B':  { bg: '#3b82f6', text: '#1e3a8a' },
+                'C':  { bg: '#f59e0b', text: '#451a03' },
+                'D':  { bg: '#f97316', text: '#431407' },
+                'F':  { bg: '#ef4444', text: '#450a0a' },
+            };
+            const c = colors[report.letterGrade] || colors['B'];
+            badgeEl.style.background = c.bg;
+            badgeEl.style.color = c.text;
+        }
+        if (subEl) {
+            subEl.textContent = report.overallScore >= 80 ? 'Grade A · Robust Portfolio' : report.overallScore >= 65 ? 'Grade B · Balanced' : 'Moderate Concentration';
+        }
+    },
+
+    openHealthScoreModal() {
+        const modal = document.getElementById('healthScoreModal');
+        if (!modal) return;
+        modal.classList.add('visible');
+
+        const rep = this._healthReport;
+        const body = document.getElementById('healthScoreDetailBody');
+        const badge = document.getElementById('modalHealthGradeBadge');
+        const title = document.getElementById('modalHealthTitle');
+        const summary = document.getElementById('modalHealthSummary');
+
+        if (!rep) {
+            if (body) body.innerHTML = '<div class="empty-state" style="padding:2rem;"><p class="text-muted">No health audit data available yet.</p></div>';
+            return;
+        }
+
+        if (badge) {
+            badge.textContent = rep.letterGrade;
+            badge.style.background = rep.overallScore >= 80 ? '#10b981' : rep.overallScore >= 60 ? '#f59e0b' : '#ef4444';
+        }
+        if (title) title.textContent = `Snowball Score: ${rep.overallScore}/100 (Grade ${rep.letterGrade})`;
+        if (summary) summary.textContent = rep.summary;
+
+        if (body) {
+            const p = rep.pillars || {};
+            const renderPillar = (item) => {
+                if (!item) return '';
+                const pct = (item.score / item.maxScore) * 100;
+                return `
+                    <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:0.9rem;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                            <strong style="font-size:0.9rem;">${item.name}</strong>
+                            <span style="font-weight:700;font-size:0.85rem;color:var(--primary);">${item.score} / ${item.maxScore} (${item.grade})</span>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:6px;overflow:hidden;margin-bottom:0.6rem;">
+                            <div style="background:var(--primary);height:100%;width:${pct}%;border-radius:4px;"></div>
+                        </div>
+                        <ul style="font-size:0.78rem;color:var(--text-muted);padding-left:1.1rem;margin:0;line-height:1.4;">
+                            ${(item.feedback || []).map(f => `<li>${sanitize(f)}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            };
+
+            const findingsHtml = (rep.keyFindings || []).map(f => {
+                const border = f.type === 'positive' ? '#10b981' : f.type === 'danger' ? '#ef4444' : '#f59e0b';
+                const icon = f.type === 'positive' ? '✔' : f.type === 'danger' ? '✖' : '⚠';
+                return `
+                    <div style="display:flex;gap:0.75rem;padding:0.75rem;border-left:3px solid ${border};background:var(--surface-2);border-radius:0 var(--radius-sm) var(--radius-sm) 0;margin-bottom:0.5rem;">
+                        <span style="color:${border};font-weight:700;">${icon}</span>
+                        <div>
+                            <strong style="font-size:0.85rem;color:var(--text);">${sanitize(f.title)}</strong>
+                            <div style="font-size:0.8rem;color:var(--text-muted);margin-top:2px;">${sanitize(f.detail)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            body.innerHTML = `
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:0.75rem;margin-bottom:1.25rem;">
+                    ${renderPillar(p.diversification)}
+                    ${renderPillar(p.sectorBalance)}
+                    ${renderPillar(p.dividendSafety)}
+                    ${renderPillar(p.riskVolatility)}
+                </div>
+                <div style="margin-top:1rem;">
+                    <h4 style="font-size:0.9rem;margin-bottom:0.5rem;color:var(--text);">Key Findings &amp; Insights</h4>
+                    ${findingsHtml || '<p class="text-muted text-sm">No critical warnings found. Portfolio structure is well balanced.</p>'}
+                </div>
+            `;
+        }
+    },
+
+    closeHealthScoreModal() {
+        const modal = document.getElementById('healthScoreModal');
+        if (modal) modal.classList.remove('visible');
+    },
+
+    // ── Goals & FIRE Milestones UI ──────────────────────────────────────────
+    _goalsData: null,
+
+    renderGoals(data) {
+        this._goalsData = data;
+        const container = document.getElementById('goalsContainer');
+        const summaryEl = document.getElementById('goalsSummary');
+        if (!container) return;
+
+        const goals = data?.goals || [];
+        if (summaryEl) {
+            const achieved = goals.filter(g => g.isAchieved).length;
+            summaryEl.textContent = `${achieved} of ${goals.length} milestone(s) achieved`;
+        }
+
+        if (goals.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state" style="grid-column: 1 / -1; padding: 2rem;">
+                    <p class="text-muted">No financial goals set yet.</p>
+                    <button class="btn btn-outline btn-sm" onclick="UI.openGoalModal()" style="margin-top:0.75rem;">+ Create Your First Goal</button>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = goals.map(g => {
+            const isAchieved = g.isAchieved;
+            const typeLabel = g.targetType === 'monthly_income' ? '/ month passive' : g.targetType === 'annual_income' ? '/ year dividends' : 'portfolio value';
+            const progressColor = isAchieved ? '#10b981' : g.progressPct >= 75 ? '#3b82f6' : '#8b5cf6';
+            const fmt = n => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+            return `
+                <div class="goal-card" style="background:var(--surface);border:1px solid ${isAchieved ? 'rgba(16,185,129,0.3)' : 'var(--border)'};border-radius:var(--radius);padding:1rem;position:relative;display:flex;flex-direction:column;justify-content:space-between;">
+                    <div>
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
+                            <div style="font-weight:600;font-size:0.95rem;color:var(--text);">${sanitize(g.name)}</div>
+                            <span class="status-badge" style="background:${isAchieved ? '#10b981' : 'var(--surface-2)'};color:${isAchieved ? '#042f2e' : 'var(--text-muted)'};font-size:0.7rem;font-weight:700;">
+                                ${isAchieved ? '✔ ACHIEVED' : g.progressPct + '%'}
+                            </span>
+                        </div>
+                        <div style="font-size:1.15rem;font-weight:700;margin-bottom:0.25rem;color:var(--text);">
+                            ${fmt(g.currentAmount)} <span style="font-size:0.8rem;font-weight:400;color:var(--text-muted);">of ${fmt(g.targetAmount)} ${typeLabel}</span>
+                        </div>
+                        <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:8px;overflow:hidden;margin:0.75rem 0 0.5rem;">
+                            <div style="background:${progressColor};height:100%;width:${Math.min(100, g.progressPct)}%;border-radius:6px;transition:width 0.4s ease;"></div>
+                        </div>
+                        <div style="display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-muted);">
+                            <span>${isAchieved ? 'Target Reached! 🎉' : `${fmt(g.remaining)} remaining`}</span>
+                            ${g.targetDate ? `<span>Target: ${sanitize(g.targetDate)}</span>` : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex;justify-content:flex-end;gap:0.4rem;margin-top:0.75rem;border-top:1px solid rgba(255,255,255,0.04);padding-top:0.5rem;">
+                        <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:0.75rem;" onclick="UI.editGoal(${g.id})">Edit</button>
+                        <button class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:0.75rem;color:var(--danger);" onclick="App.deleteGoal(${g.id})">Delete</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    },
+
+    openGoalModal(goal = null) {
+        const modal = document.getElementById('goalModal');
+        if (!modal) return;
+        const titleEl = document.getElementById('goalModalTitle');
+        const idEl = document.getElementById('goalId');
+        const nameEl = document.getElementById('goalName');
+        const typeEl = document.getElementById('goalTargetType');
+        const amtEl = document.getElementById('goalTargetAmount');
+        const dateEl = document.getElementById('goalTargetDate');
+        const notesEl = document.getElementById('goalNotes');
+
+        if (goal) {
+            if (titleEl) titleEl.textContent = 'Edit Milestone';
+            if (idEl) idEl.value = goal.id;
+            if (nameEl) nameEl.value = goal.name || '';
+            if (typeEl) typeEl.value = goal.targetType || 'monthly_income';
+            if (amtEl) amtEl.value = goal.targetAmount || '';
+            if (dateEl) dateEl.value = goal.targetDate || '';
+            if (notesEl) notesEl.value = goal.notes || '';
+        } else {
+            if (titleEl) titleEl.textContent = 'New Financial Milestone';
+            if (idEl) idEl.value = '';
+            if (nameEl) nameEl.value = '';
+            if (typeEl) typeEl.value = 'monthly_income';
+            if (amtEl) amtEl.value = '1000';
+            if (dateEl) dateEl.value = '';
+            if (notesEl) notesEl.value = '';
+        }
+
+        modal.classList.add('visible');
+    },
+
+    editGoal(id) {
+        const g = (this._goalsData?.goals || []).find(x => x.id === id);
+        if (g) this.openGoalModal(g);
+    },
+
+    closeGoalModal() {
+        const modal = document.getElementById('goalModal');
+        if (modal) modal.classList.remove('visible');
+    },
+
+    // ── Smart Deposit Rebalance UI ──────────────────────────────────────────
+    renderSmartDepositResult(result) {
+        const container = document.getElementById('smartDepositResultContainer');
+        if (!container) return;
+
+        if (!result || !result.trades || result.trades.length === 0) {
+            container.innerHTML = '<div class="text-muted text-sm" style="padding:0.75rem 0;">No buy trades recommended for this deposit amount. Target weights may already be satisfied.</div>';
+            return;
+        }
+
+        const fmt = n => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        const rows = result.trades.map(t => {
+            return `
+                <tr>
+                    <td style="font-weight:700;font-family:monospace;">${sanitize(t.symbol)}</td>
+                    <td class="right" style="font-weight:600;color:var(--primary);">${fmt(t.recommendedAmount)}</td>
+                    <td class="right">${t.price ? fmt(t.price) : '—'}</td>
+                    <td class="right" style="font-weight:600;">${t.suggestedShares != null ? t.suggestedShares + ' sh' : '—'}</td>
+                    <td class="right text-muted">${t.currentPct.toFixed(1)}% &rarr; <strong style="color:var(--text);">${t.projectedPct.toFixed(1)}%</strong></td>
+                    <td class="right" style="color:var(--primary);">${t.targetPct.toFixed(1)}%</td>
+                </tr>
+            `;
+        }).join('');
+
+        container.innerHTML = `
+            <div style="margin-top:0.75rem;background:var(--surface-2);border-radius:var(--radius-sm);padding:0.75rem 1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;font-size:0.85rem;">
+                    <span>Total Deposit: <strong>${fmt(result.depositAmount)}</strong></span>
+                    <span>Allocated: <strong style="color:var(--primary);">${fmt(result.allocatedAmount)}</strong></span>
+                    <span>Remaining Cash: <strong>${fmt(result.remainingCash)}</strong></span>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="hb-table" style="font-size:0.82rem;margin:0;">
+                        <thead>
+                            <tr>
+                                <th class="left">Symbol</th>
+                                <th class="right">Smart Buy ($)</th>
+                                <th class="right">Price</th>
+                                <th class="right">Est. Shares</th>
+                                <th class="right">Weight Shift</th>
+                                <th class="right">Target</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    },
+
+    // ── Closed Positions Ledger (Snowball Analytics feature) ───────────────────
+    renderClosedPositions(data) {
+        const host = document.getElementById('closed-positions-container');
+        if (!host) return;
+        if (!data || !data.positions || data.positions.length === 0) {
+            host.innerHTML = `<div class="card"><div class="empty-state" style="padding:2rem;"><p>No closed positions recorded yet. When you sell positions, your realized gain/loss, holding duration, and total dividends collected will appear here.</p></div></div>`;
+            return;
+        }
+        const s = data.summary;
+        const gainCls = s.totalRealizedGain >= 0 ? 'pos' : 'neg';
+        const profitCls = s.totalProfit >= 0 ? 'pos' : 'neg';
+
+        let html = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.85rem;margin-bottom:1.25rem;">
+            <div class="stat-card">
+                <div class="stat-card-label">Total Realized Gain</div>
+                <div class="stat-card-value ${gainCls}">${s.totalRealizedGain >= 0 ? '+' : ''}${this.money(s.totalRealizedGain)}</div>
+                <div class="stat-card-sub text-muted">Capital gain on sells</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Dividends Collected</div>
+                <div class="stat-card-value" style="color:var(--primary);">+${this.money(s.totalDividends)}</div>
+                <div class="stat-card-sub text-muted">Earned while held</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Total Net Return</div>
+                <div class="stat-card-value ${profitCls}">${s.totalProfit >= 0 ? '+' : ''}${this.money(s.totalProfit)}</div>
+                <div class="stat-card-sub text-muted">Realized gain + dividends</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Win Rate &amp; Trades</div>
+                <div class="stat-card-value">${s.winRatePct}%</div>
+                <div class="stat-card-sub text-muted">${s.winCount}W / ${s.lossCount}L · ${s.closedCount} closed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Avg Holding Period</div>
+                <div class="stat-card-value">${s.avgHoldingDays} <span style="font-size:0.9rem;color:var(--text-muted);font-weight:400;">days</span></div>
+                <div class="stat-card-sub text-muted">Entry to liquidation</div>
+            </div>
+        </div>
+
+        <div class="card" style="padding:0;overflow:hidden;">
+            <div style="padding:0.85rem 1.25rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                <h3 style="font-size:0.95rem;font-weight:600;margin:0;">Closed Positions Ledger</h3>
+                <span class="text-muted text-sm">${data.positions.length} liquidated holding(s)</span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="table" style="width:100%;font-size:0.84rem;margin:0;">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border);background:var(--surface-2);">
+                            <th style="padding:0.6rem 0.85rem;text-align:left;">Symbol</th>
+                            <th style="padding:0.6rem 0.85rem;text-align:center;">Period</th>
+                            <th style="padding:0.6rem 0.85rem;text-align:right;">Shares</th>
+                            <th style="padding:0.6rem 0.85rem;text-align:right;">Invested</th>
+                            <th style="padding:0.6rem 0.85rem;text-align:right;">Proceeds</th>
+                            <th style="padding:0.6rem 0.85rem;text-align:right;">Realized Gain</th>
+                            <th style="padding:0.6rem 0.85rem;text-align:right;">Dividends</th>
+                            <th style="padding:0.6rem 0.85rem;text-align:right;">Total Return</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.positions.map(p => {
+                            const rCls = p.realizedGain >= 0 ? 'pos' : 'neg';
+                            const tCls = p.totalProfit >= 0 ? 'pos' : 'neg';
+                            return `<tr style="border-bottom:1px solid var(--border);">
+                                <td style="padding:0.65rem 0.85rem;">
+                                    <strong class="stock-link" data-stock="${sanitize(p.symbol)}">${sanitize(p.symbol)}</strong>
+                                </td>
+                                <td style="padding:0.65rem 0.85rem;text-align:center;color:var(--text-muted);font-size:0.78rem;">
+                                    <div>${p.openDate} &rarr; ${p.closeDate}</div>
+                                    <div style="color:var(--text-muted);font-size:0.72rem;">${p.holdingDays} days</div>
+                                </td>
+                                <td style="padding:0.65rem 0.85rem;text-align:right;">${p.totalSharesSold.toLocaleString()}</td>
+                                <td style="padding:0.65rem 0.85rem;text-align:right;">${this.moneyC(p.costBasis, p.currency)}</td>
+                                <td style="padding:0.65rem 0.85rem;text-align:right;">${this.moneyC(p.proceeds, p.currency)}</td>
+                                <td style="padding:0.65rem 0.85rem;text-align:right;font-weight:600;" class="${rCls}">
+                                    ${p.realizedGain >= 0 ? '+' : ''}${this.moneyC(p.realizedGain, p.currency)}
+                                    <div style="font-size:0.74rem;">(${p.realizedGainPct >= 0 ? '+' : ''}${p.realizedGainPct.toFixed(1)}%)</div>
+                                </td>
+                                <td style="padding:0.65rem 0.85rem;text-align:right;font-weight:600;color:var(--primary);">
+                                    ${p.dividends > 0 ? '+' + this.moneyC(p.dividends, p.currency) : '—'}
+                                </td>
+                                <td style="padding:0.65rem 0.85rem;text-align:right;font-weight:700;" class="${tCls}">
+                                    ${p.totalProfit >= 0 ? '+' : ''}${this.moneyC(p.totalProfit, p.currency)}
+                                    <div style="font-size:0.74rem;">(${p.totalRoiPct >= 0 ? '+' : ''}${p.totalRoiPct.toFixed(1)}% ROI)</div>
+                                </td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+
+        host.innerHTML = html;
+    },
+
+    // ── FIRE Runway Simulator ──────────────────────────────────────────────────
+    toggleFireSimulator() {
+        const el = document.getElementById('fireRunwayDrawer');
+        if (!el) return;
+        const isHidden = el.style.display === 'none';
+        el.style.display = isHidden ? 'block' : 'none';
+        const btn = document.getElementById('toggleFireSimBtn');
+        if (btn) btn.classList.toggle('active', isHidden);
+        if (isHidden && !this._fireSimLoaded) {
+            this.runFireSimulation();
+        }
+    },
+
+    async runFireSimulation() {
+        this._fireSimLoaded = true;
+        const host = document.getElementById('fireRunwayContent');
+        if (!host) return;
+        host.innerHTML = '<p class="text-muted text-sm" style="padding:1rem 0;"><span class="loader" style="display:inline-block;width:14px;height:14px;border-top-color:var(--primary);vertical-align:-2px;"></span> Simulating compound trajectory…</p>';
+
+        const monthlyDeposit = Number(document.getElementById('fireMonthlyDeposit')?.value ?? 500);
+        const targetIncome = Number(document.getElementById('fireTargetMonthly')?.value ?? 2500);
+        const divGrowth = Number(document.getElementById('fireDivGrowth')?.value ?? 6);
+        const capGrowth = Number(document.getElementById('fireCapGrowth')?.value ?? 5);
+        const drip = document.getElementById('fireReinvestDrip')?.checked ?? true;
+
+        try {
+            const sim = await API.runFireRunway({
+                monthlyContribution: monthlyDeposit,
+                targetMonthlyIncome: targetIncome,
+                dividendGrowthRatePct: divGrowth,
+                capitalGrowthRatePct: capGrowth,
+                reinvestDividends: drip,
+            });
+            this.renderFireRunwayResult(sim);
+        } catch (err) {
+            host.innerHTML = `<p class="neg text-sm" style="padding:1rem 0;">Failed to run simulation: ${err.message}</p>`;
+        }
+    },
+
+    renderFireRunwayResult(sim) {
+        const host = document.getElementById('fireRunwayContent');
+        if (!host) return;
+
+        const msHtml = (sim.milestones || []).map(m => {
+            const reached = m.reachedMonth !== null;
+            return `<div class="stat-card" style="padding:0.75rem 1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:600;font-size:0.85rem;">${m.label}</span>
+                    <span class="divcal-status-pill ${reached ? 'pill-conf' : 'pill-est'}">${reached ? 'Target Met' : 'In Progress'}</span>
+                </div>
+                <div style="font-size:1.1rem;font-weight:700;margin:0.25rem 0;">${this.money(m.monthlyIncomeTarget)} <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;">/mo</span></div>
+                <div style="font-size:0.74rem;color:var(--text-muted);">${m.reachedDate ? `Estimated: ${m.reachedDate}` : 'Projected beyond window'}</div>
+            </div>`;
+        }).join('');
+
+        host.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:0.85rem;margin-bottom:1rem;">
+            <div class="stat-card" style="border-left:3px solid var(--primary);">
+                <div class="stat-card-label">Financial Independence Date</div>
+                <div class="stat-card-value" style="color:var(--primary);">${sim.projectedFireDate}</div>
+                <div class="stat-card-sub text-muted">${sim.yearsToTarget} year(s) to financial freedom</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Monthly Passive Income at FIRE</div>
+                <div class="stat-card-value pos">${this.money(sim.annualPassiveIncomeAtFire / 12)} <span style="font-size:0.85rem;color:var(--text-muted);font-weight:400;">/mo</span></div>
+                <div class="stat-card-sub text-muted">${this.money(sim.annualPassiveIncomeAtFire)} / year</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-label">Portfolio Value at FIRE</div>
+                <div class="stat-card-value">${this.money(sim.portfolioValueAtFire)}</div>
+                <div class="stat-card-sub text-muted">Accumulated net worth</div>
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:0.75rem;">
+            ${msHtml}
+        </div>`;
+    },
+
+    renderStockAiInsight(symbol, insight, state = 'ready') {
+        const el = document.getElementById('sd-ai-insight');
+        if (!el) return;
+        if (state === 'loading') {
+            el.innerHTML = `<div class="card-title mb-2" style="display:flex;align-items:center;gap:0.5rem;">
+                <span>🤖 AI Company & Earnings Insights</span>
+            </div>
+            <div style="padding:2rem 1rem;text-align:center;">
+                <span class="loader" style="display:inline-block;width:24px;height:24px;border-top-color:var(--primary);margin-bottom:0.75rem;"></span>
+                <div style="font-weight:600;font-size:0.95rem;">Analyzing ${sanitize(symbol)} Filings & Fundamentals…</div>
+                <div class="text-muted text-sm" style="margin-top:0.35rem;">Synthesizing valuation multiples, payout safety, dividend streak, and earnings trajectory.</div>
+            </div>`;
+            return;
+        }
+        if (state === 'error' || !insight) {
+            el.innerHTML = `<div class="card-title mb-2">🤖 AI Company & Earnings Insights</div>
+            <div class="empty-state" style="padding:1.5rem;text-align:center;">
+                <p class="text-muted">No AI analysis currently available for ${sanitize(symbol)}.</p>
+                <button class="btn btn-primary btn-sm" style="margin-top:0.75rem;" onclick="App.loadStockAiInsight('${sanitize(symbol)}', true)">
+                    ✨ Generate AI Analysis
+                </button>
+            </div>`;
+            return;
+        }
+
+        const scoreColors = {
+            1: 'background:#10b981;color:#042f2e;',
+            2: 'background:#34d399;color:#064e3b;',
+            3: 'background:#60a5fa;color:#1e3a8a;',
+            4: 'background:#f59e0b;color:#451a03;',
+            5: 'background:#ef4444;color:#450a0a;',
+        };
+        const badgeStyle = scoreColors[insight.score] || 'background:var(--primary);color:#fff;';
+        const providerName = insight.provider === 'anthropic' ? 'Claude 3.7'
+            : insight.provider === 'gemini' ? 'Google Gemini'
+            : insight.provider === 'openai' ? 'OpenAI GPT-4o'
+            : 'Financial Intelligence Engine';
+
+        let htmlBody = (insight.markdown || '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/^### (.*$)/gim, '<h4 style="margin:1rem 0 0.5rem 0;font-size:0.98rem;color:var(--text-primary);border-bottom:1px solid var(--border);padding-bottom:0.25rem;">$1</h4>')
+            .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+            .replace(/^\* (.*$)/gim, '<li style="margin-bottom:0.25rem;">$1</li>')
+            .replace(/^- (.*$)/gim, '<li style="margin-bottom:0.25rem;">$1</li>')
+            .replace(/(<li.*<\/li>)/gms, '<ul style="padding-left:1.25rem;margin:0.5rem 0;">$1</ul>')
+            .replace(/---/g, '<hr style="border:none;border-top:1px solid var(--border);margin:1rem 0;">')
+            .replace(/\n\n/g, '<br/>');
+
+        el.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;padding-bottom:0.75rem;border-bottom:1px solid var(--border);margin-bottom:1rem;">
+                <div style="display:flex;align-items:center;gap:0.75rem;">
+                    <div style="width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;${badgeStyle}">
+                        ${insight.score}
+                    </div>
+                    <div>
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <span style="font-weight:700;font-size:1.05rem;">AI Rating: ${sanitize(insight.label)}</span>
+                            <span class="divcal-status-pill pill-conf" style="font-size:0.7rem;">${sanitize(providerName)}</span>
+                        </div>
+                        <div class="text-muted text-sm" style="margin-top:0.1rem;">
+                            Analyzed ${this.txDate(insight.analyzedAt || new Date().toISOString())}
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <button class="btn btn-outline btn-sm" onclick="App.loadStockAiInsight('${sanitize(symbol)}', true)">
+                        ↻ Refresh Analysis
+                    </button>
+                </div>
+            </div>
+            ${insight.summary ? `<div style="padding:0.75rem 1rem;background:var(--surface-2);border-radius:8px;font-size:0.88rem;line-height:1.45;margin-bottom:1rem;border-left:3px solid var(--primary);">
+                <strong>Executive Summary:</strong> ${sanitize(insight.summary)}
+            </div>` : ''}
+            <div style="font-size:0.86rem;line-height:1.6;color:var(--text-secondary);">
+                ${htmlBody}
+            </div>
+        `;
+    },
+
 };

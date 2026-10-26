@@ -133,6 +133,7 @@ const App = {
         ]);
 
         this.renderGlobalPortfolioSelect();
+        this.refreshAlertsBadge();
 
         // Restore tab state and load data after we have loaded the portfolio definitions
         const savedMainTab = localStorage.getItem('activeMainTab') || 'dashboard';
@@ -1486,6 +1487,46 @@ const App = {
         }
     },
 
+    showHoldingsSubTab(tab) {
+        this._holdingsSubTab = tab;
+        const btnActive = document.getElementById('btnActiveHoldings');
+        const btnClosed = document.getElementById('btnClosedPositions');
+        const tablesActive = document.getElementById('holdings-tables');
+        const tabsActive = document.getElementById('holdings-tabs');
+        const closedContainer = document.getElementById('closed-positions-container');
+
+        if (btnActive) btnActive.classList.toggle('active', tab === 'active');
+        if (btnClosed) btnClosed.classList.toggle('active', tab === 'closed');
+
+        if (tablesActive) tablesActive.style.display = tab === 'active' ? 'block' : 'none';
+        if (tabsActive && tab !== 'active') tabsActive.style.display = 'none';
+        if (closedContainer) closedContainer.style.display = tab === 'closed' ? 'block' : 'none';
+
+        if (tab === 'closed') {
+            this.loadClosedPositions();
+        } else {
+            this.loadAllHoldings();
+        }
+    },
+
+    async loadClosedPositions(force = false) {
+        const host = document.getElementById('closed-positions-container');
+        if (!host) return;
+        if (!force && this._cachedClosedPositions) {
+            UI.renderClosedPositions(this._cachedClosedPositions);
+            return;
+        }
+        host.innerHTML = '<div class="card"><div class="empty-state" style="padding:2rem;"><span class="loader" style="display:inline-block;border-top-color:var(--primary);margin-bottom:0.5rem;"></span><p class="text-muted text-sm">Loading closed positions and realized tax data…</p></div></div>';
+        try {
+            const allowedIds = Array.from(this.inactiveAccountIds ? (this.currentGroups || []).flatMap(g => g.accounts).map(a => a.id).filter(id => !this.inactiveAccountIds.has(id)) : []).join(',');
+            const data = await API.getClosedPositions(allowedIds);
+            this._cachedClosedPositions = data;
+            UI.renderClosedPositions(data);
+        } catch (err) {
+            host.innerHTML = `<div class="card"><div class="empty-state" style="padding:2rem;"><p class="neg text-sm">Failed to load closed positions: ${err.message}</p></div></div>`;
+        }
+    },
+
     async loadAllHoldings(forceRefresh = false) {
         const container = document.getElementById('holdings-tables');
         if (!container) return;
@@ -2339,6 +2380,8 @@ const App = {
         this.loadManualAssets();
         this.updateProjection();
         this.applyDividendGrowthDefault();
+        this.loadHealthScore();
+        this.loadGoals();
     },
 
     // Prefill the income projection's "dividend growth %/yr" with the portfolio's
@@ -2627,21 +2670,41 @@ const App = {
      * single day of history, or no contributions), labelled so the two are
      * never confused.
      */
+    _returnDisplayMode: 'mwr',
+    toggleReturnModeDisplay() {
+        this._returnDisplayMode = this._returnDisplayMode === 'mwr' ? 'twr' : 'mwr';
+        this.renderReturnTile();
+    },
+
     renderReturnTile() {
         const valueEl = document.getElementById('irrValue');
         const subEl   = document.getElementById('irrSub');
+        const labelEl = document.getElementById('returnCardLabel');
+        const badgeEl = document.getElementById('returnModeBadge');
         if (!valueEl || !subEl) return;
 
         const summary = this._perfResult?.summary;
         const mwr = summary?.moneyWeightedReturnPct;
+        const twr = summary?.timeWeightedReturnPct;
         const simple = this._simpleReturnPct ?? 0;
 
+        if (this._returnDisplayMode === 'twr' && twr != null) {
+            if (labelEl) labelEl.textContent = 'Total Return (TWR)';
+            if (badgeEl) badgeEl.textContent = 'Mode: TWR';
+            valueEl.textContent = `${twr.toFixed(2)}%`;
+            valueEl.style.color = twr >= 0 ? 'var(--primary)' : 'var(--danger)';
+            subEl.textContent = `TWR (Time-Weighted) · MWR: ${mwr != null ? mwr.toFixed(2) + '%' : '—'}`;
+            subEl.title = `Time-Weighted Return removes cash-flow bias. MWR/XIRR: ${mwr != null ? mwr.toFixed(2) + '%' : '—'} · Simple return: ${simple.toFixed(2)}%`;
+            return;
+        }
+
+        if (labelEl) labelEl.textContent = 'Total Return (MWR)';
+        if (badgeEl) badgeEl.textContent = 'Mode: MWR';
         if (mwr != null) {
             valueEl.textContent = `${mwr.toFixed(2)}%`;
             valueEl.style.color = mwr >= 0 ? 'var(--primary)' : 'var(--danger)';
-            subEl.textContent = 'Annualized, money-weighted';
-            subEl.title = 'XIRR — the annual rate that accounts for the size and timing of every contribution. '
-                + `Simple return over the same period: ${simple.toFixed(2)}%.`;
+            subEl.textContent = `XIRR: ${mwr.toFixed(2)}% · TWR: ${twr != null ? twr.toFixed(2) + '%' : '—'}`;
+            subEl.title = `XIRR accounts for size and timing of contributions. TWR: ${twr != null ? twr.toFixed(2) + '%' : '—'} · Simple return: ${simple.toFixed(2)}%`;
             return;
         }
 
@@ -2649,6 +2712,23 @@ const App = {
         valueEl.style.color = '';
         subEl.textContent = summary ? 'Simple return — too little history to annualize' : 'Simple return';
         subEl.title = 'Profit divided by invested capital. It ignores when contributions were made.';
+    },
+
+    _perfMetric: 'value',
+    setPerfMetric(metric) {
+        this._perfMetric = metric;
+        document.getElementById('perfMetricValBtn')?.classList.toggle('active', metric === 'value');
+        document.getElementById('perfMetricTwrBtn')?.classList.toggle('active', metric === 'twr');
+        if (this._perfResult) {
+            const benchOn = localStorage.getItem('cf_perf_bench') !== 'false';
+            UI.renderPortfolioPerformance(this._perfResult, this._perfRange, benchOn, this._perfCurrency, this._perfMetric);
+        }
+    },
+
+    setPerfBenchmark(sym) {
+        localStorage.setItem('cf_perf_bench_sym', sym);
+        this._perfResult = null;
+        this.loadPortfolioPerformance();
     },
 
     async loadPortfolioPerformance() {
@@ -2659,6 +2739,8 @@ const App = {
         if (benchToggle) benchToggle.checked = benchOn;
         const benchLabel = document.getElementById('perfBenchLabel');
         if (benchLabel) benchLabel.textContent = benchSym;
+        const benchSelect = document.getElementById('perfBenchSelect');
+        if (benchSelect) benchSelect.value = benchSym;
 
         // Risk metrics load independently (server-cached); render alongside.
         this.loadRiskMetrics(benchSym);
@@ -2666,7 +2748,7 @@ const App = {
         // Re-use cached result unless it was invalidated (e.g. by a transaction sync).
         if (this._perfResult) {
             this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
-            UI.renderPortfolioPerformance(this._perfResult, this._perfRange, benchOn, this._perfCurrency);
+            UI.renderPortfolioPerformance(this._perfResult, this._perfRange, benchOn, this._perfCurrency, this._perfMetric);
             this.renderReturnTile();
             return;
         }
@@ -2676,11 +2758,98 @@ const App = {
             const result = await API.getPortfolioHistory(benchSym, accountIds);
             this._perfResult = result;
             this._perfCurrency = (this.getFilteredHoldingsData()?.[0]?.holdings?.[0]?.currency) || 'USD';
-            UI.renderPortfolioPerformance(result, this._perfRange, benchOn, this._perfCurrency);
+            UI.renderPortfolioPerformance(result, this._perfRange, benchOn, this._perfCurrency, this._perfMetric);
             this.renderReturnTile();
         } catch (e) {
             const empty = document.getElementById('perfEmpty');
             if (empty) { empty.style.display = 'flex'; empty.querySelector('p').textContent = 'Could not load performance data.'; }
+        }
+    },
+
+    async loadHealthScore() {
+        try {
+            const benchSym = localStorage.getItem('cf_perf_bench_sym') || 'SPY';
+            const accountIds = this._getSelectedAccountIds();
+            const report = await API.getHealthScore(benchSym, accountIds);
+            UI.renderHealthScoreTile(report);
+        } catch (e) {
+            console.warn('Failed to load health score', e);
+        }
+    },
+
+    async loadGoals() {
+        try {
+            const accountIds = this._getSelectedAccountIds();
+            const data = await API.getGoals(accountIds);
+            UI.renderGoals(data);
+        } catch (e) {
+            console.warn('Failed to load goals', e);
+        }
+    },
+
+    async handleGoalSubmit(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        const id = document.getElementById('goalId')?.value;
+        const name = document.getElementById('goalName')?.value;
+        const targetType = document.getElementById('goalTargetType')?.value;
+        const targetAmount = parseFloat(document.getElementById('goalTargetAmount')?.value);
+        const targetDate = document.getElementById('goalTargetDate')?.value || null;
+        const notes = document.getElementById('goalNotes')?.value || null;
+
+        if (!name || isNaN(targetAmount) || targetAmount <= 0) {
+            UI.showToast('Please enter a valid milestone name and positive amount', 'error');
+            return;
+        }
+
+        try {
+            if (id) {
+                await API.updateGoal(parseInt(id, 10), { name, targetType, targetAmount, targetDate, notes });
+                UI.showToast('Milestone updated');
+            } else {
+                await API.saveGoal({ name, targetType, targetAmount, targetDate, notes });
+                UI.showToast('New milestone created');
+            }
+            UI.closeGoalModal();
+            this.loadGoals();
+        } catch (err) {
+            UI.showToast(err.message || 'Failed to save milestone', 'error');
+        }
+    },
+
+    async deleteGoal(id) {
+        if (!confirm('Are you sure you want to delete this financial milestone?')) return;
+        try {
+            await API.deleteGoal(id);
+            UI.showToast('Milestone deleted');
+            this.loadGoals();
+        } catch (err) {
+            UI.showToast(err.message || 'Failed to delete goal', 'error');
+        }
+    },
+
+    async runSmartDeposit() {
+        const input = document.getElementById('smartDepositInput');
+        const amount = parseFloat(input?.value || '0');
+        if (isNaN(amount) || amount <= 0) {
+            UI.showToast('Please enter a valid deposit amount', 'warning');
+            return;
+        }
+
+        const pid = this.selectedUserPortfolioId;
+        if (!pid || pid === 'all' || isNaN(parseInt(pid, 10))) {
+            UI.showToast('Please select a specific user portfolio first', 'warning');
+            return;
+        }
+
+        try {
+            const res = await API.getSmartDeposit(parseInt(pid, 10), amount);
+            if (!res.targetsConfigured) {
+                UI.showToast('Please set target allocations for this portfolio first', 'warning');
+                return;
+            }
+            UI.renderSmartDepositResult(res.result);
+        } catch (err) {
+            UI.showToast(err.message || 'Failed to compute smart deposit', 'error');
         }
     },
 
@@ -3191,6 +3360,12 @@ const App = {
         try {
             await API.acknowledgeAlert(id);
             await this.loadAlertsPane();
+            const modal = document.getElementById('alertsModal');
+            if (modal && modal.classList.contains('active')) {
+                const data = await API.getAlerts(100);
+                UI.renderAlertsFeedModal(data.alerts || [], data.unacknowledged || 0);
+            }
+            this.refreshAlertsBadge();
         } catch (err) {
             UI.showToast(err.message, 'error');
         }
@@ -3201,6 +3376,12 @@ const App = {
             const res = await API.acknowledgeAllAlerts();
             UI.showToast(res.acknowledged > 0 ? `Marked ${res.acknowledged} alert(s) read` : 'Nothing unread');
             await this.loadAlertsPane();
+            const modal = document.getElementById('alertsModal');
+            if (modal && modal.classList.contains('active')) {
+                const data = await API.getAlerts(100);
+                UI.renderAlertsFeedModal(data.alerts || [], data.unacknowledged || 0);
+            }
+            this.refreshAlertsBadge();
         } catch (err) {
             UI.showToast(err.message, 'error');
         }
@@ -3380,6 +3561,7 @@ const App = {
             const detail = await API.getStockDetail(symbol);
             detailCurrency = (detail && detail.currency) || detailCurrency;
             UI.renderStockDetail(symbol, detail, positions, 'ready');
+            this.loadStockAiInsight(symbol);
         } catch (_) {
             UI.renderStockDetail(symbol, null, positions, 'error');
         }

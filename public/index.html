@@ -119,6 +119,13 @@
         <select id="globalPortfolioSelect" style="width: auto; padding: 0.35rem 1.75rem 0.35rem 0.75rem; font-size: 0.82rem; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; background: var(--surface) url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%25237c8496%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E') no-repeat right 0.6rem top 50%; background-size: 0.55rem auto; color: var(--text-primary); cursor: pointer; outline: none; transition: border-color 0.15s;">
           <option value="all">All Portfolios</option>
         </select>
+        <button id="alertsBellBtn" class="btn btn-outline btn-sm" onclick="App.openAlertsModal()" title="Dividend Alerts & Events Hub" style="position:relative;padding:0 0.55rem;height:28px;border-radius:6px;border-color:var(--border);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <span id="alerts-unread-badge" style="display:none;position:absolute;top:-5px;right:-5px;background:var(--danger);color:#fff;border-radius:10px;padding:1px 5px;font-size:0.62rem;font-weight:700;line-height:1.2;"></span>
+        </button>
         <button id="themeToggleBtn" class="btn btn-outline btn-sm" onclick="App.toggleTheme()" title="Toggle Theme" style="padding: 0 0.5rem; height: 28px; border-radius: 6px; border-color: var(--border);">
           <svg id="themeToggleIcon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
@@ -147,8 +154,8 @@
       <!-- Dashboard -->
       <div class="container tab-content active" id="dashboard-tab">
 
-        <!-- 4-card stat row -->
-        <div class="stats-row dash-stats">
+        <!-- Snowball-style 5-card stat row -->
+        <div class="stats-row dash-stats" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
           <div class="stat-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
               <div class="stat-label" style="margin:0;">Value</div>
@@ -170,15 +177,26 @@
             <div id="totalProfit" class="stat-value primary masked-val" style="font-feature-settings:'tnum'">+$0.00</div>
             <div id="totalProfitPct" class="stat-sublabel">+0.00% total return</div>
           </div>
-          <div class="stat-card">
-            <div class="stat-label">Total Return</div>
+          <div class="stat-card" style="cursor:pointer;" onclick="App.toggleReturnModeDisplay()" title="Click to toggle MWR / TWR view">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div class="stat-label" id="returnCardLabel">Total Return (MWR)</div>
+              <span class="badge" style="font-size:0.65rem; background:var(--surface-2); padding:2px 6px; border-radius:4px; color:var(--text-muted);" id="returnModeBadge">MWR / TWR</span>
+            </div>
             <div id="irrValue" class="stat-value masked-val">0.00%</div>
-            <div id="irrSub" class="stat-sublabel">Simple return</div>
+            <div id="irrSub" class="stat-sublabel">TWR: 0.00% · XIRR: 0.00%</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">Passive income</div>
             <div id="passiveYield" class="stat-value masked-val">0.00%</div>
-            <div id="passiveAnnually" class="stat-sublabel masked-val">$0.00 annually</div>
+            <div id="passiveAnnually" class="stat-sublabel masked-val">$0.00 annually · YOC: 0.00%</div>
+          </div>
+          <div class="stat-card health-score-card" style="cursor:pointer; border:1px solid rgba(16,185,129,0.25);" onclick="UI.openHealthScoreModal()" title="View Snowball Health & Diversification Audit">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div class="stat-label" style="color:var(--primary); font-weight:600;">Snowball Health</div>
+              <span id="healthGradeBadge" class="status-badge" style="background:#10b981; color:#042f2e; font-weight:700; font-size:0.75rem; padding:1px 7px;">--</span>
+            </div>
+            <div id="healthScoreValue" class="stat-value" style="font-feature-settings:'tnum'">-- / 100</div>
+            <div id="healthScoreSub" class="stat-sublabel" style="color:var(--text-muted);">Click for detailed audit &rarr;</div>
           </div>
         </div>
 
@@ -189,11 +207,17 @@
               <span class="card-title">Portfolio performance</span>
               <div id="perfSummary" class="perf-summary text-muted text-sm">—</div>
             </div>
-            <div class="perf-controls">
-              <label class="perf-bench-toggle" title="Overlay a benchmark index">
-                <input type="checkbox" id="perfBenchToggle" checked onchange="App.togglePerfBenchmark(this.checked)">
-                vs <strong id="perfBenchLabel">SPY</strong>
-              </label>
+            <div class="perf-controls" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+              <div class="perf-metric-pills" id="perfMetricPills" style="display:inline-flex;background:var(--surface-2);border-radius:6px;padding:2px;">
+                <button class="perf-pill active" id="perfMetricValBtn" onclick="App.setPerfMetric('value')">Value ($)</button>
+                <button class="perf-pill" id="perfMetricTwrBtn" onclick="App.setPerfMetric('twr')">TWR (%)</button>
+              </div>
+              <select id="perfBenchSelect" onchange="App.setPerfBenchmark(this.value)" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 8px;font-size:0.8rem;cursor:pointer;">
+                <option value="SPY">vs SPY (S&amp;P 500)</option>
+                <option value="QQQ">vs QQQ (Nasdaq 100)</option>
+                <option value="XIU.TO">vs XIU (TSX 60)</option>
+                <option value="VTI">vs VTI (Total US)</option>
+              </select>
               <div class="perf-pills" id="perfRangePills"></div>
             </div>
           </div>
@@ -213,6 +237,60 @@
             <span id="moversTotal" class="text-sm" style="color:var(--text-muted);font-weight:600;"></span>
           </div>
           <div id="moversBody"><div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading contributors…</p></div></div>
+        </div>
+
+        <!-- Goals & FIRE Milestones -->
+        <div class="card mb-3" id="goalsCard">
+          <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+            <div>
+              <span class="card-title">Goals &amp; Financial Independence (FIRE)</span>
+              <span class="text-muted text-sm" id="goalsSummary" style="margin-left:0.5rem;">Track passive income milestones</span>
+            </div>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <button class="btn btn-outline btn-sm" id="toggleFireSimBtn" onclick="UI.toggleFireSimulator()" style="display:inline-flex;align-items:center;gap:0.35rem;">
+                <span>🚀</span> <span>FIRE Runway Forecaster</span>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="UI.openGoalModal()">+ New Goal</button>
+            </div>
+          </div>
+
+          <!-- Interactive FIRE Runway Forecaster Drawer -->
+          <div id="fireRunwayDrawer" style="display:none;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1.25rem;margin-top:0.85rem;margin-bottom:0.75rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+              <div>
+                <h3 style="font-size:1rem;font-weight:700;margin:0;">🚀 Financial Independence (FIRE) Runway Calculator</h3>
+                <p class="text-muted text-sm" style="margin-top:0.2rem;">Compound dividend reinvestment (DRIP) and recurring contributions simulator</p>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="UI.runFireSimulation()">Recalculate</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.85rem;margin-bottom:1.25rem;">
+              <div>
+                <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Monthly Deposit ($)</label>
+                <input type="number" id="fireMonthlyDeposit" class="input input-sm" value="500" step="50" style="width:100%;" onchange="UI.runFireSimulation()">
+              </div>
+              <div>
+                <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Target Monthly Income ($)</label>
+                <input type="number" id="fireTargetMonthly" class="input input-sm" value="2500" step="100" style="width:100%;" onchange="UI.runFireSimulation()">
+              </div>
+              <div>
+                <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Div Growth Rate (%/yr)</label>
+                <input type="number" id="fireDivGrowth" class="input input-sm" value="6" step="0.5" style="width:100%;" onchange="UI.runFireSimulation()">
+              </div>
+              <div>
+                <label style="font-size:0.75rem;color:var(--text-muted);display:block;margin-bottom:0.25rem;">Capital Appreciation (%/yr)</label>
+                <input type="number" id="fireCapGrowth" class="input input-sm" value="5" step="0.5" style="width:100%;" onchange="UI.runFireSimulation()">
+              </div>
+              <div style="display:flex;align-items:center;gap:0.5rem;padding-top:1.2rem;">
+                <input type="checkbox" id="fireReinvestDrip" checked onchange="UI.runFireSimulation()">
+                <label for="fireReinvestDrip" style="font-size:0.82rem;font-weight:600;cursor:pointer;">DRIP (Reinvest Divs)</label>
+              </div>
+            </div>
+            <div id="fireRunwayContent"></div>
+          </div>
+
+          <div id="goalsContainer" class="goals-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:1rem;margin-top:0.75rem;">
+            <div class="empty-state" style="padding:1rem 0;"><p class="text-muted text-sm">Loading milestones…</p></div>
+          </div>
         </div>
 
         <!-- Portfolio allocation + Diversification side by side -->
@@ -340,7 +418,11 @@
       <div class="container tab-content" id="holdings-tab">
         <div class="page-header">
           <h1 class="page-heading">Holdings</h1>
-          <div class="page-actions">
+          <div class="page-actions" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+            <div class="divcal-viewtoggle" id="holdingsSubTabToggle">
+              <button class="active" id="btnActiveHoldings" onclick="App.showHoldingsSubTab('active')">Active Holdings</button>
+              <button id="btnClosedPositions" onclick="App.showHoldingsSubTab('closed')">Closed Positions &amp; Tax</button>
+            </div>
             <span id="holdings-last-updated" class="last-updated"></span>
             <button id="refreshHoldingsBtn" class="btn btn-outline btn-sm" onclick="App.loadAllHoldings(true)">
               <span class="loader"></span>
@@ -352,6 +434,7 @@
         <div id="holdings-tables">
           <div class="empty-state">Select an account in Settings to view holdings.</div>
         </div>
+        <div id="closed-positions-container" style="display:none;margin-top:1rem;"></div>
       </div>
 
       <!-- Portfolio comparison -->
@@ -481,6 +564,11 @@
               <span id="currentCalendarMonth" class="divcal-month-label"></span>
               <button class="divcal-navbtn" onclick="App.changeCalendarMonth(1)" aria-label="Next month">&#8250;</button>
               <span id="divcalMonthTotal" class="divcal-month-total"></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <a href="/api/portfolios/calendar/export.ics" class="btn btn-outline btn-sm" download="centralfolio-dividends.ics" title="Export to Apple Calendar, Google Calendar, or Outlook" style="display:inline-flex;align-items:center;gap:0.35rem;text-decoration:none;">
+                <span>📅</span> <span>Sync Calendar (.ics)</span>
+              </a>
             </div>
           </div>
 
@@ -751,6 +839,27 @@
 
             <!-- Right Panel: Rebalancing suggestions -->
             <div>
+              <!-- Smart Deposit Assistant (Snowball Cash Allocation) -->
+              <div class="card mb-3" id="smartDepositCard" style="border:1px solid rgba(16,185,129,0.3);background:linear-gradient(180deg, rgba(16,185,129,0.04) 0%, var(--surface) 100%);">
+                <div class="card-header" style="flex-wrap:wrap;gap:0.5rem;padding-bottom:0.5rem;">
+                  <div>
+                    <span class="card-title" style="display:flex;align-items:center;gap:0.5rem;margin:0;">
+                      💡 Smart Deposit Assistant
+                      <span class="status-badge" style="background:#10b981;color:#042f2e;font-size:0.7rem;padding:1px 6px;">Zero Tax</span>
+                    </span>
+                    <p class="text-muted text-sm" style="margin-top:0.25rem;">Allocate incoming cash deposit to underweight targets without selling any shares.</p>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin:0.75rem 0;">
+                  <label style="font-size:0.85rem;color:var(--text);display:flex;align-items:center;gap:0.4rem;">
+                    Deposit Amount ($):
+                    <input type="number" id="smartDepositInput" min="10" step="50" value="1000" class="form-input" style="width:130px;padding:0.35rem 0.6rem;font-size:0.85rem;">
+                  </label>
+                  <button type="button" class="btn btn-primary btn-sm" onclick="App.runSmartDeposit()">Calculate Smart Buy</button>
+                </div>
+                <div id="smartDepositResultContainer"></div>
+              </div>
+
               <div class="card mb-3" style="display:flex; justify-content:space-between; align-items:center; flex-direction:row; padding:1rem 1.25rem;">
                 <div>
                   <span class="card-title" style="margin:0;">Suggestions &amp; Deviations</span>
@@ -1500,7 +1609,7 @@
     </div>
   </div>
 
-  <!-- Bucket editor: name, cash amount, how to split it, and the symbols -->
+<!-- Bucket editor: name, cash amount, how to split it, and the symbols -->
   <div id="bucketModal" class="modal-overlay">
     <div class="modal-content" style="max-width:600px;">
       <button class="modal-close" onclick="App.closeBucketModal()">&times;</button>
@@ -1540,11 +1649,68 @@
         <button class="btn btn-primary" id="saveBucketBtn" onclick="App.saveBucket()">
           <span class="loader"></span><span class="btn-text">Save bucket</span>
         </button>
+
+<!-- Goal Modal -->
+  <div id="goalModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:440px;">
+      <button class="modal-close" id="goalModalClose" onclick="UI.closeGoalModal()">&times;</button>
+      <h2 class="modal-title" id="goalModalTitle">New Financial Milestone</h2>
+      <form id="goalForm" onsubmit="App.handleGoalSubmit(event)">
+        <input type="hidden" id="goalId" value="">
+        <div class="form-group">
+          <label for="goalName">Milestone Name</label>
+          <input type="text" id="goalName" placeholder="e.g. Cover Mortgage, Lean FIRE, $100k Club" required class="form-input">
+        </div>
+        <div class="form-group">
+          <label for="goalTargetType">Milestone Target Type</label>
+          <select id="goalTargetType" class="form-input" style="width:100%;padding:0.5rem;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);">
+            <option value="monthly_income">Monthly Passive Income ($/month)</option>
+            <option value="annual_income">Annual Dividend Income ($/year)</option>
+            <option value="net_worth">Total Portfolio Net Worth ($)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="goalTargetAmount">Target Amount ($)</label>
+          <input type="number" id="goalTargetAmount" placeholder="e.g. 2000" min="1" step="50" required class="form-input">
+        </div>
+        <div class="form-group">
+          <label for="goalTargetDate">Target Date (Optional)</label>
+          <input type="date" id="goalTargetDate" class="form-input">
+        </div>
+        <div class="form-group">
+          <label for="goalNotes">Notes (Optional)</label>
+          <input type="text" id="goalNotes" placeholder="Motivation or context" class="form-input">
+        </div>
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1.25rem;">
+          <button type="button" class="btn btn-outline" onclick="UI.closeGoalModal()">Cancel</button>
+          <button type="submit" id="saveGoalBtn" class="btn btn-primary">Save Goal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Snowball Dividend Alerts & Events Feed Modal -->
+  <div id="alertsModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:720px;max-height:88vh;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:0.75rem;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:0.5rem;">
+        <div style="display:flex;align-items:center;gap:0.6rem;">
+          <span style="font-size:1.25rem;">🔔</span>
+          <h2 class="modal-title" style="margin:0;font-size:1.15rem;">Dividend Alerts & Events Feed</h2>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <button class="btn btn-outline btn-sm" onclick="App.runAlertsNow()" id="alertsModalRunBtn" title="Re-evaluate all rules right now">▶ Check Now</button>
+          <button class="btn btn-outline btn-sm" onclick="App.acknowledgeAllAlerts()" title="Mark all alerts as read">Mark all read</button>
+          <button class="btn btn-outline btn-sm" onclick="App.closeAlertsModal(); App.switchMainTab('settings', null); App.switchSettingsTab('alerts', null);" title="Manage Alert Rules">⚙ Rules</button>
+          <button class="modal-close" style="position:static;font-size:1.5rem;line-height:1;margin-left:0.5rem;" onclick="App.closeAlertsModal()">&times;</button>
+        </div>
+      </div>
+      <div id="alertsModalBody" style="overflow-y:auto;padding:1rem 0;flex:1;">
+        <div class="empty-state" style="padding:2rem;"><p class="text-muted">Loading alerts feed…</p></div>
       </div>
     </div>
   </div>
 
-  <!-- Running a bucket: pick accounts, review every order, then confirm once -->
+<!-- Running a bucket: pick accounts, review every order, then confirm once -->
   <div id="bucketRunModal" class="modal-overlay">
     <div class="modal-content" style="max-width:640px;">
       <button class="modal-close" onclick="App.closeBucketRunModal()">&times;</button>
@@ -1567,6 +1733,20 @@
         <button class="btn btn-primary" id="placeBucketBtn" onclick="App.placeBucketOrders()" disabled>
           <span class="loader"></span><span class="btn-text">Place orders</span>
         </button>
+
+<!-- Snowball Portfolio Health Score & Audit Modal -->
+  <div id="healthScoreModal" class="modal-overlay">
+    <div class="modal-content" style="max-width:680px;max-height:90vh;overflow-y:auto;">
+      <button class="modal-close" id="healthScoreModalClose" onclick="UI.closeHealthScoreModal()">&times;</button>
+      <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;border-bottom:1px solid var(--border);padding-bottom:1rem;">
+        <div id="modalHealthGradeBadge" style="width:54px;height:54px;border-radius:12px;background:#10b981;color:#042f2e;display:flex;align-items:center;justify-content:center;font-size:1.75rem;font-weight:800;flex-shrink:0;">A</div>
+        <div>
+          <h2 style="font-size:1.2rem;margin:0;" id="modalHealthTitle">Snowball Portfolio Rating</h2>
+          <p id="modalHealthSummary" style="font-size:0.85rem;color:var(--text-muted);margin-top:0.25rem;">Comprehensive analysis of diversification, sector distribution, dividend safety, and systematic risk.</p>
+        </div>
+      </div>
+      <div id="healthScoreDetailBody">
+        <div class="empty-state" style="padding:2rem;"><p class="text-muted">Loading health audit…</p></div>
       </div>
     </div>
   </div>

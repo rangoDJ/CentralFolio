@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { getStockDetail } from "../services/dividendService.js";
 import { getPriceHistory } from "../services/priceHistoryService.js";
+import { getCompanyAiInsight } from "../services/aiInsightService.js";
 import { logger } from "../utils/logger.js";
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
@@ -41,6 +42,39 @@ export const priceHistoryHandler = async (req: Request, res: Response) => {
     res.json({ symbol, range, candles });
   } catch (err: any) {
     logger.error('Stock', `priceHistory(${symbol}) failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/stock/:symbol/ai-insight — AI company & earnings insights
+export const stockAiInsightHandler = async (req: Request, res: Response) => {
+  const symbol = String(req.params.symbol)?.toUpperCase().trim();
+  if (!symbol || !SYMBOL_RE.test(symbol)) {
+    return res.status(400).json({ error: 'Invalid symbol' });
+  }
+  const forceRefresh = req.query.refresh === 'true';
+  logger.info('Stock', `GET /api/stock/${symbol}/ai-insight (refresh: ${forceRefresh})`);
+  try {
+    const insight = await getCompanyAiInsight(symbol, forceRefresh);
+    res.json(insight);
+  } catch (err: any) {
+    logger.error('Stock', `stockAiInsight(${symbol}) failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /api/stock/:symbol/ai-insight/refresh — Force regenerate AI analysis
+export const stockAiInsightRefreshHandler = async (req: Request, res: Response) => {
+  const symbol = String(req.params.symbol)?.toUpperCase().trim();
+  if (!symbol || !SYMBOL_RE.test(symbol)) {
+    return res.status(400).json({ error: 'Invalid symbol' });
+  }
+  logger.info('Stock', `POST /api/stock/${symbol}/ai-insight/refresh`);
+  try {
+    const insight = await getCompanyAiInsight(symbol, true);
+    res.json(insight);
+  } catch (err: any) {
+    logger.error('Stock', `stockAiInsightRefresh(${symbol}) failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };

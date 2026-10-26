@@ -18,6 +18,8 @@ const ALLOWED_SETTINGS = new Set([
   // Read by stockRatingService for the AI stock-rating job. Without it here,
   // Settings -> Keys saved the key straight into a 403.
   'anthropic_api_key',
+  'gemini_api_key',
+  'openai_api_key',
   'eodhd_api_key',
   'polygon_api_key',
   'yahoo_api_key',

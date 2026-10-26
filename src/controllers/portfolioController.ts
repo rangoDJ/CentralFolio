@@ -4,6 +4,7 @@ import { getAllDividendsForAllPortfolios, getCachedAllDividends, clearAllDividen
 import { triggerJob, isJobRunning } from "../services/schedulerService.js";
 import { onPortfolioDeleted } from "../services/cacheService.js";
 import { evictSnapTradeClientForPortfolio } from "../services/snaptrade.js";
+import { generateIcsCalendar, type CalendarDividendEvent } from "../services/calendarFeedService.js";
 import { logger } from "../utils/logger.js";
 import { keyTypeOf, isPortfolioConnected } from "../utils/snapTradeKeyType.js";
 
@@ -57,6 +58,38 @@ export const getAllDividends = async (req: Request, res: Response) => {
 // A non-string collapses to '' and is then rejected by the required-field check
 // below, matching how the rest of this API refuses non-string input outright.
 const trimmed = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+// GET /api/portfolios/calendar/export.ics — Live RFC 5545 iCalendar feed
+export const exportDividendCalendarIcsHandler = async (req: Request, res: Response) => {
+  logger.info('Portfolio', 'GET /api/portfolios/calendar/export.ics — generating ICS feed');
+  try {
+    const data = await getAllDividendsFromCacheOnly();
+    const events: CalendarDividendEvent[] = [];
+    for (const acct of data) {
+      for (const d of (acct.dividends || [])) {
+        events.push({
+          symbol: d.symbol,
+          name: d.name,
+          amount: d.amountCAD ?? d.amount ?? 0,
+          date: d.date ? d.date.split('T')[0] : '',
+          exDate: d.exDate ? d.exDate.split('T')[0] : undefined,
+          amountPerShare: d.amountPerShare,
+          units: d.units,
+          currency: d.currency || 'CAD',
+          isConfirmed: d.confirmed === true || (!d.estimated && d.status !== 'received'),
+        });
+      }
+    }
+    const icsContent = generateIcsCalendar(events, 'CentralFolio Dividend Calendar');
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="centralfolio-dividends.ics"');
+    res.send(icsContent);
+  } catch (err: any) {
+    logger.error('Portfolio', "exportDividendCalendarIcs failed: " + err.message);
+    res.status(500).send('Error generating calendar feed');
+  }
+};
+
 
 export const createOrUpdatePortfolio = (req: Request, res: Response) => {
   // userSecret is intentionally excluded — it is set only by the backend after SnapTrade registration

@@ -1,10 +1,27 @@
 import { Router } from "express";
-import { portfolioHistoryHandler, diversificationHandler, stockRatingsHandler, riskHandler, taxHandler, attributionHandler, realizedGainsHandler, t5008Handler, t5008CsvHandler, taxLossHarvestHandler } from "../controllers/analyticsController.js";
+import {
+  portfolioHistoryHandler,
+  diversificationHandler,
+  stockRatingsHandler,
+  riskHandler,
+  taxHandler,
+  attributionHandler,
+  realizedGainsHandler,
+  t5008Handler,
+  t5008CsvHandler,
+  taxLossHarvestHandler,
+  healthScoreHandler,
+  closedPositionsHandler,
+  fireRunwayHandler,
+} from "../controllers/analyticsController.js";
 
 const router = Router();
 
 router.get("/portfolio-history", portfolioHistoryHandler);
 router.get("/diversification", diversificationHandler);
+router.get("/health-score", healthScoreHandler);
+router.get("/closed-positions", closedPositionsHandler);
+router.post("/fire-runway", fireRunwayHandler);
 router.get("/stock-ratings", stockRatingsHandler);
 router.get("/risk", riskHandler);
 router.get("/tax", taxHandler);

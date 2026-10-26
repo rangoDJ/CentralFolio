@@ -22,6 +22,25 @@ export interface RebalanceResult {
   cash: number;
 }
 
+export interface SmartDepositTrade {
+  symbol: string;
+  recommendedAmount: number;
+  price?: number;
+  suggestedShares?: number;
+  estimatedCost?: number;
+  currentPct: number;
+  projectedPct: number;
+  targetPct: number;
+}
+
+export interface SmartDepositResult {
+  depositAmount: number;
+  allocatedAmount: number;
+  remainingCash: number;
+  projectedTotalValue: number;
+  trades: SmartDepositTrade[];
+}
+
 /**
  * Calculates suggested trades to align actual holdings with target allocations.
  *
@@ -115,5 +134,115 @@ export function computeRebalance(
     trades,
     totalValue,
     cash
+  };
+}
+
+/**
+ * Snowball Analytics-style Smart Deposit Calculator.
+ * Allocates an incoming cash deposit to underweight target positions without selling any holdings.
+ */
+export function calculateSmartDeposit(
+  positions: { symbol: string; marketValue: number; price?: number }[],
+  depositAmount: number,
+  targets: { symbol: string; targetPct: number }[]
+): SmartDepositResult {
+  const deposit = Math.max(0, Number(depositAmount) || 0);
+  const currentValBySym: Record<string, number> = {};
+  const priceBySym: Record<string, number> = {};
+
+  let currentTotal = 0;
+  for (const p of positions) {
+    if (!p.symbol) continue;
+    const s = p.symbol.toUpperCase().trim();
+    currentValBySym[s] = (currentValBySym[s] || 0) + (p.marketValue || 0);
+    currentTotal += (p.marketValue || 0);
+    if (p.price && p.price > 0) priceBySym[s] = p.price;
+  }
+
+  const projectedTotal = currentTotal + deposit;
+  const targetMap = new Map(targets.map(t => [t.symbol.toUpperCase().trim(), t.targetPct]));
+
+  // Calculate deficit for each target ticker
+  const targetHoldings = targets.map(t => {
+    const sym = t.symbol.toUpperCase().trim();
+    const curVal = currentValBySym[sym] || 0;
+    const tgtVal = projectedTotal * t.targetPct;
+    const deficit = Math.max(0, tgtVal - curVal);
+    return {
+      symbol: sym,
+      targetPct: t.targetPct,
+      currentVal: curVal,
+      targetVal: tgtVal,
+      deficit,
+      price: priceBySym[sym],
+    };
+  });
+
+  const totalDeficit = targetHoldings.reduce((sum, h) => sum + h.deficit, 0);
+  const allocBySym: Record<string, number> = {};
+
+  if (totalDeficit <= 0) {
+    // Already balanced: allocate deposit proportionally to target weights
+    for (const h of targetHoldings) {
+      allocBySym[h.symbol] = deposit * h.targetPct;
+    }
+  } else if (deposit >= totalDeficit) {
+    // We have enough cash to satisfy all deficits, and distribute remaining cash
+    const surplus = deposit - totalDeficit;
+    for (const h of targetHoldings) {
+      allocBySym[h.symbol] = h.deficit + (surplus * h.targetPct);
+    }
+  } else {
+    // Deposit is less than total deficit: allocate proportionally to deficits
+    for (const h of targetHoldings) {
+      allocBySym[h.symbol] = (h.deficit / totalDeficit) * deposit;
+    }
+  }
+
+  const trades: SmartDepositTrade[] = [];
+  let totalAllocated = 0;
+
+  for (const h of targetHoldings) {
+    const recAmount = Math.round((allocBySym[h.symbol] || 0) * 100) / 100;
+    if (recAmount <= 0) continue;
+
+    let suggestedShares: number | undefined;
+    let estimatedCost: number | undefined;
+
+    if (h.price && h.price > 0) {
+      suggestedShares = Math.max(0, Math.floor(recAmount / h.price));
+      estimatedCost = Math.round(suggestedShares * h.price * 100) / 100;
+    }
+
+    const actualAlloc = estimatedCost !== undefined && estimatedCost > 0 ? estimatedCost : recAmount;
+    totalAllocated += actualAlloc;
+
+    const currentPct = currentTotal > 0 ? (h.currentVal / currentTotal) * 100 : 0;
+    const projectedVal = h.currentVal + actualAlloc;
+    const projectedPct = projectedTotal > 0 ? (projectedVal / projectedTotal) * 100 : 0;
+
+    trades.push({
+      symbol: h.symbol,
+      recommendedAmount: recAmount,
+      price: h.price,
+      suggestedShares,
+      estimatedCost,
+      currentPct: Math.round(currentPct * 10) / 10,
+      projectedPct: Math.round(projectedPct * 10) / 10,
+      targetPct: Math.round(h.targetPct * 1000) / 10,
+    });
+  }
+
+  // Sort trades by recommended amount descending
+  trades.sort((a, b) => b.recommendedAmount - a.recommendedAmount);
+
+  const remainingCash = Math.max(0, Math.round((deposit - totalAllocated) * 100) / 100);
+
+  return {
+    depositAmount: deposit,
+    allocatedAmount: Math.round(totalAllocated * 100) / 100,
+    remainingCash,
+    projectedTotalValue: Math.round(projectedTotal * 100) / 100,
+    trades,
   };
 }

@@ -8,6 +8,13 @@ import { getAttribution } from "../services/attributionService.js";
 import { getRealizedGains } from "../services/realizedGainsService.js";
 import { getT5008Report, dispositionsToCsv } from "../services/t5008Service.js";
 import { getHarvestReport } from "../services/taxLossHarvestService.js";
+import { computePortfolioHealth } from "../services/portfolioHealthService.js";
+import { calculateClosedPositions } from "../services/closedPositionsService.js";
+import { calculateFireRunway } from "../services/fireForecasterService.js";
+import { getAllDividendsFromCacheOnly } from "../services/dividendService.js";
+import { getCachedPositions, getCachedDividendMetadata, getMergedTransactions } from "../models/db.js";
+import { getScopedAccounts } from "../services/accountScope.js";
+import { ensureProfiles } from "../services/assetProfileService.js";
 import { logger } from "../utils/logger.js";
 
 const SYMBOL_RE = /^[A-Z0-9.:\-]{1,20}$/i;
@@ -188,6 +195,145 @@ export const diversificationHandler = async (req: Request, res: Response) => {
     res.json(result);
   } catch (err: any) {
     logger.error("Analytics", `diversification failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/health-score?benchmark=SPY&accountIds=id1,id2
+// Snowball Analytics-style portfolio health and quality scorecard (0-100, A+ to F).
+export const healthScoreHandler = async (req: Request, res: Response) => {
+  const benchmark = String(req.query.benchmark ?? "SPY").toUpperCase().trim();
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  logger.info("Analytics", `GET /api/analytics/health-score benchmark=${benchmark} accountIds=${allowedIds ? allowedIds.size : 'all'}`);
+  try {
+    const [divResult, hist] = await Promise.all([
+      getDiversification(allowedIds),
+      getPortfolioHistory(benchmark, allowedIds).catch(() => ({ points: [] as any[] })),
+    ]);
+
+    let beta: number | null = null;
+    let maxDrawdown: number | null = null;
+    if (hist.points && hist.points.length >= 2) {
+      const valueSeries = hist.points.map((p: any) => ({ date: p.date, value: p.value }));
+      const benchSeries = hist.points.map((p: any) => ({ date: p.date, value: p.benchmark ?? 0 }));
+      const metrics = computeRiskMetrics(valueSeries, benchSeries);
+      beta = metrics.beta;
+      maxDrawdown = metrics.maxDrawdown;
+    }
+
+    // Collect individual holdings
+    const holdingMap = new Map<string, { value: number; units: number }>();
+    for (const acct of getScopedAccounts(allowedIds)) {
+      for (const pos of getCachedPositions(acct.id)) {
+        const sym = String(pos.symbol ?? '').toUpperCase().trim();
+        if (!sym) continue;
+        const val = pos.marketValue ?? (pos.units ?? 0) * (pos.price ?? 0);
+        const cur = holdingMap.get(sym) || { value: 0, units: 0 };
+        cur.value += val;
+        cur.units += (pos.units || 0);
+        holdingMap.set(sym, cur);
+      }
+    }
+
+    const symbols = Array.from(holdingMap.keys());
+    const profiles = await ensureProfiles(symbols);
+
+    const holdings = symbols.map(sym => {
+      const h = holdingMap.get(sym)!;
+      const meta = getCachedDividendMetadata(sym);
+      const prof = profiles.get(sym);
+      const annualIncome = (meta?.frequency && meta?.amountPerShare) ? meta.frequency * meta.amountPerShare * h.units : 0;
+      return {
+        symbol: sym,
+        value: Math.round(h.value * 100) / 100,
+        sector: prof?.sector ?? null,
+        assetType: prof?.assetType ?? null,
+        annualIncome: Math.round(annualIncome * 100) / 100,
+      };
+    });
+
+    const report = computePortfolioHealth(holdings, {
+      beta,
+      maxDrawdown,
+      totalValue: divResult.totalValueBase,
+      sectors: divResult.bySector,
+    });
+
+    res.json(report);
+  } catch (err: any) {
+    logger.error("Analytics", `healthScore failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/closed-positions — Snowball-style closed positions ledger
+export const closedPositionsHandler = (req: Request, res: Response) => {
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  logger.info("Analytics", `GET /api/analytics/closed-positions accountIds=${allowedIds ? allowedIds.size : 'all'}`);
+  try {
+    const allTxs: any[] = [];
+    for (const acct of getScopedAccounts(allowedIds)) {
+      const txs = getMergedTransactions(acct.id);
+      allTxs.push(...txs);
+    }
+    const result = calculateClosedPositions(allTxs, { includePartiallyClosed: req.query.partial === 'true' });
+    res.json(result);
+  } catch (err: any) {
+    logger.error("Analytics", `closedPositions failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /api/analytics/fire-runway — Snowball-style financial independence date calculator
+export const fireRunwayHandler = async (req: Request, res: Response) => {
+  logger.info("Analytics", "POST /api/analytics/fire-runway");
+  try {
+    const {
+      monthlyContribution,
+      targetMonthlyIncome,
+      dividendGrowthRatePct,
+      capitalGrowthRatePct,
+      reinvestDividends,
+      accountIds
+    } = req.body || {};
+
+    const allowedIds = parseAccountIds(accountIds);
+
+    // Compute live portfolio metrics if not supplied in body
+    let currentPortfolioValue = 0;
+    for (const acct of getScopedAccounts(allowedIds)) {
+      for (const pos of getCachedPositions(acct.id)) {
+        const val = pos.marketValue ?? (pos.units ?? 0) * (pos.price ?? 0);
+        currentPortfolioValue += (val || 0);
+      }
+    }
+
+    let currentAnnualDividends = 0;
+    try {
+      const divAccounts = await getAllDividendsFromCacheOnly();
+      for (const acct of divAccounts) {
+        if (allowedIds && !allowedIds.has(acct.accountId)) continue;
+        for (const div of (acct.dividends || [])) {
+          currentAnnualDividends += (div.amountCAD ?? div.amount ?? 0);
+        }
+      }
+    } catch (e: any) {
+      logger.warn("FireRunway", `Failed to get div summary: ${e.message}`);
+    }
+
+    const sim = calculateFireRunway({
+      currentPortfolioValue: req.body?.currentPortfolioValue ?? currentPortfolioValue,
+      currentAnnualDividends: req.body?.currentAnnualDividends ?? currentAnnualDividends,
+      monthlyContribution: Number(monthlyContribution ?? 500),
+      targetMonthlyIncome: Number(targetMonthlyIncome ?? (currentAnnualDividends > 0 ? (currentAnnualDividends / 12) * 2 : 1000)),
+      dividendGrowthRatePct: dividendGrowthRatePct != null ? Number(dividendGrowthRatePct) : 6,
+      capitalGrowthRatePct: capitalGrowthRatePct != null ? Number(capitalGrowthRatePct) : 5,
+      reinvestDividends: reinvestDividends !== false,
+    });
+
+    res.json(sim);
+  } catch (err: any) {
+    logger.error("Analytics", `fireRunway failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };

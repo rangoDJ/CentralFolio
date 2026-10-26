@@ -325,6 +325,28 @@ const migrations: Array<{ name: string; sql: string }> = [
     )
   ` },
   { name: 'manual_transactions.idx_accountId', sql: `CREATE INDEX IF NOT EXISTS idx_manual_transactions_accountId ON manual_transactions(accountId)` },
+  { name: 'portfolio_goals.create', sql: `
+    CREATE TABLE IF NOT EXISTS portfolio_goals (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      name         TEXT NOT NULL,
+      targetType   TEXT NOT NULL,
+      targetAmount REAL NOT NULL,
+      targetDate   TEXT,
+      notes        TEXT,
+      createdAt    DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { name: 'ai_insights.create', sql: `
+    CREATE TABLE IF NOT EXISTS ai_insights (
+      symbol      TEXT PRIMARY KEY,
+      markdown    TEXT NOT NULL,
+      summary     TEXT,
+      score       INTEGER,
+      label       TEXT,
+      provider    TEXT NOT NULL DEFAULT 'rule_engine',
+      analyzedAt  DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
   { name: 'api_tokens.create', sql: `
     CREATE TABLE IF NOT EXISTS api_tokens (
       id         TEXT PRIMARY KEY,

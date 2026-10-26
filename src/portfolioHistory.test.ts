@@ -100,3 +100,32 @@ test('reconstruct: summary totals + empty input', () => {
   assert.equal(res.summary.totalReturn, 50);
   approx(res.summary.totalReturnPct, 50, 'return pct');
 });
+
+test('reconstruct: calculates time-weighted return (TWR)', () => {
+  const txns: PHTransaction[] = [
+    { symbol: 'AAA', type: 'BUY', units: 10, price: 100, amount: 1000, date: '2024-01-01' },
+    // Later deposit & buy of another 10 shares
+    { symbol: 'AAA', type: 'BUY', units: 10, price: 120, amount: 1200, date: '2024-01-03' },
+  ];
+  const prices = new Map<string, PriceCandleLite[]>([
+    ['AAA', [
+      { date: '2024-01-01', close: 100 },
+      { date: '2024-01-02', close: 120 }, // +20% gain on initial 10 shares ($1,200)
+      { date: '2024-01-03', close: 120 }, // bought 10 more ($1,200), total value $2,400
+      { date: '2024-01-04', close: 132 }, // +10% gain on 20 shares ($2,640)
+    ]],
+  ]);
+  const res = reconstructPortfolioHistory(txns, prices);
+  const p1 = ptOn(res, '2024-01-01');
+  const p2 = ptOn(res, '2024-01-02');
+  const p3 = ptOn(res, '2024-01-03');
+  const p4 = ptOn(res, '2024-01-04');
+
+  approx(p1.twrPct!, 0, 'day 1 TWR');
+  approx(p2.twrPct!, 20, 'day 2 TWR +20%');
+  approx(p3.twrPct!, 20, 'day 3 TWR after deposit stays +20%');
+  // (1 + 0.20) * (1 + 0.10) - 1 = 1.32 - 1 = +32%
+  approx(p4.twrPct!, 32, 'day 4 TWR compounded +32%');
+  assert.ok(res.summary.timeWeightedReturnPct != null);
+  approx(res.summary.timeWeightedReturnPct!, 32, 'summary TWR');
+});

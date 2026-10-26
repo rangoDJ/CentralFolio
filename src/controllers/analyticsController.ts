@@ -1,3 +1,11 @@
+import { generateStatementReport, generateStatementReportCsv } from "../services/statementReportService.js";
+import { scanDipOpportunities } from "../services/dipFinderService.js";
+import { computeDividendSafety, batchComputeDividendSafety } from "../services/dividendSafetyService.js";
+import { computeEtfOverlap, computePortfolioXRay } from "../services/etfService.js";
+import { runPortfolioBacktest, saveBacktestToPortfolio } from "../services/backtestService.js";
+import { generateAnnualRecap } from "../services/recapService.js";
+import { screenBonds } from "../services/bondScreenerService.js";
+import { getCongressTrades } from "../services/congressTradingService.js";
 import { Request, Response } from "express";
 import { getPortfolioHistory } from "../services/portfolioHistoryService.js";
 import { getDiversification } from "../services/diversificationService.js";
@@ -334,6 +342,212 @@ export const fireRunwayHandler = async (req: Request, res: Response) => {
     res.json(sim);
   } catch (err: any) {
     logger.error("Analytics", `fireRunway failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+
+// GET /api/analytics/statement-report?startDate=...&endDate=...&groupBy=month|quarter|year|total
+export const statementReportHandler = async (req: Request, res: Response) => {
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+  const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+  const groupBy = (req.query.groupBy as any) ?? 'month';
+  const baseCurrency = req.query.baseCurrency ? String(req.query.baseCurrency) : 'CAD';
+
+  try {
+    const report = generateStatementReport({
+      allowedAccountIds: allowedIds,
+      startDate,
+      endDate,
+      groupBy,
+      baseCurrency
+    });
+    res.json(report);
+  } catch (err: any) {
+    logger.error("Analytics", `statementReport failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/statement-report.csv
+export const statementReportCsvHandler = async (req: Request, res: Response) => {
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+  const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+  const groupBy = (req.query.groupBy as any) ?? 'month';
+  const baseCurrency = req.query.baseCurrency ? String(req.query.baseCurrency) : 'CAD';
+
+  try {
+    const report = generateStatementReport({
+      allowedAccountIds: allowedIds,
+      startDate,
+      endDate,
+      groupBy,
+      baseCurrency
+    });
+    const csv = generateStatementReportCsv(report);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="portfolio-statement.csv"');
+    res.send(csv);
+  } catch (err: any) {
+    logger.error("Analytics", `statementReportCsv failed: ${err.message}`);
+    res.status(500).send("Error generating CSV");
+  }
+};
+
+// GET /api/analytics/dip-finder
+export const dipFinderHandler = async (req: Request, res: Response) => {
+  try {
+    const results = scanDipOpportunities();
+    res.json(results);
+  } catch (err: any) {
+    logger.error("Analytics", `dipFinder failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/dividend-safety?symbol=...
+export const dividendSafetyHandler = async (req: Request, res: Response) => {
+  const symbol = req.query.symbol ? String(req.query.symbol).toUpperCase() : undefined;
+  try {
+    if (symbol) {
+      const result = computeDividendSafety(symbol);
+      res.json(result);
+    } else {
+      const results = batchComputeDividendSafety();
+      res.json(results);
+    }
+  } catch (err: any) {
+    logger.error("Analytics", `dividendSafety failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/etf-overlap?tickers=VOO,VTI
+export const etfOverlapHandler = async (req: Request, res: Response) => {
+  const tickers = String(req.query.tickers ?? "VOO,VTI").split(',').map(s => s.trim().toUpperCase());
+  if (tickers.length < 2) {
+    return res.status(400).json({ error: "Please provide at least 2 tickers, e.g. ?tickers=VOO,VTI" });
+  }
+  try {
+    const comparison = computeEtfOverlap(tickers[0], tickers[1]);
+    res.json(comparison);
+  } catch (err: any) {
+    logger.error("Analytics", `etfOverlap failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/etf-xray
+export const etfXrayHandler = async (req: Request, res: Response) => {
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  const baseCurrency = req.query.baseCurrency ? String(req.query.baseCurrency) : 'CAD';
+  try {
+    const xray = computePortfolioXRay(allowedIds, baseCurrency);
+    res.json(xray);
+  } catch (err: any) {
+    logger.error("Analytics", `etfXray failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// POST /api/analytics/backtest
+export const backtestHandler = async (req: Request, res: Response) => {
+  try {
+    const result = runPortfolioBacktest(req.body || {});
+    res.json(result);
+  } catch (err: any) {
+    logger.error("Analytics", `backtest failed: ${err.message}`);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+// POST /api/analytics/backtest/save
+export const saveBacktestPortfolioHandler = async (req: Request, res: Response) => {
+  const { name, allocations } = req.body;
+  if (!name) return res.status(400).json({ error: "Name is required" });
+  try {
+    const created = saveBacktestToPortfolio(name, allocations || []);
+    res.status(201).json(created);
+  } catch (err: any) {
+    logger.error("Analytics", `saveBacktestPortfolio failed: ${err.message}`);
+    res.status(400).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/recap/:year?
+export const annualRecapHandler = async (req: Request, res: Response) => {
+  const yearParam = req.params.year ? parseInt(String(req.params.year), 10) : new Date().getFullYear();
+  const year = isNaN(yearParam) ? new Date().getFullYear() : yearParam;
+  const allowedIds = parseAccountIds(req.query.accountIds);
+
+  try {
+    const recap = generateAnnualRecap(year, allowedIds);
+    res.json(recap);
+  } catch (err: any) {
+    logger.error("Analytics", `annualRecap failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/bonds-screener
+export const bondsScreenerHandler = async (req: Request, res: Response) => {
+  const search = req.query.search ? String(req.query.search) : undefined;
+  const issuerType = req.query.issuerType ? String(req.query.issuerType) : undefined;
+  const couponType = req.query.couponType ? String(req.query.couponType) : undefined;
+  const minYtm = req.query.minYtm ? parseFloat(String(req.query.minYtm)) : undefined;
+  const maxYtm = req.query.maxYtm ? parseFloat(String(req.query.maxYtm)) : undefined;
+  const maxDuration = req.query.maxDuration ? parseFloat(String(req.query.maxDuration)) : undefined;
+  const currency = req.query.currency ? String(req.query.currency) : undefined;
+
+  try {
+    const bonds = screenBonds({ search, issuerType, couponType, minYtm, maxYtm, maxDuration, currency });
+    res.json(bonds);
+  } catch (err: any) {
+    logger.error("Analytics", `bondsScreener failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/congress-trading
+export const congressTradingHandler = async (req: Request, res: Response) => {
+  const chamber = req.query.chamber ? String(req.query.chamber) : undefined;
+  const party = req.query.party ? String(req.query.party) : undefined;
+  const transactionType = req.query.transactionType ? String(req.query.transactionType) : undefined;
+  const onlyMatches = req.query.onlyMatches === 'true';
+
+  try {
+    const trades = getCongressTrades({ chamber, party, transactionType, onlyMatches });
+    res.json(trades);
+  } catch (err: any) {
+    logger.error("Analytics", `congressTrading failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/analytics/benchmark-overlay?benchmarks=SPY,QQQ,VTI
+export const benchmarkOverlayHandler = async (req: Request, res: Response) => {
+  const allowedIds = parseAccountIds(req.query.accountIds);
+  const rawBenchmarks = String(req.query.benchmarks ?? "SPY,QQQ,URTH").split(',').map(b => b.trim().toUpperCase());
+
+  try {
+    const results: Record<string, any> = {};
+    for (const b of rawBenchmarks.slice(0, 3)) {
+      const hist = await getPortfolioHistory(b, allowedIds);
+      results[b] = {
+        symbol: b,
+        alphaSpreadPct: Math.round(((hist.summary.totalReturnPct || 0) - (hist.summary.benchmarkReturnPct || 0)) * 10) / 10,
+        benchmarkReturnPct: hist.summary.benchmarkReturnPct,
+        portfolioReturnPct: hist.summary.totalReturnPct
+      };
+    }
+    res.json({
+      benchmarks: results,
+      primaryBenchmark: rawBenchmarks[0] || 'SPY'
+    });
+  } catch (err: any) {
+    logger.error("Analytics", `benchmarkOverlay failed: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 };

@@ -13,6 +13,9 @@ import apiTokenRoutes from "./apiTokenRoutes.js";
 import bucketRoutes from "./bucketRoutes.js";
 import orderRoutes from "./orderRoutes.js";
 import goalRoutes from "./goalRoutes.js";
+import corporateActionRoutes from "./corporateActionRoutes.js";
+import cashLedgerRoutes from "./cashLedgerRoutes.js";
+import compositePortfolioRoutes from "./compositePortfolioRoutes.js";
 import {
   stockDetailHandler,
   priceHistoryHandler,
@@ -42,6 +45,9 @@ router.use("/manual-assets", manualAssetRoutes);
 router.use("/manual-transactions", manualTransactionRoutes);
 router.use("/alerts", alertRoutes);
 router.use("/goals", goalRoutes);
+router.use("/corporate-actions", corporateActionRoutes);
+router.use("/cash", cashLedgerRoutes);
+router.use("/composite-portfolios", compositePortfolioRoutes);
 router.use("/", bucketRoutes);
 router.use("/", orderRoutes);
 router.use("/", watchlistRoutes);

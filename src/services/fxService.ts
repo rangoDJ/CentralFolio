@@ -123,3 +123,17 @@ export async function toBaseCurrency<T>(
   }));
   return items.map(item => ({ ...item, valueBase: valueOf(item) * (rateOf.get(currencyOf(item)) ?? 1) }));
 }
+
+/** Synchronous latest rate lookup from spot cache or fallback constants */
+export function getLatestRate(from: string, to: string): number {
+  const f = (from || "").toUpperCase(), t = (to || "").toUpperCase();
+  if (!f || !t || f === t) return 1;
+  const key = f + t;
+  const hit = cache.get(key);
+  if (hit) return hit.rate;
+  if (f === 'USD' && t === 'CAD') return 1.36;
+  if (f === 'CAD' && t === 'USD') return 0.74;
+  if (f === 'EUR' && t === 'CAD') return 1.48;
+  if (f === 'CAD' && t === 'EUR') return 0.68;
+  return 1;
+}

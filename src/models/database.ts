@@ -416,6 +416,68 @@ const migrations: Array<{ name: string; sql: string }> = [
     ALTER TABLE buy_buckets_new RENAME TO buy_buckets;
     PRAGMA foreign_keys=on;
   ` },
+  { name: 'corporate_actions.create', sql: `
+    CREATE TABLE IF NOT EXISTS corporate_actions (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      symbol        TEXT NOT NULL,
+      eventType     TEXT NOT NULL,
+      ratio         REAL NOT NULL DEFAULT 1,
+      date          TEXT NOT NULL,
+      spinoffSymbol TEXT,
+      notes         TEXT,
+      createdAt     DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { name: 'corporate_actions.idx_symbol', sql: `CREATE INDEX IF NOT EXISTS idx_corporate_actions_symbol ON corporate_actions(symbol)` },
+  { name: 'cash_transactions.create', sql: `
+    CREATE TABLE IF NOT EXISTS cash_transactions (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      portfolioId    INTEGER,
+      accountId      TEXT,
+      type           TEXT NOT NULL,
+      amount         REAL NOT NULL,
+      currency       TEXT NOT NULL DEFAULT 'CAD',
+      targetAmount   REAL,
+      targetCurrency TEXT,
+      exchangeRate   REAL,
+      date           TEXT NOT NULL,
+      note           TEXT,
+      doNotAdjust    INTEGER NOT NULL DEFAULT 0,
+      createdAt      DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { name: 'cash_transactions.idx_date', sql: `CREATE INDEX IF NOT EXISTS idx_cash_transactions_date ON cash_transactions(date)` },
+  { name: 'composite_portfolios.create', sql: `
+    CREATE TABLE IF NOT EXISTS composite_portfolios (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT NOT NULL,
+      description TEXT,
+      color       TEXT NOT NULL DEFAULT '#2563eb',
+      createdAt   DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { name: 'composite_portfolio_members.create', sql: `
+    CREATE TABLE IF NOT EXISTS composite_portfolio_members (
+      composite_id INTEGER NOT NULL,
+      portfolio_id INTEGER NOT NULL,
+      PRIMARY KEY (composite_id, portfolio_id),
+      FOREIGN KEY (composite_id) REFERENCES composite_portfolios (id) ON DELETE CASCADE,
+      FOREIGN KEY (portfolio_id) REFERENCES user_portfolios (id) ON DELETE CASCADE
+    )
+  ` },
+  { name: 'custom_asset_valuations.create', sql: `
+    CREATE TABLE IF NOT EXISTS custom_asset_valuations (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      assetId   INTEGER NOT NULL,
+      date      TEXT NOT NULL,
+      value     REAL NOT NULL,
+      notes     TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (assetId) REFERENCES manual_assets (id) ON DELETE CASCADE
+    )
+  ` },
+  { name: 'custom_asset_valuations.idx_asset', sql: `CREATE INDEX IF NOT EXISTS idx_custom_asset_valuations_asset ON custom_asset_valuations(assetId)` },
+
 ];
 
 const checkApplied = db.prepare(`SELECT 1 FROM schema_migrations WHERE name = ?`);

@@ -1015,4 +1015,199 @@ const API = {
         return data;
     },
 
+
+    // Snowball Analytics Parity Extensions
+
+    async getStatementReport(params = {}) {
+        const q = new URLSearchParams(params).toString();
+        const res = await fetch(`/api/analytics/statement-report?${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch statement report');
+        return data;
+    },
+
+    getStatementReportCsvUrl(params = {}) {
+        const q = new URLSearchParams(params).toString();
+        return `/api/analytics/statement-report.csv?${q}`;
+    },
+
+    async getDipFinder() {
+        const res = await fetch('/api/analytics/dip-finder');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch dip finder');
+        return data;
+    },
+
+    async getDividendSafety(symbol) {
+        const q = symbol ? `?symbol=${encodeURIComponent(symbol)}` : '';
+        const res = await fetch(`/api/analytics/dividend-safety${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch dividend safety');
+        return data;
+    },
+
+    async getEtfOverlap(tickers = 'VOO,VTI') {
+        const res = await fetch(`/api/analytics/etf-overlap?tickers=${encodeURIComponent(tickers)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch ETF overlap');
+        return data;
+    },
+
+    async getEtfXray(accountIds) {
+        const q = accountIds ? `?accountIds=${encodeURIComponent(accountIds)}` : '';
+        const res = await fetch(`/api/analytics/etf-xray${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch ETF X-Ray');
+        return data;
+    },
+
+    async runBacktest(payload) {
+        const res = await fetch('/api/analytics/backtest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to run backtest');
+        return data;
+    },
+
+    async saveBacktest(payload) {
+        const res = await fetch('/api/analytics/backtest/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to save backtest portfolio');
+        return data;
+    },
+
+    async getAnnualRecap(year) {
+        const p = year ? `/${year}` : '';
+        const res = await fetch(`/api/analytics/recap${p}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch annual recap');
+        return data;
+    },
+
+    async getBondsScreener(params = {}) {
+        const q = new URLSearchParams(params).toString();
+        const res = await fetch(`/api/analytics/bonds-screener?${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch bonds screener');
+        return data;
+    },
+
+    async getCongressTrading(params = {}) {
+        const q = new URLSearchParams(params).toString();
+        const res = await fetch(`/api/analytics/congress-trading?${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch congress trading');
+        return data;
+    },
+
+    async getBenchmarkOverlay(benchmarks = 'SPY,QQQ,URTH') {
+        const res = await fetch(`/api/analytics/benchmark-overlay?benchmarks=${encodeURIComponent(benchmarks)}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch benchmark overlay');
+        return data;
+    },
+
+    async getCorporateActions(symbol) {
+        const q = symbol ? `?symbol=${encodeURIComponent(symbol)}` : '';
+        const res = await fetch(`/api/corporate-actions${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch corporate actions');
+        return data;
+    },
+
+    async createCorporateAction(payload) {
+        const res = await fetch('/api/corporate-actions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to create corporate action');
+        return data;
+    },
+
+    async deleteCorporateAction(id) {
+        const res = await fetch(`/api/corporate-actions/${id}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete corporate action');
+        return data;
+    },
+
+    async getCashTransactions(params = {}) {
+        const q = new URLSearchParams(params).toString();
+        const res = await fetch(`/api/cash/transactions?${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch cash transactions');
+        return data;
+    },
+
+    async getCashSummary(params = {}) {
+        const q = new URLSearchParams(params).toString();
+        const res = await fetch(`/api/cash/summary?${q}`);
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch cash summary');
+        return data;
+    },
+
+    async createCashTransaction(payload) {
+        const res = await fetch('/api/cash/transactions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to create cash transaction');
+        return data;
+    },
+
+    async deleteCashTransaction(id) {
+        const res = await fetch(`/api/cash/transactions/${id}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete cash transaction');
+        return data;
+    },
+
+    async getCompositePortfolios() {
+        const res = await fetch('/api/composite-portfolios');
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to fetch composite portfolios');
+        return data;
+    },
+
+    async createCompositePortfolio(payload) {
+        const res = await fetch('/api/composite-portfolios', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to create composite portfolio');
+        return data;
+    },
+
+    async deleteCompositePortfolio(id) {
+        const res = await fetch(`/api/composite-portfolios/${id}`, { method: 'DELETE' });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to delete composite portfolio');
+        return data;
+    },
+
+    async clonePortfolio(id, payload = {}) {
+        const res = await fetch(`/api/composite-portfolios/${id}/clone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await this._json(res);
+        if (!res.ok) throw new Error(data.error || 'Failed to clone portfolio');
+        return data;
+    },
+
 };

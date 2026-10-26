@@ -2950,7 +2950,7 @@ const App = {
         // Update page title
         const pageTitleEl = document.getElementById('pageTitle');
         if (pageTitleEl) {
-            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', compare: 'Compare Portfolios', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', tax: 'Tax & T5008', orders: 'Orders', rebalance: 'Rebalancing', settings: 'Settings' };
+            const titles = { dashboard: 'Dashboard', holdings: 'Holdings', compare: 'Compare Portfolios', 'dividend-tracker': 'Dividend Tracker', watchlist: 'Watchlist', transactions: 'Transactions', tax: 'Tax & T5008', orders: 'Orders', rebalance: 'Rebalancing', settings: 'Settings', reports: 'Periodic Statements', portfoliolab: 'Portfolio Lab & Backtest', dipfinder: 'Dip Finder', etfhub: 'ETF Intelligence', tools: 'Tools & Intelligence' };
             pageTitleEl.textContent = titles[tabId] || tabId;
         }
 
@@ -4409,7 +4409,643 @@ const App = {
         this.refreshActiveTab();
     },
 
-};
 
-// Initialize app
-document.addEventListener('DOMContentLoaded', () => App.init());
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Snowball Analytics Parity Modules
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // ── 1. Periodic Statements & Reports ───────────────────────────────────────
+    async loadReportsTab() {
+        const groupBy = document.getElementById('reportGroupingSelect')?.value || 'month';
+        const summaryEl = document.getElementById('reportsSummaryCards');
+        const tbody = document.getElementById('statementReportTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="12" class="empty-state text-muted">Calculating audited statement...</td></tr>';
+
+        try {
+            const report = await API.getStatementReport({ groupBy });
+            if (summaryEl && report.summary) {
+                const s = report.summary;
+                summaryEl.innerHTML = `
+                    <div class="card stat-card"><div class="stat-label">Initial Balance</div><div class="stat-val">${formatCurrency(s.totalStartValue, s.currency)}</div></div>
+                    <div class="card stat-card"><div class="stat-label">Ending Balance</div><div class="stat-val">${formatCurrency(s.totalEndValue, s.currency)}</div></div>
+                    <div class="card stat-card"><div class="stat-label">Total Net Profit</div><div class="stat-val ${s.totalProfit >= 0 ? 'text-success' : 'text-danger'}">${formatCurrency(s.totalProfit, s.currency)} (${s.totalProfitPct}%)</div></div>
+                    <div class="card stat-card"><div class="stat-label">Dividends Received</div><div class="stat-val text-success">${formatCurrency(s.totalDividends, s.currency)}</div></div>
+                `;
+            }
+
+            if (tbody) {
+                if (!report.rows || report.rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="12" class="empty-state text-muted">No transactions found for statement period.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = report.rows.map(r => `
+                    <tr>
+                        <td style="font-weight:600;">${sanitize(r.periodLabel)}</td>
+                        <td class="text-sm text-muted">${r.startDate} to ${r.endDate}</td>
+                        <td style="text-align:right;">${formatCurrency(r.startValue)}</td>
+                        <td style="text-align:right;">${formatCurrency(r.endValue)}</td>
+                        <td style="text-align:right;" class="${r.valueChange >= 0 ? 'text-success' : 'text-danger'}">${formatCurrency(r.valueChange)} (${r.valueChangePct}%)</td>
+                        <td style="text-align:right;">${formatCurrency(r.priceGain)}</td>
+                        <td style="text-align:right;" class="${r.profitFromSales >= 0 ? 'text-success' : 'text-danger'}">${formatCurrency(r.profitFromSales)}</td>
+                        <td style="text-align:right;" class="text-success">${formatCurrency(r.dividendsPaid)}</td>
+                        <td style="text-align:right;" class="text-danger">-${formatCurrency(r.dividendTaxes + r.commissions)}</td>
+                        <td style="text-align:right;font-weight:600;" class="${r.totalProfit >= 0 ? 'text-success' : 'text-danger'}">${formatCurrency(r.totalProfit)}</td>
+                        <td style="text-align:right;">${formatCurrency(r.turnover)}</td>
+                        <td style="text-align:right;font-weight:600;">${r.xirrPct != null ? r.xirrPct + '%' : '-'}</td>
+                    </tr>
+                `).join('');
+            }
+        } catch (err) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="12" class="empty-state text-danger">Error: ${sanitize(err.message)}</td></tr>`;
+        }
+    },
+
+    downloadReportCsv() {
+        const groupBy = document.getElementById('reportGroupingSelect')?.value || 'month';
+        window.location.href = API.getStatementReportCsvUrl({ groupBy });
+    },
+
+    // ── 2. Portfolio Lab & Backtest ───────────────────────────────────────────
+    _backtestChart: null,
+
+    loadPortfolioLabTab() {
+        const list = document.getElementById('backtestAllocationList');
+        if (list && list.children.length === 0) {
+            // Seed default allocations
+            this.addBacktestAllocationRow('AAPL', 40);
+            this.addBacktestAllocationRow('MSFT', 30);
+            this.addBacktestAllocationRow('SCHD', 30);
+        }
+        this.runBacktestSimulation();
+    },
+
+    addBacktestAllocationRow(symbol = '', pct = 25) {
+        const list = document.getElementById('backtestAllocationList');
+        if (!list) return;
+        const row = document.createElement('div');
+        row.className = 'backtest-row';
+        row.style.cssText = 'display:flex;gap:0.4rem;align-items:center;';
+        row.innerHTML = `
+            <input type="text" class="form-control form-control-sm bt-symbol" placeholder="TICKER" value="${symbol}" style="text-transform:uppercase;width:85px;">
+            <input type="number" class="form-control form-control-sm bt-pct" placeholder="%" value="${pct}" min="1" max="100" style="width:65px;">
+            <span style="font-size:0.8rem;color:var(--text-muted);">%</span>
+            <button type="button" class="btn btn-outline btn-xs" onclick="this.parentElement.remove()" style="margin-left:auto;color:var(--danger);">&times;</button>
+        `;
+        list.appendChild(row);
+    },
+
+    async runBacktestSimulation() {
+        const initAmt = parseFloat(document.getElementById('backtestInitialAmount')?.value || '10000');
+        const contribAmt = parseFloat(document.getElementById('backtestContribAmount')?.value || '0');
+        const contribFreq = document.getElementById('backtestContribFreq')?.value || 'monthly';
+        const benchmark = document.getElementById('backtestBenchmark')?.value || 'SPY';
+        const taxRate = parseFloat(document.getElementById('backtestTaxRate')?.value || '15');
+        const drip = document.getElementById('backtestDrip')?.checked !== false;
+
+        const rows = document.querySelectorAll('.backtest-row');
+        const allocations = [];
+        rows.forEach(r => {
+            const sym = r.querySelector('.bt-symbol')?.value?.trim().toUpperCase();
+            const pct = parseFloat(r.querySelector('.bt-pct')?.value || '0');
+            if (sym && pct > 0) allocations.push({ symbol: sym, targetPct: pct });
+        });
+
+        if (allocations.length === 0) {
+            UI.showToast('Please add at least one asset allocation.', 'error');
+            return;
+        }
+
+        try {
+            const res = await API.runBacktest({
+                allocations,
+                initialAmount: initAmt,
+                contributionAmount: contribAmt,
+                contributionFrequency: contribFreq,
+                reinvestDividends: drip,
+                dividendTaxRatePct: taxRate,
+                benchmark
+            });
+
+            const cardsEl = document.getElementById('backtestResultCards');
+            if (cardsEl) {
+                cardsEl.innerHTML = `
+                    <div class="card stat-card"><div class="stat-label">Final Portfolio Value</div><div class="stat-val text-success">${formatCurrency(res.finalPortfolioValue)}</div><div class="stat-sub text-success">+${res.totalReturnPct}% Total Return</div></div>
+                    <div class="card stat-card"><div class="stat-label">${benchmark} Benchmark</div><div class="stat-val">${formatCurrency(res.finalBenchmarkValue)}</div><div class="stat-sub">+${res.benchmarkReturnPct}% Benchmark Return</div></div>
+                    <div class="card stat-card"><div class="stat-label">Dividends Collected</div><div class="stat-val text-success">${formatCurrency(res.totalDividendsReceived)}</div><div class="stat-sub">Max Drawdown: -${res.maxDrawdownPct}%</div></div>
+                `;
+            }
+
+            // Render Chart
+            const canvas = document.getElementById('backtestChartCanvas');
+            if (canvas && res.timeSeries && window.Chart) {
+                if (this._backtestChart) this._backtestChart.destroy();
+                const labels = res.timeSeries.map(p => p.date);
+                const pVals = res.timeSeries.map(p => p.portfolioValue);
+                const bVals = res.timeSeries.map(p => p.benchmarkValue);
+
+                this._backtestChart = new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: 'Strategy Portfolio', data: pVals, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.1 },
+                            { label: `${benchmark} Benchmark`, data: bVals, borderColor: '#6366f1', borderDash: [5, 5], fill: false, tension: 0.1 }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: { legend: { position: 'top' } }
+                    }
+                });
+            }
+        } catch (err) {
+            UI.showToast(`Backtest failed: ${err.message}`, 'error');
+        }
+    },
+
+    async saveBacktestAsPortfolio() {
+        const name = prompt('Enter a name for this new portfolio:', 'Portfolio Lab Strategy');
+        if (!name) return;
+
+        const rows = document.querySelectorAll('.backtest-row');
+        const allocations = [];
+        rows.forEach(r => {
+            const sym = r.querySelector('.bt-symbol')?.value?.trim().toUpperCase();
+            const pct = parseFloat(r.querySelector('.bt-pct')?.value || '0');
+            if (sym && pct > 0) allocations.push({ symbol: sym, targetPct: pct });
+        });
+
+        try {
+            await API.saveBacktest({ name, allocations });
+            UI.showToast(`Portfolio "${name}" created successfully! Click Settings to view.`);
+            this.loadUserPortfolios();
+        } catch (err) {
+            UI.showToast(`Failed to save portfolio: ${err.message}`, 'error');
+        }
+    },
+
+    // ── 3. Dip Finder Scanner ─────────────────────────────────────────────────
+    async loadDipFinderTab() {
+        const tbody = document.getElementById('dipFinderTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-state text-muted">Scanning assets for dip opportunities...</td></tr>';
+
+        try {
+            const dips = await API.getDipFinder();
+            if (tbody) {
+                if (!dips || dips.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="empty-state text-muted">No assets found in dip criteria.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = dips.map(d => {
+                    const badgeClass = d.rating === 'Deep Dip' ? 'status-active' :
+                                       d.rating === 'Moderate Dip' ? 'badge-info' :
+                                       d.rating === 'Overextended' ? 'status-inactive' : 'badge-neutral';
+                    return `
+                        <tr>
+                            <td>
+                                <strong>${sanitize(d.symbol)}</strong>
+                                ${d.isHeld ? '<span class="status-badge" style="margin-left:0.35rem;font-size:0.65rem;">Held</span>' : ''}
+                                ${d.isWatchlist ? '<span class="status-badge" style="margin-left:0.35rem;font-size:0.65rem;background:#fef3c7;color:#92400e;">Watchlist</span>' : ''}
+                            </td>
+                            <td style="text-align:right;font-weight:600;">${formatCurrency(d.currentPrice)}</td>
+                            <td style="text-align:right;" class="${(d.vsSma10Pct || 0) < 0 ? 'text-danger' : 'text-success'}">${d.vsSma10Pct != null ? d.vsSma10Pct + '%' : '-'}</td>
+                            <td style="text-align:right;" class="${(d.vsSma50Pct || 0) < 0 ? 'text-danger' : 'text-success'}">${d.vsSma50Pct != null ? d.vsSma50Pct + '%' : '-'}</td>
+                            <td style="text-align:right;" class="${(d.vsSma100Pct || 0) < 0 ? 'text-danger' : 'text-success'}">${d.vsSma100Pct != null ? d.vsSma100Pct + '%' : '-'}</td>
+                            <td style="text-align:right;font-weight:600;" class="${(d.vsSma200Pct || 0) < 0 ? 'text-danger' : 'text-success'}">${d.vsSma200Pct != null ? d.vsSma200Pct + '%' : '-'}</td>
+                            <td style="text-align:right;" class="text-sm text-muted">${d.low52w != null ? formatCurrency(d.low52w) : '-'} — ${d.high52w != null ? formatCurrency(d.high52w) : '-'}</td>
+                            <td style="text-align:center;">
+                                <div style="display:inline-block;width:60px;background:var(--surface-2);border-radius:6px;overflow:hidden;height:12px;vertical-align:middle;">
+                                    <div style="width:${d.dipScore}%;background:#10b981;height:100%;"></div>
+                                </div>
+                                <span style="font-size:0.75rem;margin-left:0.35rem;font-weight:600;">${d.dipScore}</span>
+                            </td>
+                            <td style="text-align:center;"><span class="status-badge ${badgeClass}">${sanitize(d.rating)}</span></td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        } catch (err) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-state text-danger">Error: ${sanitize(err.message)}</td></tr>`;
+        }
+    },
+
+    // ── 4. ETF Hub (Overlap & X-Ray) ──────────────────────────────────────────
+    loadEtfHubTab() {
+        this.runEtfOverlapComparison();
+    },
+
+    switchEtfSubTab(subtab, btn) {
+        document.querySelectorAll('#etfhub-tab .underline-tab').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        const overlapPane = document.getElementById('etf-overlap-subpane');
+        const xrayPane = document.getElementById('etf-xray-subpane');
+        if (subtab === 'overlap') {
+            if (overlapPane) overlapPane.style.display = 'block';
+            if (xrayPane) xrayPane.style.display = 'none';
+            this.runEtfOverlapComparison();
+        } else {
+            if (overlapPane) overlapPane.style.display = 'none';
+            if (xrayPane) xrayPane.style.display = 'block';
+            this.loadEtfXray();
+        }
+    },
+
+    async runEtfOverlapComparison() {
+        const a = (document.getElementById('etfTickerA')?.value || 'VOO').trim().toUpperCase();
+        const b = (document.getElementById('etfTickerB')?.value || 'VTI').trim().toUpperCase();
+        const container = document.getElementById('etfOverlapResultsContainer');
+        if (container) container.innerHTML = '<div class="empty-state text-muted">Calculating portfolio fund overlap...</div>';
+
+        try {
+            const res = await API.getEtfOverlap(`${a},${b}`);
+            if (container) {
+                container.innerHTML = `
+                    <div class="grid grid-3" style="gap:1rem;margin-bottom:1.5rem;">
+                        <div class="card stat-card"><div class="stat-label">Total Overlap Weight</div><div class="stat-val text-primary">${res.overlapPct}%</div><div class="stat-sub">Shared Exposure</div></div>
+                        <div class="card stat-card"><div class="stat-label">${sanitize(res.etfA)} Unique Holdings</div><div class="stat-val">${res.uniqueToA.length}</div><div class="stat-sub">Exclusive to ${sanitize(res.etfA)}</div></div>
+                        <div class="card stat-card"><div class="stat-label">${sanitize(res.etfB)} Unique Holdings</div><div class="stat-val">${res.uniqueToB.length}</div><div class="stat-sub">Exclusive to ${sanitize(res.etfB)}</div></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h3>Overlapping Underlying Companies</h3></div>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Company</th>
+                                        <th>Ticker</th>
+                                        <th style="text-align:right;">Weight in ${sanitize(res.etfA)}</th>
+                                        <th style="text-align:right;">Weight in ${sanitize(res.etfB)}</th>
+                                        <th style="text-align:right;">Overlap Weight</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${res.overlappingHoldings.map(h => `
+                                        <tr>
+                                            <td><strong>${sanitize(h.name)}</strong></td>
+                                            <td>${sanitize(h.symbol)}</td>
+                                            <td style="text-align:right;">${h.weightA}%</td>
+                                            <td style="text-align:right;">${h.weightB}%</td>
+                                            <td style="text-align:right;font-weight:600;color:var(--primary);">${h.minWeight}%</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (err) {
+            if (container) container.innerHTML = `<div class="empty-state text-danger">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    async loadEtfXray() {
+        const tbody = document.getElementById('etfXrayTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state text-muted">Decomposing fund constituents into single-stock exposures...</td></tr>';
+
+        try {
+            const xray = await API.getEtfXray();
+            if (tbody) {
+                if (!xray.topCompanyExposures || xray.topCompanyExposures.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="empty-state text-muted">No ETF or stock holdings found.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = xray.topCompanyExposures.map(c => `
+                    <tr>
+                        <td><strong>${sanitize(c.name)}</strong> <span class="text-muted text-sm">(${sanitize(c.symbol)})</span></td>
+                        <td><span class="badge-neutral" style="font-size:0.75rem;">${sanitize(c.sector || 'General')}</span></td>
+                        <td style="text-align:right;">${formatCurrency(c.directValue)}</td>
+                        <td style="text-align:right;" class="text-primary">${formatCurrency(c.indirectValue)}</td>
+                        <td style="text-align:right;font-weight:600;">${formatCurrency(c.totalValue)}</td>
+                        <td style="text-align:right;font-weight:600;">${c.portfolioWeightPct}%</td>
+                        <td>${c.foundInEtfs.map(etf => `<span class="status-badge" style="font-size:0.65rem;margin-right:0.25rem;">${sanitize(etf)}</span>`).join('') || '-'}</td>
+                    </tr>
+                `).join('');
+            }
+        } catch (err) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Error: ${sanitize(err.message)}</td></tr>`;
+        }
+    },
+
+    // ── 5. Tools & Intelligence Hub ───────────────────────────────────────────
+    loadToolsTab() {
+        const activeTool = localStorage.getItem('activeToolSubTab') || 'recap';
+        const btn = document.querySelector(`#tools-tab button[data-tool="${activeTool}"]`);
+        this.switchToolSubTab(activeTool, btn);
+    },
+
+    switchToolSubTab(tool, btn) {
+        localStorage.setItem('activeToolSubTab', tool);
+        document.querySelectorAll('#tools-tab .underline-tab').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+        document.querySelectorAll('.tool-pane').forEach(p => p.style.display = 'none');
+        const target = document.getElementById(`tool-pane-${tool}`);
+        if (target) target.style.display = 'block';
+
+        if (tool === 'recap') this.loadAnnualRecap();
+        else if (tool === 'corpactions') this.loadCorporateActions();
+        else if (tool === 'cash') this.loadCashLedger();
+        else if (tool === 'bonds') this.loadBondsScreener();
+        else if (tool === 'congress') this.loadCongressTrading();
+    },
+
+    async loadAnnualRecap() {
+        const year = document.getElementById('recapYearSelect')?.value || '2025';
+        const container = document.getElementById('annualRecapContentContainer');
+        if (container) container.innerHTML = '<div class="empty-state text-muted">Building annual investment recap...</div>';
+
+        try {
+            const recap = await API.getAnnualRecap(year);
+            if (container) {
+                container.innerHTML = `
+                    <div class="grid grid-3" style="gap:1rem;margin-bottom:1.5rem;">
+                        <div class="card stat-card" style="background:linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.02));border:1px solid #10b981;">
+                            <div class="stat-label">Annual Value Gain</div>
+                            <div class="stat-val text-success">${formatCurrency(recap.portfolio.valueChange)}</div>
+                            <div class="stat-sub">+${recap.portfolio.valueChangePct}% across ${recap.year}</div>
+                        </div>
+                        <div class="card stat-card" style="background:linear-gradient(135deg, rgba(99,102,241,0.1), rgba(99,102,241,0.02));border:1px solid #6366f1;">
+                            <div class="stat-label">Passive Income Collected</div>
+                            <div class="stat-val text-primary">${formatCurrency(recap.dividends.totalReceived)}</div>
+                            <div class="stat-sub">${recap.dividends.payoutCount} payout events</div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="stat-label">Income Rate</div>
+                            <div class="stat-val">${formatCurrency(recap.dividends.perDay)} / day</div>
+                            <div class="stat-sub">${formatCurrency(recap.dividends.perHour)} every hour</div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-2" style="gap:1.5rem;">
+                        <div class="card">
+                            <div class="card-header"><h3>Milestones &amp; Fun Facts</h3></div>
+                            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.75rem;">
+                                <div style="display:flex;align-items:center;gap:0.75rem;">
+                                    <div style="font-size:1.75rem;">🍜</div>
+                                    <div><strong>Ramen Index:</strong> Your passive dividends can buy <strong>${recap.dividends.funFacts.ramenPacksPerWeek} packs of ramen</strong> per week!</div>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.75rem;">
+                                    <div style="font-size:1.75rem;">🪙</div>
+                                    <div><strong>Gold Equivalence:</strong> Equal to the value of <strong>${recap.dividends.funFacts.goldOuncesEquivalent} ounces of gold</strong>!</div>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.75rem;">
+                                    <div style="font-size:1.75rem;">👑</div>
+                                    <div><strong>All-Star Dividend Payer:</strong> ${sanitize(recap.dividends.topPayerSymbol)} paid ${formatCurrency(recap.dividends.topPayerAmount)} (${recap.dividends.topPayerPercentOfTotal}% of total income).</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header"><h3>Drawdown &amp; Resilience</h3></div>
+                            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.75rem;">
+                                <div><strong>Peak Valuation:</strong> ${formatCurrency(recap.portfolio.highestValue)} on ${recap.portfolio.highestValueDate}</div>
+                                <div><strong>Toughest Dip:</strong> Slid -${recap.portfolio.drawdown.drawdownPct}% between ${recap.portfolio.drawdown.peakDate} and ${recap.portfolio.drawdown.troughDate}.</div>
+                                <div class="text-success" style="font-weight:600;">${recap.portfolio.drawdown.recovered ? '🎉 Fully bounced back and recovered!' : 'Rebound in progress!'}</div>
+                                <div style="border-top:1px solid var(--border);padding-top:0.5rem;font-size:0.85rem;color:var(--text-muted);">
+                                    Projected Passive Income for ${recap.year + 1}: <strong class="text-success">${formatCurrency(recap.dividends.nextYearEstimatedIncome)}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        } catch (err) {
+            if (container) container.innerHTML = `<div class="empty-state text-danger">Error: ${sanitize(err.message)}</div>`;
+        }
+    },
+
+    // ── Corporate Actions Manager ──
+    async loadCorporateActions() {
+        const tbody = document.getElementById('corporateActionsTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state text-muted">Loading corporate actions...</td></tr>';
+
+        try {
+            const list = await API.getCorporateActions();
+            if (tbody) {
+                if (!list || list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="empty-state text-muted">No corporate actions recorded. Click "+ Add Corporate Action" to add a split or merger.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(a => `
+                    <tr>
+                        <td><strong>${sanitize(a.symbol)}</strong></td>
+                        <td><span class="status-badge">${sanitize(a.eventType)}</span></td>
+                        <td>${a.ratio}x</td>
+                        <td>${a.date}</td>
+                        <td>${sanitize(a.spinoffSymbol || '-')}</td>
+                        <td>${sanitize(a.notes || '-')}</td>
+                        <td><button class="btn btn-outline btn-xs" onclick="App.deleteCorporateAction(${a.id})" style="color:var(--danger);">&times; Delete</button></td>
+                    </tr>
+                `).join('');
+            }
+        } catch (err) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Error: ${sanitize(err.message)}</td></tr>`;
+        }
+    },
+
+    openAddCorporateActionModal() {
+        document.getElementById('corporateActionModal')?.classList.add('active');
+    },
+
+    closeAddCorporateActionModal() {
+        document.getElementById('corporateActionModal')?.classList.remove('active');
+    },
+
+    async handleCorporateActionSubmit(e) {
+        e.preventDefault();
+        const symbol = document.getElementById('caSymbol')?.value.trim().toUpperCase();
+        const eventType = document.getElementById('caEventType')?.value;
+        const ratio = parseFloat(document.getElementById('caRatio')?.value || '1');
+        const date = document.getElementById('caDate')?.value;
+        const spinoffSymbol = document.getElementById('caSpinoffSymbol')?.value.trim().toUpperCase() || null;
+        const notes = document.getElementById('caNotes')?.value || null;
+
+        try {
+            await API.createCorporateAction({ symbol, eventType, ratio, date, spinoffSymbol, notes });
+            UI.showToast(`Corporate action for ${symbol} recorded!`);
+            this.closeAddCorporateActionModal();
+            this.loadCorporateActions();
+        } catch (err) {
+            UI.showToast(`Failed to create corporate action: ${err.message}`, 'error');
+        }
+    },
+
+    async deleteCorporateAction(id) {
+        if (!confirm('Are you sure you want to delete this corporate action?')) return;
+        try {
+            await API.deleteCorporateAction(id);
+            UI.showToast('Corporate action removed');
+            this.loadCorporateActions();
+        } catch (err) {
+            UI.showToast(`Failed: ${err.message}`, 'error');
+        }
+    },
+
+    // ── Cash Accounting Ledger ──
+    async loadCashLedger() {
+        const summaryRow = document.getElementById('cashBalancesSummaryRow');
+        const tbody = document.getElementById('cashTransactionsTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state text-muted">Loading cash operations...</td></tr>';
+
+        try {
+            const [summary, txs] = await Promise.all([
+                API.getCashSummary(),
+                API.getCashTransactions()
+            ]);
+
+            if (summaryRow && summary) {
+                const balances = Object.entries(summary.balancesByCurrency).map(([c, amt]) => `
+                    <div class="card stat-card"><div class="stat-label">${c} Cash Balance</div><div class="stat-val">${formatCurrency(amt, c)}</div></div>
+                `).join('');
+                summaryRow.innerHTML = `
+                    <div class="card stat-card" style="border:1px solid var(--primary);"><div class="stat-label">Total Cash (Base CAD)</div><div class="stat-val text-primary">${formatCurrency(summary.totalCashInBase, summary.baseCurrency)}</div></div>
+                    ${balances}
+                    <div class="card stat-card"><div class="stat-label">Net Inflows</div><div class="stat-val text-success">+${formatCurrency(summary.netInflow, summary.baseCurrency)}</div></div>
+                `;
+            }
+
+            if (tbody) {
+                if (!txs || txs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" class="empty-state text-muted">No cash movements recorded. Click "+ Record Cash Movement" to add deposits or FX trades.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = txs.map(t => `
+                    <tr>
+                        <td>${t.date}</td>
+                        <td><span class="status-badge">${sanitize(t.type)}</span></td>
+                        <td style="text-align:right;font-weight:600;" class="${t.type === 'deposit' || t.type === 'interest' ? 'text-success' : ''}">${formatCurrency(t.amount, t.currency)}</td>
+                        <td>${t.currency}</td>
+                        <td>${t.targetAmount ? formatCurrency(t.targetAmount, t.targetCurrency) : '-'}</td>
+                        <td class="text-muted text-sm">${sanitize(t.note || '-')}</td>
+                        <td><button class="btn btn-outline btn-xs" onclick="App.deleteCashTransaction(${t.id})" style="color:var(--danger);">&times; Delete</button></td>
+                    </tr>
+                `).join('');
+            }
+        } catch (err) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state text-danger">Error: ${sanitize(err.message)}</td></tr>`;
+        }
+    },
+
+    openAddCashTransactionModal() {
+        document.getElementById('cashTransactionModal')?.classList.add('active');
+        document.getElementById('cashDate').value = new Date().toISOString().slice(0, 10);
+    },
+
+    closeAddCashTransactionModal() {
+        document.getElementById('cashTransactionModal')?.classList.remove('active');
+    },
+
+    handleCashTypeChange() {
+        const type = document.getElementById('cashOpType')?.value;
+        const fxEl = document.getElementById('fxFieldsContainer');
+        if (fxEl) fxEl.style.display = type === 'fx_convert' ? 'block' : 'none';
+    },
+
+    async handleCashTransactionSubmit(e) {
+        e.preventDefault();
+        const type = document.getElementById('cashOpType')?.value;
+        const amount = parseFloat(document.getElementById('cashAmount')?.value || '0');
+        const currency = document.getElementById('cashCurrency')?.value;
+        const targetAmount = parseFloat(document.getElementById('cashTargetAmount')?.value || '0') || null;
+        const targetCurrency = document.getElementById('cashTargetCurrency')?.value || null;
+        const date = document.getElementById('cashDate')?.value;
+        const note = document.getElementById('cashNote')?.value || null;
+
+        try {
+            await API.createCashTransaction({ type, amount, currency, targetAmount, targetCurrency, date, note });
+            UI.showToast('Cash operation recorded successfully!');
+            this.closeAddCashTransactionModal();
+            this.loadCashLedger();
+        } catch (err) {
+            UI.showToast(`Failed: ${err.message}`, 'error');
+        }
+    },
+
+    async deleteCashTransaction(id) {
+        if (!confirm('Are you sure you want to delete this cash operation?')) return;
+        try {
+            await API.deleteCashTransaction(id);
+            UI.showToast('Cash operation deleted');
+            this.loadCashLedger();
+        } catch (err) {
+            UI.showToast(`Failed: ${err.message}`, 'error');
+        }
+    },
+
+    // ── Bonds Screener ──
+    async loadBondsScreener() {
+        const search = document.getElementById('bondsSearchInput')?.value || '';
+        const issuerType = document.getElementById('bondsIssuerSelect')?.value || 'all';
+        const couponType = document.getElementById('bondsCouponSelect')?.value || 'all';
+        const tbody = document.getElementById('bondsTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="empty-state text-muted">Screening fixed income issues...</td></tr>';
+
+        try {
+            const list = await API.getBondsScreener({ search, issuerType, couponType });
+            if (tbody) {
+                if (!list || list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="empty-state text-muted">No bonds match filter criteria.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(b => `
+                    <tr>
+                        <td><strong>${sanitize(b.name)}</strong></td>
+                        <td>${sanitize(b.ticker)} <span class="text-sm text-muted">(${b.isin})</span></td>
+                        <td>${sanitize(b.issuer)}</td>
+                        <td><span class="badge-neutral">${b.issuerType}</span></td>
+                        <td style="text-align:right;">${b.currentYieldPct}%</td>
+                        <td style="text-align:right;font-weight:600;color:var(--primary);">${b.yieldToMaturityPct}%</td>
+                        <td style="text-align:right;">${b.durationYears}y</td>
+                        <td>${b.maturityDate}</td>
+                        <td><span class="status-badge">${b.rating}</span></td>
+                    </tr>
+                `).join('');
+            }
+        } catch (err) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-state text-danger">Error: ${sanitize(err.message)}</td></tr>`;
+        }
+    },
+
+    // ── Congress Capitol Hill Trading ──
+    async loadCongressTrading() {
+        const onlyMatches = document.getElementById('congressOnlyMatches')?.checked;
+        const chamber = document.getElementById('congressChamberSelect')?.value || 'all';
+        const tbody = document.getElementById('congressTradingTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="empty-state text-muted">Loading STOCK Act filings...</td></tr>';
+
+        try {
+            const list = await API.getCongressTrading({ onlyMatches, chamber });
+            if (tbody) {
+                if (!list || list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="empty-state text-muted">No recent disclosures found for filter.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(t => {
+                    const partyBadge = t.party === 'Democrat' ? 'badge-info' : 'badge-danger';
+                    return `
+                        <tr>
+                            <td>${t.transactionDate}</td>
+                            <td><strong>${sanitize(t.politician)}</strong> <span class="text-sm text-muted">(${t.state})</span></td>
+                            <td>${t.chamber}</td>
+                            <td><span class="status-badge ${partyBadge}">${t.party}</span></td>
+                            <td><strong>${sanitize(t.ticker)}</strong></td>
+                            <td class="${t.transactionType === 'Purchase' ? 'text-success' : 'text-danger'}">${t.transactionType}</td>
+                            <td>${sanitize(t.amountRange)}</td>
+                            <td>
+                                ${t.isPortfolioMatch ? '<span class="status-badge status-active">In Portfolio</span>' : ''}
+                                ${t.isWatchlistMatch ? '<span class="status-badge" style="background:#fef3c7;color:#92400e;">Watchlist</span>' : ''}
+                                ${!t.isPortfolioMatch && !t.isWatchlistMatch ? '<span class="text-muted text-sm">-</span>' : ''}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        } catch (err) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state text-danger">Error: ${sanitize(err.message)}</td></tr>`;
+        }
+    },
+
+};

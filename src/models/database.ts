@@ -11,6 +11,7 @@ logger.info('DB', `Opening database at: ${dbPath}`);
 export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+db.pragma('busy_timeout = 10000');
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -500,6 +501,10 @@ for (const m of migrations) {
     markApplied.run(m.name);
     logger.info('Migration', `Applied: ${m.name}`);
   } catch (e: any) {
+    if (checkApplied.get(m.name)) {
+      logger.info('Migration', `Already applied by concurrent runner: ${m.name}`);
+      continue;
+    }
     // Tolerate "duplicate column" in case the DB was partially migrated before
     // schema_migrations existed (first boot after this upgrade).
     if (/duplicate column name/i.test(e.message ?? '')) {
